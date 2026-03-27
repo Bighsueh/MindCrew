@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import json
+import logging
+import time
+from dataclasses import dataclass, field
+
+from app.agents.prompts.assembler import PromptAssembler
+from app.chinese.converter import chinese_converter
+from app.config import settings
+from app.llm.factory import LLMProviderFactory
+
+logger = logging.getLogger(__name__)
+
+_VALID_ACTION_TYPES = {
+    "chat_message",
+    "add_note",
+    "move_note",
+    "edit_note",
+    "delete_note",
+    "group_notes",
+    "no_action",
+}
+
+# Text fields that must be converted to Traditional Chinese
+_TEXT_FIELDS = {"content", "new_content", "group_name", "reason"}
+
+
+@dataclass
+class ThinkResult:
+    reasoning: str
+    actions: list[dict]
+    raw_response: str
+    prompt_text: str
+    model: str
+    tokens_in: int
+    tokens_out: int
+    latency_ms: int
+    parse_failed: bool = False
+
+
+def _apply_chinese_conversion(action: dict) -> dict:
+    """Return a copy of the action with all text fields converted to Traditional Chinese."""
+    converted = dict(action)
+    for key in _TEXT_FIELDS:
+        if key in converted and isinstance(converted[key], str):
+            converted[key] = chinese_converter.convert(converted[key])
+    return converted
+
+
+def _parse_llm_response(raw: str) -> tuple[str, list[dict], bool]:
+    """Parse the LLM JSON response.
+
+    Returns (reasoning, actions, parse_failed).
+    On any failure, returns a no_action fallback.
+    """
+    raw = raw.strip()
+    # Strip markdown code fences if present
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        inner = [l for l in lines if not l.startswith("```")]
+        raw = "\n".join(inner).strip()
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        logger.warning("LLM response JSON parse failed: %s | raw=%r", exc, raw[:200])
+        return "", [{"type": "no_action", "reason": "JSON 解析失敗"}], True
+
+    reasoning = data.get("reasoning", "")
+    actions_raw: list[dict] = data.get("actions", [])
+
+    if not isinstance(actions_raw, list):
+        return reasoning, [{"type": "no_action", "reason": "actions 欄位格式錯誤"}], True
+
+    validated: list[dict] = []
+    for act in actions_raw:
+        if not isinstance(act, dict):
+            continue
+        action_type = act.get("type", "")
+        if action_type not in _VALID_ACTION_TYPES:
+            logger.warning("Unknown action type skipped: %r", action_type)
+            continue
+        validated.append(act)
+
+    if not validated:
+        validated = [{"type": "no_action", "reason": "沒有有效的 action"}]
+
+    action_types = [a.get("type") for a in validated]
+    logger.info("Parsed LLM actions: %s", action_types)
+
+    return reasoning, validated, False
+
+
+class ThinkEngine:
+    """Generate actions by calling the LLM with a 4-layer assembled prompt."""
+
+    def __init__(self) -> None:
+        self._assembler = PromptAssembler()
+        self._llm_service = LLMProviderFactory.get_service()
+
+    async def generate_actions(self, context: dict) -> ThinkResult:
+        """Call the LLM and parse the response into structured actions.
+
+        All text content fields are post-processed through OpenCC.
+        On JSON parse failure, falls back to no_action.
+        """
+        messages = self._assembler.assemble(context)
+        prompt_text = json.dumps(messages, ensure_ascii=False)
+
+        start_ms = int(time.time() * 1000)
+        try:
+            response = await self._llm_service.chat_completion(
+                messages=messages,
+                temperature=0.7,
+                max_tokens=settings.LLM_MAX_TOKENS_PER_CALL,
+            )
+        except Exception as exc:
+            logger.error("LLM call failed in ThinkEngine: %s", exc)
+            end_ms = int(time.time() * 1000)
+            return ThinkResult(
+                reasoning="LLM 呼叫失敗",
+                actions=[{"type": "no_action", "reason": f"LLM 錯誤：{exc}"}],
+                raw_response="",
+                prompt_text=prompt_text,
+                model=settings.VLLM_MODEL_NAME,
+                tokens_in=0,
+                tokens_out=0,
+                latency_ms=end_ms - start_ms,
+                parse_failed=True,
+            )
+
+        end_ms = int(time.time() * 1000)
+        latency_ms = end_ms - start_ms
+
+        raw_content = response.content
+        reasoning, actions, parse_failed = _parse_llm_response(raw_content)
+
+        # Apply Traditional Chinese conversion to all text fields
+        actions = [_apply_chinese_conversion(a) for a in actions]
+        if reasoning:
+            reasoning = chinese_converter.convert(reasoning)
+
+        return ThinkResult(
+            reasoning=reasoning,
+            actions=actions,
+            raw_response=raw_content,
+            prompt_text=prompt_text,
+            model=response.model,
+            tokens_in=response.usage.prompt_tokens,
+            tokens_out=response.usage.completion_tokens,
+            latency_ms=latency_ms,
+            parse_failed=parse_failed,
+        )
