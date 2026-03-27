@@ -1,0 +1,57 @@
+# Environment
+.env
+
+# Specs & diagrams (PRD phase, not in version control)
+specs/
+diagrams/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Alembic
+alembic/versions/__pycache__/
+
+# Claude Code
+.claude/
+
+# MCP / Playwright MCP
+.playwright-mcp/
+.mcp.json
+
+# Runtime logs & artifacts
+console-errors.txt
+ws-warnings.txt
+*.png
+
+# E2E test output
+e2e/screenshots/
+e2e/test-report.json
+e2e/node_modules/
+
+# Sidecar build output
+sidecar/dist/
+
+# Backend virtual env (explicit)
+backend/.venv/

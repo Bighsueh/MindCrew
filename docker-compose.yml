@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dtai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dtai}
+      POSTGRES_DB: ${POSTGRES_DB:-dtai}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - mindcrew
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dtai} -d ${POSTGRES_DB:-dtai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redisdata:/data
+    networks:
+      - mindcrew
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dtai}:${POSTGRES_PASSWORD:-dtai}@postgres:5432/${POSTGRES_DB:-dtai}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      LLM_PROVIDER: ${LLM_PROVIDER:-vllm}
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-https://vllm.example.com/v1}
+      VLLM_MODEL_NAME: ${VLLM_MODEL_NAME:-openai/gpt-oss-20b}
+      VLLM_API_KEY: ${VLLM_API_KEY:-dummy}
+      LLM_MAX_TOKENS_PER_CALL: ${LLM_MAX_TOKENS_PER_CALL:-2048}
+      LLM_PROJECT_RPM_LIMIT: ${LLM_PROJECT_RPM_LIMIT:-30}
+      LLM_GLOBAL_RPM_LIMIT: ${LLM_GLOBAL_RPM_LIMIT:-300}
+      LLM_CALL_TIMEOUT_SECONDS: ${LLM_CALL_TIMEOUT_SECONDS:-30}
+      APP_ENV: production
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      SIDECAR_URL: http://sidecar:4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sidecar:
+        condition: service_started
+    networks:
+      - mindcrew
+    restart: unless-stopped
+
+  sidecar:
+    build:
+      context: ./sidecar
+      dockerfile: Dockerfile
+    environment:
+      SIDECAR_PORT: "4000"
+    networks:
+      - mindcrew
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+      - sidecar
+    networks:
+      - mindcrew
+    restart: unless-stopped
+
+networks:
+  mindcrew:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
