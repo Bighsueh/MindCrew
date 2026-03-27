@@ -21,6 +21,7 @@ from app.bridge.canvas_ops import canvas_ops
 from app.config import settings
 from app.db.models.user import User
 from app.db.session import async_session_factory
+from app.ws.presence_tracker import presence_tracker
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -138,6 +139,7 @@ async def canvas_websocket(ws: WebSocket, project_id: UUID) -> None:
     # 2. Accept
     await ws.accept()
     canvas_manager.connect(project_id, ws)
+    presence_tracker.on_human_connect(project_id)
     logger.info("WS canvas connected user=%s project=%s", user.id, project_id)
 
     # 3. Send current state immediately
@@ -210,3 +212,4 @@ async def canvas_websocket(ws: WebSocket, project_id: UUID) -> None:
         heartbeat_task.cancel()
         forwarder_task.cancel()
         canvas_manager.disconnect(project_id, ws)
+        presence_tracker.on_human_disconnect(project_id)

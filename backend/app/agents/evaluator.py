@@ -105,6 +105,8 @@ class StageEvaluator:
         canvas_state: dict = context.get("canvas_state", {})
         recent_chat: list[dict] = context.get("recent_chat", [])
         seats: list[dict] = context.get("seats", [])
+        project_name: str = context.get("project_name", "")
+        project_description: str = context.get("project_description", "")
 
         quant_score = self._compute_quantitative(stage, canvas_state, recent_chat, seats)
 
@@ -121,13 +123,23 @@ class StageEvaluator:
         summary = ""
         blind_spot_score: float | None = None
 
-        if quant_score * quant_weight >= self._threshold * 0.8:
-            qual_result = await self._run_qualitative(stage, canvas_state, recent_chat, llm_service)
+        # Pre-screening: skip qualitative if quantitative alone can't plausibly reach threshold.
+        # Use raw quant_score (not weighted) to avoid the gate being unreachable at low weights.
+        pre_screen_pass = quant_score >= self._threshold * 0.5
+        if pre_screen_pass:
+            qual_result = await self._run_qualitative(
+                stage, canvas_state, recent_chat, llm_service,
+                project_name=project_name, project_description=project_description,
+            )
             if qual_result:
                 qual_score = qual_result.get("overall_score", 0.0)
                 weak_areas = qual_result.get("weak_areas", [])
                 summary = qual_result.get("summary", "")
                 blind_spot_score = qual_result.get("blind_spot_score")
+                # Fail-safe: if LLM omits blind_spot_score, treat as 0 (fail closed)
+                if stage == "discover" and blind_spot_score is None:
+                    logger.warning("LLM response missing blind_spot_score; treating as 0")
+                    blind_spot_score = 0.0
         else:
             logger.debug(
                 "Pre-screening skipped qualitative (quant=%.1f, threshold=%.1f)",
@@ -182,7 +194,7 @@ class StageEvaluator:
                 if stage == "discover":
                     self._blind_spot_challenge_sent = False
                 if has_humans:
-                    action_taken = await self._propose_advance(stage, total, context)
+                    action_taken = await self._propose_advance(stage, total)
                 else:
                     action_taken = await self._advance_stage(stage)
 
@@ -231,6 +243,9 @@ class StageEvaluator:
         canvas: dict,
         chat: list[dict],
         llm_service: Any,
+        *,
+        project_name: str = "",
+        project_description: str = "",
     ) -> dict | None:
         stage_names = {
             "discover": "Discover（發現）",
@@ -246,7 +261,15 @@ class StageEvaluator:
             for m in chat[-20:]
         )
 
+        project_info = ""
+        if project_name:
+            project_info = f"專案名稱：{project_name}\n"
+            if project_description:
+                project_info += f"專案說明：{project_description}\n"
+            project_info += "\n"
+
         prompt = (
+            f"{project_info}"
             f"請分析以下 Design Thinking {stage_display} 階段的團隊產出：\n\n"
             f"白板內容：{canvas_summary}\n"
             f"聊天紀錄摘要：{chat_summary}\n\n"
@@ -284,7 +307,7 @@ class StageEvaluator:
     # Stage advancement
     # ------------------------------------------------------------------
 
-    async def _propose_advance(self, stage: str, total_score: float, context: dict) -> str:
+    async def _propose_advance(self, stage: str, total_score: float) -> str:
         """Propose stage advancement to humans via chat. Wait up to 60s for response."""
         stage_names = {"discover": "發現", "define": "定義", "develop": "發展", "deliver": "交付"}
         current_name = stage_names.get(stage, stage)
@@ -308,6 +331,8 @@ class StageEvaluator:
         except asyncio.TimeoutError:
             logger.info("Stage advance proposal timed out — asking again")
             return "proposal_timeout"
+        finally:
+            self._proposal_pending = False
 
         if self._proposal_agreed:
             return await self._advance_stage(stage)
@@ -385,6 +410,8 @@ class StageEvaluator:
             return f"advanced_to_{next_stage}"
         except Exception as exc:
             logger.error("Failed to advance stage: %s", exc)
+            self._consecutive_pass_count = 0
+            self._blind_spot_challenge_sent = False
             return "advance_failed"
 
     @staticmethod

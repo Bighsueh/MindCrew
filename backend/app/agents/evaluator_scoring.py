@@ -5,6 +5,7 @@ Extracted from evaluator.py to keep each file under 500 lines.
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 
 
 def participant_coverage(canvas: dict, seats: list[dict]) -> float:
@@ -46,7 +47,11 @@ def _compute_slowdown_score(
             continue
         # Support both float timestamps and ISO strings
         if isinstance(created, str):
-            continue  # Skip non-numeric; conservative
+            try:
+                dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                created = dt.timestamp()
+            except ValueError:
+                continue
         age = now - created
         if age <= window_seconds:
             recent_count += 1

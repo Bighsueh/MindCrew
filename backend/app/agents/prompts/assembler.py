@@ -8,7 +8,7 @@ from app.agents.prompts.discover_subphase import (
     DISCOVER_SUPERVISOR_SUBPHASE_PROMPTS,
     determine_discover_subphase,
 )
-from app.agents.prompts.roles import CREW_ROLE_PROMPT, SUPERVISOR_ROLE_PROMPT
+from app.agents.prompts.roles import SUPERVISOR_ROLE_PROMPT, get_crew_prompt
 from app.agents.prompts.stages import STAGE_PROMPTS
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,8 @@ _RESPONSE_FORMAT_INSTRUCTION = """\
 重要規則：
 - 每次回應必須包含至少一個 chat_message
 - chat_message 必須回應最近聊天中某人的發言（引用對方的觀點）
+- 如果最近聊天中有人問你問題，你的 chat_message 必須直接回答那個問題
+- 如果你想開啟新話題，先用一句話總結目前的討論再轉向
 - 不要每次都貼便條紙！只在你有新的、白板上還沒有的想法時才 add_note
 - 貼之前先看白板上已有的便條紙，避免重複
 - 如果 Supervisor/主持人要求停止貼便條紙或整理白板，你必須服從，只回 chat_message
@@ -47,6 +49,15 @@ def _is_all_ai(context: dict) -> bool:
 def _build_context_description(context: dict) -> str:
     """Serialise the context buffer dict into a natural language description."""
     parts: list[str] = []
+
+    # Project background — the most important context for agents
+    project_name = context.get("project_name", "")
+    project_desc = context.get("project_description", "")
+    if project_name:
+        bg = f"【專案背景】專案名稱：{project_name}"
+        if project_desc:
+            bg += f"\n專案說明：{project_desc}"
+        parts.append(bg)
 
     stage = context.get("current_stage", "unknown")
     duration = context.get("stage_duration_minutes", 0)
@@ -95,8 +106,8 @@ def _build_context_description(context: dict) -> str:
     # Chat — mark supervisor messages with ⭐ and human messages with 👤
     recent_chat: list[dict] = context.get("recent_chat", [])
     if recent_chat:
-        # Only show last 8 to save tokens
-        recent_msgs = recent_chat[-8:]
+        # Show last 16 messages for better conversational continuity
+        recent_msgs = recent_chat[-16:]
         chat_lines = []
         for m in recent_msgs:
             sender = m.get("sender", "?")
@@ -114,6 +125,29 @@ def _build_context_description(context: dict) -> str:
         )
     else:
         parts.append("【最近聊天】目前沒有聊天記錄。")
+
+    # Conversation thread context (if available)
+    active_thread = context.get("active_thread")
+    if active_thread:
+        thread_topic = active_thread.get("topic_summary", "未知")
+        thread_turns = active_thread.get("turn_count", 0)
+        thread_participants = "、".join(active_thread.get("participants", []))
+        addressed = active_thread.get("addressed_to")
+        thread_desc = f"目前討論串：「{thread_topic}」（已 {thread_turns} 輪，參與者：{thread_participants}）"
+        if addressed:
+            thread_desc += f"\n  → {addressed} 被問了一個問題，應該回應。"
+        parts.append(f"【對話脈絡】\n  {thread_desc}")
+
+    # Conversation health (Supervisor only, if available)
+    health = context.get("conversation_health")
+    if health:
+        health_lines = []
+        for issue in health.get("issues", []):
+            health_lines.append(f"  ⚠️ {issue}")
+        if health.get("suggestion"):
+            health_lines.append(f"  💡 建議：{health['suggestion']}")
+        if health_lines:
+            parts.append("【對話健康】\n" + "\n".join(health_lines))
 
     seats: list[dict] = context.get("seats", [])
     if seats:
@@ -159,10 +193,12 @@ class PromptAssembler:
         # Layer 1 — base persona
         system_parts = [BASE_PERSONA_PROMPT]
 
-        # Layer 2 — role
-        system_parts.append(
-            SUPERVISOR_ROLE_PROMPT if is_supervisor else CREW_ROLE_PROMPT
-        )
+        # Layer 2 — role (Crew gets personality based on seat index)
+        if is_supervisor:
+            system_parts.append(SUPERVISOR_ROLE_PROMPT)
+        else:
+            seat_index = context.get("seat_index", 0)
+            system_parts.append(get_crew_prompt(seat_index))
 
         # Layer 3 — stage strategy (Supervisor gets sub-phase prompts in Discover)
         if stage == "discover" and is_supervisor:

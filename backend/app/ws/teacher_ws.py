@@ -8,9 +8,11 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 
 from app.auth.jwt import decode_token
+from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.session import async_session_factory
 from app.events.bus import event_bus
+from app.ws.presence_tracker import presence_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,17 @@ async def teacher_websocket(ws: WebSocket, user_id: UUID) -> None:
     await ws.accept()
     logger.info("WS teacher connected user=%s", user_id)
 
+    # Register teacher presence for all their projects
+    teacher_project_ids: list[UUID] = []
+    async with async_session_factory() as session:
+        rows = await session.execute(
+            select(Project.id).where(Project.creator_id == user_id)
+        )
+        teacher_project_ids = [row[0] for row in rows.all()]
+
+    for pid in teacher_project_ids:
+        presence_tracker.on_human_connect(pid)
+
     heartbeat_task = asyncio.create_task(_heartbeat(ws))
 
     try:
@@ -84,4 +97,6 @@ async def teacher_websocket(ws: WebSocket, user_id: UUID) -> None:
         logger.exception("WS teacher error user=%s: %s", user_id, exc)
     finally:
         heartbeat_task.cancel()
+        for pid in teacher_project_ids:
+            presence_tracker.on_human_disconnect(pid)
         logger.info("WS teacher cleaned up user=%s", user_id)
