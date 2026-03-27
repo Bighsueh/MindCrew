@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useProjectStore } from '../../stores/projectStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useSeatStore } from '../../stores/seatStore'
@@ -7,22 +7,17 @@ import { useStageStore } from '../../stores/stageStore'
 import { useAuthStore } from '../../stores/authStore'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { advanceStage, leaveProject } from '../../services/projectService'
-import { DTProgressBar } from '../../components/dt-progress/DTProgressBar'
+import { DoubleDiamondProgress } from '../../components/progress/DoubleDiamondProgress'
+import { ConnectionBanner } from '../../components/workspace/ConnectionBanner'
+import { SeatBar } from '../../components/workspace/SeatBar'
 import { ChatPanel } from '../../components/chat/ChatPanel'
 import { CanvasPanel } from '../../components/canvas/CanvasPanel'
 import { Button } from '../../components/common/Button'
 import { Modal } from '../../components/common/Modal'
 import { Loading } from '../../components/common/Loading'
+import { cn } from '../../lib/utils'
 import type { WSMessage, WSChatMessagePayload, WSTypingPayload, WSStageChangedPayload, WSSeatChangedPayload } from '../../types/ws'
-import type { Message, DTStage, SeatRole } from '../../types/models'
-
-const SEAT_ROLE_LABELS: Record<SeatRole, string> = {
-  supervisor: '指導者',
-  crew_1: '成員 1',
-  crew_2: '成員 2',
-  crew_3: '成員 3',
-  crew_4: '成員 4',
-}
+import type { Message, DTStage } from '../../types/models'
 
 const NEXT_STAGE: Partial<Record<DTStage, DTStage>> = {
   discover: 'define',
@@ -138,7 +133,6 @@ export function WorkspacePage() {
     }
   }
 
-  // Redirect to lobby if user is not creator and has no seat
   const hasAccess = currentProject && user && (
     currentProject.creator_id === user.id ||
     currentProject.seats?.some(s => s.user_id === user.id)
@@ -158,66 +152,51 @@ export function WorkspacePage() {
     return <Loading fullScreen text="正在跳轉至大廳…" />
   }
 
+  const showBanner = wsStatus === 'disconnected' || wsStatus === 'failed' || wsError
+
   return (
-    <div className="flex h-screen flex-col bg-gray-100 overflow-hidden">
+    <div className="flex h-screen flex-col bg-bg overflow-hidden">
       {/* WS disconnect banner */}
-      {(wsStatus === 'disconnected' || wsStatus === 'failed' || wsError) && (
-        <div
-          className={[
-            'z-50 px-4 py-2 text-center text-sm font-medium text-white',
-            wsStatus === 'failed' ? 'bg-red-600' : 'bg-yellow-500',
-          ].join(' ')}
-        >
-          {wsStatus === 'failed'
-            ? '⚠️ 無法連線，請檢查網路後重新整理頁面。'
-            : '🔄 連線中斷，嘗試重新連線…'}
-        </div>
+      {showBanner && (
+        <ConnectionBanner status={wsStatus === 'failed' ? 'failed' : 'disconnected'} />
       )}
 
       {/* DT Progress bar */}
-      <header className="flex-shrink-0 border-b border-gray-200 bg-white px-4 py-2">
+      <header className="flex-shrink-0 border-b border-border bg-surface px-4 py-2">
         <div className="flex items-center gap-4">
-          <Link to="/projects" className="text-sm text-gray-500 hover:text-gray-700 whitespace-nowrap">
-            ← 離開
-          </Link>
-          <div className="flex-1 min-w-0">
-            <DTProgressBar currentStage={currentStage} />
+          <span className="text-sm text-text-muted whitespace-nowrap">{currentProject.name}</span>
+          <div className="flex-1 min-w-0 flex justify-center">
+            <DoubleDiamondProgress currentStage={currentStage} />
           </div>
-          <span className="hidden lg:block text-sm font-medium text-gray-700 whitespace-nowrap truncate max-w-40">
-            {currentProject.name}
-          </span>
         </div>
       </header>
 
       {/* Main content area */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Canvas + Chat layout */}
-
         {/* Mobile: tabs */}
         <div className="flex lg:hidden flex-col flex-1 overflow-hidden">
-          {/* Tab bar */}
-          <div className="flex border-b border-gray-200 bg-white">
+          <div className="flex border-b border-border bg-surface">
             <button
-              className={[
+              className={cn(
                 'flex-1 py-2 text-sm font-medium border-b-2 transition-colors',
                 activeTab === 'canvas'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500',
-              ].join(' ')}
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-text-muted',
+              )}
               onClick={() => setActiveTab('canvas')}
             >
-              📋 白板
+              白板
             </button>
             <button
-              className={[
+              className={cn(
                 'flex-1 py-2 text-sm font-medium border-b-2 transition-colors',
                 activeTab === 'chat'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500',
-              ].join(' ')}
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-text-muted',
+              )}
               onClick={() => setActiveTab('chat')}
             >
-              💬 聊天室
+              聊天室
             </button>
           </div>
           <div className="flex-1 overflow-hidden">
@@ -231,35 +210,19 @@ export function WorkspacePage() {
 
         {/* Desktop: side-by-side */}
         <div className="hidden lg:flex flex-1 overflow-hidden gap-0">
-          {/* Canvas: 60% */}
           <div className="w-3/5 p-3">
             <CanvasPanel projectId={id!} />
           </div>
-          {/* Chat: 40% */}
-          <div className="w-2/5 border-l border-gray-200 bg-white overflow-hidden">
+          <div className="w-2/5 border-l border-border bg-surface overflow-hidden">
             <ChatPanel projectId={id!} sendWS={sendWS} />
           </div>
         </div>
       </div>
 
       {/* Seat status bar */}
-      <footer className="flex-shrink-0 border-t border-gray-200 bg-white px-4 py-2">
+      <footer className="flex-shrink-0 border-t border-border bg-surface px-4 py-2">
         <div className="flex items-center gap-2 overflow-x-auto">
-          {seats.map((seat) => (
-            <div
-              key={seat.id}
-              className={[
-                'flex flex-shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium',
-                seat.occupant_type === 'human'
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'bg-gray-100 text-gray-500',
-                seat.user_id === user?.id ? 'ring-2 ring-blue-500' : '',
-              ].join(' ')}
-            >
-              <span>{seat.occupant_type === 'human' ? '👤' : '🤖'}</span>
-              <span>{seat.display_name ?? (seat.occupant_type === 'human' ? '人類' : `AI ${SEAT_ROLE_LABELS[seat.seat_role]}`)}</span>
-            </div>
-          ))}
+          <SeatBar seats={seats} currentUserId={user?.id} />
 
           <div className="ml-auto flex items-center gap-2">
             {isSupervisor && nextStage && (
@@ -267,7 +230,7 @@ export function WorkspacePage() {
                 size="sm"
                 onClick={() => setShowAdvanceModal(true)}
               >
-                推進到 {nextStage} ▶
+                推進到 {nextStage}
               </Button>
             )}
             <Button variant="ghost" size="sm" onClick={handleLeave}>
@@ -284,9 +247,9 @@ export function WorkspacePage() {
         title="推進階段確認"
       >
         <div className="flex flex-col gap-4">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-text-muted">
             確定要將專案推進到{' '}
-            <span className="font-semibold text-blue-600">{nextStage}</span>{' '}
+            <span className="font-semibold text-primary">{nextStage}</span>{' '}
             階段嗎？前一階段的白板產出會自動儲存快照。
           </p>
           <div className="flex gap-3">

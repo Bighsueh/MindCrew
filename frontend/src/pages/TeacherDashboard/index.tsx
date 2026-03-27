@@ -1,22 +1,18 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { getTeacherProjects, createStudent, listStudents } from '../../services/teacherService'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../../components/common/Button'
 import { Input } from '../../components/common/Input'
 import { Modal } from '../../components/common/Modal'
 import { Loading } from '../../components/common/Loading'
+import { PhaseIndicator } from '../../components/common/PhaseIndicator'
+import { CreateProjectDialog } from '../../components/project/CreateProjectDialog'
+import { Eye, LogIn, Users, Bot, Plus } from 'lucide-react'
+import { cn } from '../../lib/utils'
 import type { TeacherProjectSummary, User } from '../../types/models'
 
-const STAGE_LABELS = {
-  discover: '🔍 發現',
-  define: '📌 定義',
-  develop: '💡 發展',
-  deliver: '🚀 交付',
-  completed: '✅ 完成',
-}
-
-function ProjectRow({ project }: { project: TeacherProjectSummary }) {
+function ProjectCard({ project }: { project: TeacherProjectSummary }) {
   const navigate = useNavigate()
 
   const lastActivity = new Date(project.last_activity).toLocaleString('zh-TW', {
@@ -27,39 +23,42 @@ function ProjectRow({ project }: { project: TeacherProjectSummary }) {
   })
 
   return (
-    <tr className="hover:bg-gray-50">
-      <td className="px-4 py-3">
-        <p className="font-medium text-gray-900">{project.name}</p>
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-600">
-        {STAGE_LABELS[project.current_stage]}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-600">
-        👤 {project.seat_summary.human} / 🤖 {project.seat_summary.ai}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-600">
-        {project.note_count} 張便條
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-500">{lastActivity}</td>
-      <td className="px-4 py-3">
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => navigate(`/projects/${project.id}/lobby`)}
-          >
-            觀察
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => navigate(`/teacher/projects/${project.id}/record`)}
-          >
-            紀錄
-          </Button>
+    <div className="rounded-xl border border-border bg-surface p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-text truncate">{project.name}</h3>
+          <p className="text-xs text-text-muted mt-0.5">最近活動：{lastActivity}</p>
         </div>
-      </td>
-    </tr>
+        <PhaseIndicator phase={project.current_stage} />
+      </div>
+
+      <div className="flex items-center gap-3 text-sm text-text-muted mb-4">
+        <span className="flex items-center gap-1"><Users size={14} />{project.seat_summary.human} 人類</span>
+        <span className="flex items-center gap-1"><Bot size={14} />{project.seat_summary.ai} AI</span>
+        <span>{project.note_count} 張便條</span>
+      </div>
+
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="ghost"
+          className="flex-1 gap-1"
+          onClick={() => navigate(`/projects/${project.id}/lobby`)}
+        >
+          <Eye size={14} />
+          觀察
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="flex-1 gap-1"
+          onClick={() => navigate(`/projects/${project.id}/lobby`)}
+        >
+          <LogIn size={14} />
+          進入
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -78,6 +77,7 @@ export function TeacherDashboardPage() {
   const [isLoadingStudents, setIsLoadingStudents] = useState(false)
   const [activeTab, setActiveTab] = useState<'projects' | 'students'>('projects')
   const [showAddStudent, setShowAddStudent] = useState(false)
+  const [showCreateProject, setShowCreateProject] = useState(false)
   const [studentForm, setStudentForm] = useState<NewStudentFormData>({
     displayName: '',
     email: '',
@@ -132,144 +132,120 @@ export function TeacherDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <Link to="/projects" className="text-sm text-gray-500 hover:text-gray-700">
-                ← 返回
-              </Link>
-              <span className="text-gray-300">|</span>
-              <h1 className="text-xl font-bold text-gray-900">📊 教師儀表板</h1>
-            </div>
-            <p className="text-sm text-gray-500">{user?.display_name} 老師</p>
-          </div>
-          <Link to="/projects/new">
-            <Button>+ 建立新專案</Button>
-          </Link>
+    <div>
+      {/* Page header */}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-text">教師儀表板</h1>
+          <p className="text-sm text-text-muted">{user?.display_name} 老師</p>
         </div>
-      </header>
+        <Button onClick={() => setShowCreateProject(true)}>
+          <Plus size={16} />
+          建立新專案
+        </Button>
+      </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 bg-white">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="flex gap-0">
-            {(['projects', 'students'] as const).map((tab) => (
-              <button
-                key={tab}
-                className={[
-                  'px-5 py-3 text-sm font-medium border-b-2 transition-colors',
-                  activeTab === tab
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700',
-                ].join(' ')}
-                onClick={() => setActiveTab(tab)}
-              >
-                {tab === 'projects' ? '專案監控' : '學生管理'}
-              </button>
-            ))}
-          </div>
+      <div className="border-b border-border mb-6">
+        <div className="flex gap-0">
+          {(['projects', 'students'] as const).map((tab) => (
+            <button
+              key={tab}
+              className={cn(
+                'px-5 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer',
+                activeTab === tab
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-text-muted hover:text-text',
+              )}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab === 'projects' ? '專案監控' : '學生管理'}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Main */}
-      <main className="mx-auto max-w-6xl px-6 py-6">
-        {/* Projects tab */}
-        {activeTab === 'projects' && (
-          <div>
-            {isLoadingProjects ? (
-              <div className="flex justify-center py-16">
-                <Loading text="載入專案…" />
-              </div>
-            ) : projects.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-white py-16">
-                <p className="text-gray-500">尚無專案。</p>
-                <Link to="/projects/new" className="mt-4">
-                  <Button>建立第一個專案</Button>
-                </Link>
-              </div>
-            ) : (
-              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                <table className="w-full text-left">
-                  <thead className="border-b border-gray-200 bg-gray-50">
-                    <tr>
-                      {['專案名稱', '目前階段', '席位', '便條紙', '最近活動', '操作'].map((h) => (
-                        <th key={h} className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {projects.map((p) => (
-                      <ProjectRow key={p.id} project={p} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Students tab */}
-        {activeTab === 'students' && (
-          <div>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-gray-800">學生帳號</h2>
-              <Button size="sm" onClick={() => setShowAddStudent(true)}>
-                + 新增學生
+      {/* Projects tab */}
+      {activeTab === 'projects' && (
+        <div>
+          {isLoadingProjects ? (
+            <div className="flex justify-center py-16">
+              <Loading text="載入專案…" />
+            </div>
+          ) : projects.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-surface py-16">
+              <p className="text-text-muted">尚無專案。</p>
+              <Button className="mt-4" onClick={() => setShowCreateProject(true)}>
+                建立第一個專案
               </Button>
             </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {projects.map((p) => (
+                <ProjectCard key={p.id} project={p} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
-            {isLoadingStudents ? (
-              <Loading text="載入學生列表…" />
-            ) : students.length === 0 ? (
-              <div className="rounded-xl border-2 border-dashed border-gray-300 bg-white py-12 text-center">
-                <p className="text-gray-500">尚無學生帳號。</p>
-              </div>
-            ) : (
-              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                <table className="w-full text-left">
-                  <thead className="border-b border-gray-200 bg-gray-50">
-                    <tr>
-                      {['顯示名稱', '電子郵件', '可建立專案', '建立時間'].map((h) => (
-                        <th key={h} className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {students.map((s) => (
-                      <tr key={s.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-900">{s.display_name}</td>
-                        <td className="px-4 py-3 text-sm text-gray-600">{s.email}</td>
-                        <td className="px-4 py-3">
-                          <span className={[
-                            'rounded-full px-2.5 py-0.5 text-xs font-medium',
-                            s.can_create_project
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-gray-100 text-gray-500',
-                          ].join(' ')}>
-                            {s.can_create_project ? '是' : '否'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-500">
-                          {s.created_at
-                            ? new Date(s.created_at).toLocaleDateString('zh-TW')
-                            : '-'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+      {/* Students tab */}
+      {activeTab === 'students' && (
+        <div>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-base font-semibold text-text">學生帳號</h2>
+            <Button size="sm" onClick={() => setShowAddStudent(true)}>
+              <Plus size={14} />
+              新增學生
+            </Button>
           </div>
-        )}
-      </main>
+
+          {isLoadingStudents ? (
+            <Loading text="載入學生列表…" />
+          ) : students.length === 0 ? (
+            <div className="rounded-xl border-2 border-dashed border-border bg-surface py-12 text-center">
+              <p className="text-text-muted">尚無學生帳號。</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+              <table className="w-full text-left">
+                <thead className="border-b border-border bg-bg">
+                  <tr>
+                    {['顯示名稱', '電子郵件', '可建立專案', '建立時間'].map((h) => (
+                      <th key={h} className="px-4 py-3 text-xs font-semibold text-text-muted uppercase tracking-wide">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {students.map((s) => (
+                    <tr key={s.id} className="hover:bg-surface-hover">
+                      <td className="px-4 py-3 font-medium text-text">{s.display_name}</td>
+                      <td className="px-4 py-3 text-sm text-text-muted">{s.email}</td>
+                      <td className="px-4 py-3">
+                        <span className={cn(
+                          'rounded-full px-2.5 py-0.5 text-xs font-medium',
+                          s.can_create_project
+                            ? 'bg-success-bg text-success'
+                            : 'bg-secondary/30 text-text-muted',
+                        )}>
+                          {s.can_create_project ? '是' : '否'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-text-muted">
+                        {s.created_at
+                          ? new Date(s.created_at).toLocaleDateString('zh-TW')
+                          : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Add student modal */}
       <Modal
@@ -301,20 +277,20 @@ export function TeacherDashboardPage() {
             placeholder="至少 8 個字元"
             required
           />
-          <label className="flex items-center gap-2 text-sm">
+          <label className="flex items-center gap-2 text-sm text-text">
             <input
               type="checkbox"
               checked={studentForm.canCreateProject}
               onChange={(e) =>
                 setStudentForm((f) => ({ ...f, canCreateProject: e.target.checked }))
               }
-              className="h-4 w-4 rounded border-gray-300 text-blue-600"
+              className="h-4 w-4 rounded border-border text-primary"
             />
             <span>允許建立專案</span>
           </label>
 
           {addStudentError && (
-            <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+            <div className="rounded-md bg-error-bg px-4 py-3 text-sm text-error">
               {addStudentError}
             </div>
           )}
@@ -333,6 +309,15 @@ export function TeacherDashboardPage() {
           </div>
         </div>
       </Modal>
+
+      <CreateProjectDialog
+        isOpen={showCreateProject}
+        onClose={() => setShowCreateProject(false)}
+        onCreated={() => {
+          setShowCreateProject(false)
+          getTeacherProjects().then(setProjects)
+        }}
+      />
     </div>
   )
 }

@@ -1,3 +1,5 @@
+import { Bot } from 'lucide-react'
+import { cn } from '../../lib/utils'
 import type { Message } from '../../types/models'
 
 interface ChatMessageProps {
@@ -17,48 +19,49 @@ export function ChatMessage({ message, isOwn = false }: ChatMessageProps) {
   if (isSystem) {
     return (
       <div className="flex justify-center my-2">
-        <div className="rounded-full bg-gray-100 px-4 py-1.5 text-xs text-gray-500">
-          📢 {message.content}
+        <div className="rounded-full bg-secondary/30 px-4 py-1.5 text-xs text-text-muted">
+          {message.content}
         </div>
       </div>
     )
   }
 
   return (
-    <div className={['flex gap-2 mb-3', isOwn ? 'flex-row-reverse' : 'flex-row'].join(' ')}>
+    <div className={cn('flex gap-2 mb-3', isOwn ? 'flex-row-reverse' : 'flex-row')}>
       {/* Avatar */}
       <div
-        className={[
+        className={cn(
           'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-sm',
-          isAI ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700',
-        ].join(' ')}
+          isAI ? 'bg-primary/10 text-primary' : 'bg-accent/15 text-accent',
+        )}
       >
-        {isAI ? '🤖' : message.sender_name[0]?.toUpperCase() ?? '?'}
+        {isAI ? <Bot size={16} /> : (message.sender_name[0]?.toUpperCase() ?? '?')}
       </div>
 
       {/* Bubble */}
-      <div className={['flex max-w-[70%] flex-col gap-1', isOwn ? 'items-end' : 'items-start'].join(' ')}>
+      <div className={cn('flex max-w-[70%] flex-col gap-1', isOwn ? 'items-end' : 'items-start')}>
         {/* Sender name */}
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium text-gray-600">{message.sender_name}</span>
+          <span className="text-xs font-medium text-text-muted">{message.sender_name}</span>
           {isAI && (
-            <span className="rounded-sm bg-violet-100 px-1 py-0.5 text-xs text-violet-600">
+            <span className="flex items-center gap-0.5 rounded-sm bg-primary/10 px-1 py-0.5 text-xs text-primary">
+              <Bot size={10} />
               AI
             </span>
           )}
-          <span className="text-xs text-gray-400">{formatTime(message.created_at)}</span>
+          <span className="text-xs text-text-muted">{formatTime(message.created_at)}</span>
         </div>
 
         {/* Content */}
         <div
-          className={[
+          className={cn(
             'rounded-2xl px-4 py-2 text-sm leading-relaxed',
             isOwn
-              ? 'rounded-tr-sm bg-blue-600 text-white'
+              ? 'rounded-tr-sm bg-primary/10 text-text'
               : isAI
-                ? 'rounded-tl-sm bg-violet-50 text-gray-800 border border-violet-200'
-                : 'rounded-tl-sm bg-gray-100 text-gray-800',
-          ].join(' ')}
+                ? 'rounded-tl-sm bg-secondary/20 text-text'
+                : 'rounded-tl-sm bg-primary/10 text-text',
+          )}
         >
           {message.content}
         </div>

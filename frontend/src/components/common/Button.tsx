@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { cn } from '../../lib/utils'
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
 type ButtonSize = 'sm' | 'md' | 'lg'
@@ -12,13 +13,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500 disabled:bg-blue-300',
+    'bg-cta text-text-inverse hover:bg-cta-hover focus:ring-primary/20 disabled:opacity-50',
   secondary:
-    'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 focus:ring-blue-500 disabled:text-gray-400',
+    'bg-surface text-text-muted border border-border hover:bg-surface-hover focus:ring-primary/20 disabled:opacity-50',
   danger:
-    'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500 disabled:bg-red-300',
+    'bg-error text-text-inverse hover:bg-error/90 focus:ring-error/20 disabled:opacity-50',
   ghost:
-    'bg-transparent text-gray-600 hover:bg-gray-100 focus:ring-gray-400 disabled:text-gray-400',
+    'bg-transparent text-text-muted hover:bg-surface-hover hover:text-text focus:ring-primary/20 disabled:opacity-50',
 }
 
 const sizeClasses: Record<ButtonSize, string> = {
@@ -39,15 +40,15 @@ export function Button({
   return (
     <button
       disabled={disabled || isLoading}
-      className={[
+      className={cn(
         'inline-flex items-center justify-center gap-2 rounded-md font-medium',
         'focus:outline-none focus:ring-2 focus:ring-offset-2',
-        'transition-colors duration-150',
+        'transition-colors cursor-pointer',
         'disabled:cursor-not-allowed',
         variantClasses[variant],
         sizeClasses[size],
         className,
-      ].join(' ')}
+      )}
       {...props}
     >
       {isLoading && (
@@ -57,19 +58,8 @@ export function Button({
           fill="none"
           viewBox="0 0 24 24"
         >
-          <circle
-            className="opacity-25"
-            cx="12"
-            cy="12"
-            r="10"
-            stroke="currentColor"
-            strokeWidth="4"
-          />
-          <path
-            className="opacity-75"
-            fill="currentColor"
-            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-          />
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
       )}
       {children}

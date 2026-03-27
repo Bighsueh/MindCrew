@@ -118,13 +118,13 @@ export function CanvasPanel({ projectId }: CanvasPanelProps) {
   }, [doc, store])
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-lg border border-gray-200">
+    <div className="relative h-full w-full overflow-hidden rounded-lg border border-border">
       {!connected && (
-        <div className="absolute top-2 left-2 z-50 rounded bg-yellow-100 px-2 py-1 text-xs text-yellow-800">
+        <div className="absolute top-2 left-2 z-50 rounded bg-warning-bg px-2 py-1 text-xs text-warning">
           白板連線中...
         </div>
       )}
-      <Tldraw store={store} inferDarkMode hideUi={false} />
+      <Tldraw store={store} forceDarkMode={false} hideUi={false} />
     </div>
   )
 }

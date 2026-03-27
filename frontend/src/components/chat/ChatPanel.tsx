@@ -57,10 +57,10 @@ export function ChatPanel({ projectId, sendWS, disabled = false }: ChatPanelProp
   const typingNames = Array.from(typingUsers.values()).map((u) => u.name)
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    <div className="flex h-full flex-col bg-surface">
       {/* Header */}
-      <div className="border-b border-gray-200 px-4 py-3">
-        <h3 className="text-sm font-semibold text-gray-700">💬 聊天室</h3>
+      <div className="border-b border-border px-4 py-3">
+        <h3 className="text-sm font-semibold text-text">聊天室</h3>
       </div>
 
       {/* Message list */}
@@ -71,7 +71,7 @@ export function ChatPanel({ projectId, sendWS, disabled = false }: ChatPanelProp
       >
         {isLoading && (
           <div className="flex justify-center py-2">
-            <span className="text-xs text-gray-400">載入中…</span>
+            <span className="text-xs text-text-muted">載入中…</span>
           </div>
         )}
         {messages.map((msg) => (
@@ -86,7 +86,7 @@ export function ChatPanel({ projectId, sendWS, disabled = false }: ChatPanelProp
 
       {/* Typing indicator */}
       {typingNames.length > 0 && (
-        <div className="px-4 py-1 text-xs text-gray-500 italic">
+        <div className="px-4 py-1 text-xs text-text-muted italic">
           {typingNames.join('、')} 正在輸入…
         </div>
       )}

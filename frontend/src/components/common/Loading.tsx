@@ -1,3 +1,5 @@
+import { cn } from '../../lib/utils'
+
 interface LoadingProps {
   size?: 'sm' | 'md' | 'lg'
   text?: string
@@ -14,20 +16,20 @@ export function Loading({ size = 'md', text, fullScreen = false }: LoadingProps)
   const content = (
     <div className="flex flex-col items-center justify-center gap-3">
       <div
-        className={[
-          'animate-spin rounded-full border-blue-600 border-t-transparent',
+        className={cn(
+          'animate-spin rounded-full border-primary border-t-transparent',
           sizeClasses[size],
-        ].join(' ')}
+        )}
         role="status"
         aria-label="載入中"
       />
-      {text && <p className="text-sm text-gray-500">{text}</p>}
+      {text && <p className="text-sm text-text-muted">{text}</p>}
     </div>
   )
 
   if (fullScreen) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+      <div className="fixed inset-0 flex items-center justify-center bg-surface/80 backdrop-blur-sm">
         {content}
       </div>
     )

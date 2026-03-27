@@ -1,4 +1,6 @@
 import { useState, useRef, type KeyboardEvent } from 'react'
+import { Send } from 'lucide-react'
+import { cn } from '../../lib/utils'
 
 interface ChatInputProps {
   onSend: (content: string) => void
@@ -56,7 +58,7 @@ export function ChatInput({
   }
 
   return (
-    <div className="flex gap-2 border-t border-gray-200 p-3">
+    <div className="flex gap-2 border-t border-border p-3">
       <textarea
         value={value}
         onChange={handleChange}
@@ -64,23 +66,25 @@ export function ChatInput({
         disabled={disabled}
         placeholder={placeholder}
         rows={2}
-        className={[
-          'flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm',
-          'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
-          'disabled:bg-gray-100 disabled:cursor-not-allowed',
-        ].join(' ')}
+        className={cn(
+          'flex-1 resize-none rounded-lg border border-border px-3 py-2 text-sm bg-surface text-text',
+          'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary',
+          'placeholder:text-text-muted',
+          'disabled:bg-surface-hover disabled:cursor-not-allowed',
+        )}
       />
       <button
         onClick={handleSend}
         disabled={disabled || !value.trim()}
-        className={[
-          'flex-shrink-0 rounded-lg px-4 py-2 text-sm font-medium',
-          'bg-blue-600 text-white hover:bg-blue-700',
-          'disabled:bg-gray-300 disabled:cursor-not-allowed',
-          'transition-colors duration-150',
-        ].join(' ')}
+        className={cn(
+          'flex-shrink-0 flex items-center justify-center rounded-lg px-4 py-2',
+          'bg-primary text-text-inverse hover:bg-primary-dark',
+          'disabled:opacity-40 disabled:cursor-not-allowed',
+          'transition-colors cursor-pointer',
+        )}
+        aria-label="送出"
       >
-        送出
+        <Send size={16} />
       </button>
     </div>
   )

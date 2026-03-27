@@ -2,20 +2,142 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── MindCrew Design System ── */
+/* 注意：顏色用 RGB 三元組格式，以支援 Tailwind 3 的 /opacity 語法 */
+:root {
+  /* Colors — Primary (Charcoal) */
+  --color-primary: 26 26 26;
+  --color-primary-light: 44 44 44;
+  --color-primary-lighter: 74 74 74;
+  --color-primary-dark: 13 13 13;
+
+  /* Colors — Secondary (Warm Beige) */
+  --color-secondary: 212 203 192;
+  --color-secondary-light: 232 224 212;
+  --color-secondary-dark: 184 175 163;
+
+  /* Colors — CTA */
+  --color-cta: 26 26 26;
+  --color-cta-hover: 51 51 51;
+
+  /* Colors — Accent (Muted Taupe) */
+  --color-accent: 156 142 124;
+  --color-accent-light: 184 175 163;
+
+  /* Colors — Background */
+  --color-bg: 245 240 235;
+  --color-bg-dark: 26 26 26;
+  --color-bg-warm: 234 227 217;
+
+  /* Colors — Surface */
+  --color-surface: 255 255 255;
+  --color-surface-hover: 250 248 245;
+  --color-surface-dark: 36 36 36;
+
+  /* Colors — Text */
+  --color-text: 26 26 26;
+  --color-text-muted: 138 133 128;
+  --color-text-inverse: 245 240 235;
+  --color-text-on-dark: 245 240 235;
+  --color-text-muted-on-dark: 160 154 148;
+
+  /* Colors — Border */
+  --color-border: 212 203 192;
+  --color-border-light: 232 224 212;
+  --color-border-dark: 51 51 51;
+
+  /* Colors — Semantic */
+  --color-error: 197 48 48;
+  --color-error-bg: 254 242 242;
+  --color-success: 90 107 47;
+  --color-success-bg: 240 244 228;
+  --color-warning: 217 119 6;
+  --color-warning-bg: 255 251 235;
+  --color-info: 37 99 235;
+  --color-info-bg: 239 246 255;
+
+  /* Sticky note colors (保持 hex，不需要透明度) */
+  --color-note-yellow: #F5E6C8;
+  --color-note-orange: #F0D9C4;
+  --color-note-green: #D4E4C8;
+  --color-note-blue: #C8D8E8;
+  --color-note-pink: #EEDCE4;
+
+  /* Typography */
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans TC', sans-serif;
+  --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-2xl: 32px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(26, 26, 26, 0.04);
+  --shadow-md: 0 4px 16px rgba(26, 26, 26, 0.06);
+  --shadow-lg: 0 8px 32px rgba(26, 26, 26, 0.08);
+  --shadow-xl: 0 20px 60px rgba(26, 26, 26, 0.12);
+
+  /* Animation */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+
+  /* Z-Index */
+  --z-sticky: 40;
+  --z-modal: 50;
+}
+
 /* Base resets */
 *, *::before, *::after {
   box-sizing: border-box;
 }
 
-html, body, #root {
-  height: 100%;
-  margin: 0;
-  padding: 0;
-}
-
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC',
-    'Microsoft JhengHei', 'Noto Sans TC', sans-serif;
+  margin: 0;
+  font-family: var(--font-sans);
+  color: rgb(var(--color-text));
+  background-color: rgb(var(--color-bg));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+html, body, #root {
+  min-height: 100svh;
+}
+
+/* Focus visible */
+*:focus-visible {
+  outline: 2px solid rgb(var(--color-primary));
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Fade-up animation */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.8s var(--ease-out) both;
 }

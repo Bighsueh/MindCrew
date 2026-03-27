@@ -1,4 +1,5 @@
 import type { InputHTMLAttributes } from 'react'
+import { cn } from '../../lib/utils'
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string
@@ -12,26 +13,26 @@ export function Input({ label, error, helperText, id, className = '', ...props }
   return (
     <div className="flex flex-col gap-1">
       {label && (
-        <label htmlFor={inputId} className="text-sm font-medium text-gray-700">
+        <label htmlFor={inputId} className="text-sm font-medium text-text">
           {label}
         </label>
       )}
       <input
         id={inputId}
-        className={[
-          'rounded-md border px-3 py-2 text-sm shadow-sm',
-          'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
-          'placeholder:text-gray-400',
-          'disabled:bg-gray-100 disabled:cursor-not-allowed',
+        className={cn(
+          'rounded-md border px-3 py-2.5 text-sm bg-surface text-text',
+          'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary',
+          'placeholder:text-text-muted',
+          'disabled:bg-surface-hover disabled:cursor-not-allowed',
           error
-            ? 'border-red-400 focus:ring-red-400 focus:border-red-400'
-            : 'border-gray-300',
+            ? 'border-error focus:ring-error/20 focus:border-error'
+            : 'border-border',
           className,
-        ].join(' ')}
+        )}
         {...props}
       />
-      {error && <p className="text-xs text-red-600">{error}</p>}
-      {helperText && !error && <p className="text-xs text-gray-500">{helperText}</p>}
+      {error && <p className="text-xs text-error">{error}</p>}
+      {helperText && !error && <p className="text-xs text-text-muted">{helperText}</p>}
     </div>
   )
 }
