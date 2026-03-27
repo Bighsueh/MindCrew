@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight, Lightbulb, Users, Zap, MessageSquare, LayoutGrid, BarChart3 } from 'lucide-react'
 import { StickyNoteSVG } from '@/components/landing/StickyNoteSVG'
-import heroBgVideo from '@/assets/hero-bg.mp4'
+import { HeroBackgroundVideo } from '@/components/landing/HeroBackgroundVideo'
 
 export function LandingPage() {
   return (
@@ -36,15 +36,7 @@ export function LandingPage() {
       <section className="relative flex min-h-svh flex-col items-center justify-center px-6 pt-16">
         {/* Full-bleed video background */}
         <div className="absolute inset-0 overflow-hidden">
-          <video
-            autoPlay
-            loop
-            muted
-            playsInline
-            className="h-full w-full object-cover"
-          >
-            <source src={heroBgVideo} type="video/mp4" />
-          </video>
+          <HeroBackgroundVideo />
           <div className="absolute inset-0 bg-bg/60" />
         </div>
 
