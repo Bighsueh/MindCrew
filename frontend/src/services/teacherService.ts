@@ -1,0 +1,31 @@
+import api from './api'
+import type { CreateStudentRequest, UpdateStudentPermissionRequest } from '../types/api'
+import type { User, TeacherProjectSummary, ProjectRecord } from '../types/models'
+
+export async function createStudent(data: CreateStudentRequest): Promise<User> {
+  const response = await api.post<User>('/teacher/students', data)
+  return response.data
+}
+
+export async function listStudents(): Promise<User[]> {
+  const response = await api.get<User[]>('/teacher/students')
+  return response.data
+}
+
+export async function updateStudentPermission(
+  id: string,
+  data: UpdateStudentPermissionRequest,
+): Promise<User> {
+  const response = await api.patch<User>(`/teacher/students/${id}`, data)
+  return response.data
+}
+
+export async function getTeacherProjects(): Promise<TeacherProjectSummary[]> {
+  const response = await api.get<TeacherProjectSummary[]>('/teacher/projects')
+  return response.data
+}
+
+export async function getProjectRecord(id: string): Promise<ProjectRecord> {
+  const response = await api.get<ProjectRecord>(`/teacher/projects/${id}/record`)
+  return response.data
+}
