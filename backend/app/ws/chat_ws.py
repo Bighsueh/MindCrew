@@ -3,14 +3,17 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+import redis.asyncio as aioredis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt import decode_token
+from app.config import settings
 from app.db.models.message import Message
 from app.db.models.project import Project
 from app.db.models.seat import Seat
@@ -20,6 +23,7 @@ from app.events.bus import event_bus
 from app.events.handlers import handle_chat_message
 from app.events.types import ChatMessageEvent, TypingEvent
 from app.ws.connection_manager import chat_manager
+from app.ws.presence_tracker import presence_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +140,7 @@ async def chat_websocket(ws: WebSocket, project_id: UUID) -> None:
     # ── 3. Accept & register ───────────────────────────────────────────────
     await ws.accept()
     chat_manager.connect(project_id, ws)
+    presence_tracker.on_human_connect(project_id)
     logger.info("WS chat connected user=%s project=%s", user.id, project_id)
 
     heartbeat_task = asyncio.create_task(_heartbeat(ws))
@@ -179,7 +184,10 @@ async def chat_websocket(ws: WebSocket, project_id: UUID) -> None:
                 # Publish to Redis so other processes (agents, teacher WS) get it
                 await event_bus.publish(event)
                 # Phase-3 hook – currently a noop
-                asyncio.create_task(handle_chat_message(project_id, str(user.id), content))
+                asyncio.create_task(handle_chat_message(
+                    project_id, str(user.id), content,
+                    sender_name=user.display_name, sender_type="human",
+                ))
 
             # ── typing indicators ───────────────────────────────────────
             elif msg_type in ("typing_start", "typing_stop"):
@@ -190,6 +198,17 @@ async def chat_websocket(ws: WebSocket, project_id: UUID) -> None:
                     is_typing=is_typing,
                 )
                 await chat_manager.broadcast(project_id, typing_event.to_dict())
+                # Write typing timestamp to Redis for agent ASSESS Rule 2
+                if is_typing:
+                    r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+                    try:
+                        await r.set(
+                            f"project:{project_id}:human_typing_ts",
+                            str(time.time()),
+                            ex=5,
+                        )
+                    finally:
+                        await r.aclose()
 
             else:
                 logger.debug("Unknown message type=%s from user=%s", msg_type, user.id)
@@ -202,3 +221,4 @@ async def chat_websocket(ws: WebSocket, project_id: UUID) -> None:
         heartbeat_task.cancel()
         forwarder_task.cancel()
         chat_manager.disconnect(project_id, ws)
+        presence_tracker.on_human_disconnect(project_id)

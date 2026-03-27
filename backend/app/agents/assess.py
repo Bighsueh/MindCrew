@@ -102,20 +102,35 @@ class AssessEngine:
                 )
 
         # Rule 4.5: Consecutive AI message limit (spec §5.2, §6)
-        # In normal mode (humans present), at most 3 consecutive AI messages are allowed.
-        # After 3, the agent must wait for a non-AI message before acting again.
+        # With humans: max 3 consecutive AI messages
+        # All-AI mode: same agent max 2 consecutive; total max 6 consecutive
         seats: list[dict] = context.get("seats", [])
         has_humans = any(s.get("type") == "human" for s in seats)
+        consecutive_ai = self._count_trailing_ai_messages(recent_chat)
         if has_humans:
-            consecutive_ai = self._count_trailing_ai_messages(recent_chat)
             if consecutive_ai >= 3:
                 return AssessResult(
                     decision="wait",
                     rule="rule_4_5_consecutive_ai_limit",
                     details={
                         "consecutive_ai_messages": consecutive_ai,
-                        "reason": "連續 AI 訊息已達 3 則上限，等待人類或其他成員發言",
+                        "reason": "連續 AI 訊息已達 3 則上限，等待人類發言",
                     },
+                )
+        else:
+            # All-AI mode: prevent same agent from dominating
+            same_agent_consecutive = self._count_trailing_same_agent(recent_chat, my_seat)
+            if same_agent_consecutive >= 2:
+                return AssessResult(
+                    decision="wait",
+                    rule="rule_4_5_same_agent_limit",
+                    details={"reason": "同一 agent 連續 2 則，讓其他成員發言"},
+                )
+            if consecutive_ai >= 6:
+                return AssessResult(
+                    decision="wait",
+                    rule="rule_4_5_all_ai_limit",
+                    details={"reason": "全 AI 模式連續 6 則，暫停一輪"},
                 )
 
         # Rule 5: Canvas/chat idle beyond threshold
@@ -132,20 +147,72 @@ class AssessEngine:
                     },
                 )
 
-        # Rule 6: New event is highly relevant to this agent's recent actions
-        if self._has_relevant_event(context, my_seat):
+        # Rule 6: New event is highly relevant (n-gram overlap, not single-char)
+        if self._has_relevant_event_ngram(context):
             return AssessResult(
                 decision="intervene",
                 rule="rule_6_relevant_event",
-                details={"reason": "新事件與我最近的發言或操作高度相關"},
+                details={"reason": "新事件與我最近的發言高度相關"},
             )
 
-        # Rule 7: Probabilistic intervention based on contribution level
+        # Rule 6.5: Topic Focus Gate — suppress off-topic proactive initiation
+        active_thread = context.get("active_thread")
+        if active_thread and active_thread.get("turn_count", 0) < 7:
+            participants = active_thread.get("participants", [])
+            pending = active_thread.get("pending_addressee")
+            am_participant = any(my_seat.lower() in p.lower() for p in participants)
+            am_addressed = bool(pending and my_seat.lower() in str(pending).lower())
+            if not am_participant and not am_addressed:
+                if random.random() > 0.20:  # 80% chance to yield
+                    return AssessResult(
+                        decision="wait",
+                        rule="rule_6_5_topic_focus",
+                        details={"reason": "目前有活躍討論串，尚未參與，暫不介入"},
+                    )
+
+        # Rule 7: Thread-aware intervention (replaces pure probabilistic)
         prob = _INTERVENTION_PROBABILITIES.get(ai_contribution, 0.50)
 
-        # Boost Supervisor probability in Discover early sub-phase (Kaner Diamond)
+        if active_thread:
+            # Check persistent addressee (survives intervening messages)
+            pending = active_thread.get("pending_addressee")
+            if pending and my_seat.lower() in str(pending).lower():
+                # I was asked a question — must respond
+                return AssessResult(
+                    decision="intervene",
+                    rule="rule_7_addressed",
+                    details={"reason": "被點名應回應"},
+                )
+            if pending and my_seat.lower() not in str(pending).lower():
+                # Someone else was addressed and hasn't responded yet — yield
+                return AssessResult(
+                    decision="wait",
+                    rule="rule_7_yield",
+                    details={"reason": f"等待 {pending} 回應"},
+                )
+            # Fall back to current message addressee (for non-persistent cases)
+            addressed_to = active_thread.get("addressed_to")
+            if addressed_to and my_seat.lower() in str(addressed_to).lower():
+                return AssessResult(
+                    decision="intervene",
+                    rule="rule_7_addressed",
+                    details={"reason": "被點名應回應"},
+                )
+            if addressed_to and my_seat.lower() not in str(addressed_to).lower():
+                return AssessResult(
+                    decision="wait",
+                    rule="rule_7_yield",
+                    details={"reason": f"等待 {addressed_to} 回應"},
+                )
+            turn_count = active_thread.get("turn_count", 0)
+            if turn_count >= 6:
+                prob *= 0.5  # Mature thread — allow new voices at reduced rate
+            else:
+                prob *= 0.6  # Active thread — reduce spray
+
+        # Boost Supervisor in Discover early sub-phase (Kaner Diamond)
         current_stage = context.get("current_stage", "")
-        if current_stage == "discover" and "supervisor" in str(context.get("my_seat", "")).lower():
+        if current_stage == "discover" and "supervisor" in my_seat.lower():
             from app.agents.prompts.discover_subphase import (
                 DiscoverSubPhase,
                 determine_discover_subphase,
@@ -161,8 +228,8 @@ class AssessEngine:
         if random.random() < prob:
             return AssessResult(
                 decision="intervene",
-                rule="rule_7_probabilistic",
-                details={"probability": prob, "contribution": ai_contribution},
+                rule="rule_7_thread_aware",
+                details={"probability": round(prob, 2), "contribution": ai_contribution},
             )
 
         # Rule 8: Default — observe
@@ -210,8 +277,22 @@ class AssessEngine:
                 break
         return count
 
-    def _has_relevant_event(self, context: dict, my_seat: str) -> bool:
-        """Return True if the latest chat message references this agent's recent content."""
+    def _count_trailing_same_agent(
+        self, recent_chat: list[dict], my_seat: str,
+    ) -> int:
+        """Count consecutive messages from the same agent at tail of chat."""
+        count = 0
+        my_seat_lower = my_seat.lower()
+        for msg in reversed(recent_chat):
+            sender = msg.get("sender", "")
+            if my_seat_lower in sender.lower():
+                count += 1
+            else:
+                break
+        return count
+
+    def _has_relevant_event_ngram(self, context: dict) -> bool:
+        """Return True if latest chat shares n-gram overlap with my recent action."""
         my_actions: list[dict] = context.get("my_recent_actions", [])
         if not my_actions:
             return False
@@ -219,19 +300,27 @@ class AssessEngine:
         if not recent_chat:
             return False
 
-        # Collect keywords from my last action
         last_action = my_actions[-1]
-        my_content: str = last_action.get("content", "").lower()
+        my_content: str = last_action.get("content", "")
         if not my_content:
             return False
 
-        # Simple keyword overlap check using CJK characters
-        my_words = set(c for c in my_content if "\u4e00" <= c <= "\u9fff")
-        if len(my_words) < 3:
+        last_chat_content = recent_chat[-1].get("content", "")
+
+        # Use 3-char n-grams instead of single characters
+        my_ngrams = self._extract_cjk_ngrams(my_content)
+        chat_ngrams = self._extract_cjk_ngrams(last_chat_content)
+
+        if len(my_ngrams) < 2 or len(chat_ngrams) < 2:
             return False
 
-        last_chat_content = recent_chat[-1].get("content", "").lower()
-        chat_words = set(c for c in last_chat_content if "\u4e00" <= c <= "\u9fff")
+        overlap = my_ngrams & chat_ngrams
+        return len(overlap) >= 2
 
-        overlap = my_words & chat_words
-        return len(overlap) >= 3
+    @staticmethod
+    def _extract_cjk_ngrams(text: str, n: int = 3) -> set[str]:
+        """Extract character n-grams from CJK text."""
+        cjk = "".join(c for c in text if "\u4e00" <= c <= "\u9fff")
+        if len(cjk) < n:
+            return set()
+        return {cjk[i : i + n] for i in range(len(cjk) - n + 1)}

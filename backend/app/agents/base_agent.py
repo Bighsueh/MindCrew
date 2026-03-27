@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from typing import Any
 from uuid import UUID
 
 from app.agents.assess import AssessEngine, AssessResult
 from app.agents.context_buffer import ContextBuffer
+from app.agents.conversation_health import ConversationHealthAnalyzer
 from app.agents.coordinator import agent_coordinator
 from app.agents.evaluator import StageEvaluator
 from app.agents.throttle import ThrottleGate
 from app.llm.factory import LLMProviderFactory
+from app.ws.presence_tracker import presence_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -63,17 +66,33 @@ class BaseAgent:
             if is_supervisor
             else None
         )
+        self._health_analyzer = ConversationHealthAnalyzer()
+
+        # Human Presence Gate — created in start() to ensure a running event loop
+        self._presence_event: asyncio.Event | None = None
+        self._stop_event: asyncio.Event | None = None
 
         # Lazy-import ThinkEngine and ActEngine to avoid circular imports
         self._think_engine: Any = None
         self._act_engine: Any = None
+
+        # Proactive initiation budget (spec §5.2)
+        self._last_proactive_time: float | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Start the decision loop. Runs until stop() is called."""
+        """Start the decision loop. Runs until stop() is called.
+
+        The loop blocks on the Human Presence Gate: when no human is connected
+        to the project, the agent pauses with zero CPU usage.  It resumes
+        instantly when a human connects.
+        """
+        # Create asyncio primitives inside the running event loop (Python 3.10+)
+        self._presence_event = presence_tracker.get_presence_event(self._project_id)
+        self._stop_event = asyncio.Event()
         self._running = True
         logger.info(
             "Agent %s (%s) starting in project %s",
@@ -82,6 +101,12 @@ class BaseAgent:
             self._project_id,
         )
         while self._running:
+            # ── Human Presence Gate ──────────────────────────────
+            # Block until at least one human is connected OR stop() is called.
+            await _wait_for_any(self._presence_event, self._stop_event)
+            if not self._running:
+                break
+
             try:
                 await self._decision_cycle()
             except Exception as exc:
@@ -100,6 +125,8 @@ class BaseAgent:
         """Signal the agent to stop gracefully after the current cycle."""
         logger.info("Agent %s received stop signal", self._agent_id)
         self._running = False
+        if self._stop_event is not None:
+            self._stop_event.set()  # Unblock if waiting on presence gate
 
     @property
     def running(self) -> bool:
@@ -146,6 +173,35 @@ class BaseAgent:
         if assess_result.decision in ("wait", "observe"):
             return
 
+        # Proactive initiation budget (spec §5.2)
+        _REACTIVE_RULES = frozenset((
+            "rule_1_mention", "rule_6_relevant_event",
+            "rule_7_addressed", "rule_5_idle",
+        ))
+        is_reactive = assess_result.rule in _REACTIVE_RULES
+        if not is_reactive:
+            budget = 120.0 if self._is_supervisor else 180.0
+            if self._last_proactive_time is not None:
+                elapsed = time.time() - self._last_proactive_time
+                if elapsed < budget:
+                    logger.debug(
+                        "Agent %s proactive initiation blocked (elapsed=%.1f < budget=%.1f)",
+                        self._agent_id,
+                        elapsed,
+                        budget,
+                    )
+                    return
+
+        # Inject conversation health into context (all agents)
+        all_seats = [s.get("role", "") for s in context.get("seats", [])]
+        health = self._health_analyzer.get_health_context(
+            context.get("recent_chat", []),
+            context.get("active_thread"),
+            all_seats,
+        )
+        if health:
+            context["conversation_health"] = health
+
         # Step 3: Think
         think_engine = self._get_think_engine()
         think_result = await think_engine.generate_actions(context)
@@ -155,6 +211,19 @@ class BaseAgent:
             and think_result.actions[0].get("type") == "no_action"
         ):
             return
+
+        # Queue backpressure: diminishing join probability as queue fills
+        queue_depth = agent_coordinator.get_queue_depth(self._project_id)
+        if queue_depth > 0 and assess_result.rule != "rule_1_mention":
+            join_prob = 1.0 / (1.0 + queue_depth)
+            if random.random() > join_prob:
+                logger.debug(
+                    "Agent %s yielded due to queue backpressure (depth=%d, p=%.2f)",
+                    self._agent_id,
+                    queue_depth,
+                    join_prob,
+                )
+                return
 
         # Step 4: Act — acquire coordinator lock first
         acquired = await agent_coordinator.acquire(
@@ -187,6 +256,10 @@ class BaseAgent:
                         "content": executed.get("content", ""),
                         "time": _now_time_str(),
                     })
+
+            # Record proactive initiation time for budget enforcement
+            if not is_reactive and act_result.executed_actions:
+                self._last_proactive_time = time.time()
 
             logger.debug(
                 "Agent %s executed %d actions",
@@ -254,6 +327,24 @@ class BaseAgent:
         self._throttle.update_contribution(new_level)
         if self._evaluator is not None:
             self._evaluator._contribution = new_level
+
+
+async def _wait_for_any(*events: asyncio.Event) -> None:
+    """Block until *any* of the given events is set.
+
+    Returns immediately if at least one event is already set.
+    """
+    if any(e.is_set() for e in events):
+        return
+
+    tasks = [asyncio.create_task(e.wait()) for e in events]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for t in tasks:
+            t.cancel()
+        # Await cancellation so tasks don't leak as "pending" warnings
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def _now_time_str() -> str:

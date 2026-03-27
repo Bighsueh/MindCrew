@@ -181,6 +181,18 @@ class ActEngine:
             session.add(msg)
             await session.commit()
 
+        # Update conversation thread tracking
+        try:
+            from app.agents.conversation_state import ConversationStateTracker
+
+            from app.agents.utils import load_seat_roles
+
+            tracker = ConversationStateTracker(self._project_id)
+            all_seats = await load_seat_roles(self._project_id)
+            await tracker.update_on_message(self._agent_name, content, all_seats)
+        except Exception as exc:
+            logger.debug("Conversation state update failed: %s", exc)
+
         logger.debug(
             "Agent %s sent chat message in project %s",
             self._agent_id,

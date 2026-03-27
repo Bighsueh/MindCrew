@@ -77,6 +77,10 @@ class _ProjectQueue:
 
             await asyncio.sleep(0.1)
 
+    def queue_depth(self) -> int:
+        """Return the number of agents queued or acting."""
+        return len(self._queue) + (1 if self._current else 0)
+
     async def release(self, agent_id: str) -> None:
         async with self._lock:
             if self._current == agent_id:
@@ -177,6 +181,11 @@ class AgentCoordinator:
         """Release the action lock for this project."""
         if project_id in self._project_queues:
             await self._project_queues[project_id].release(agent_id)
+
+    def get_queue_depth(self, project_id: UUID) -> int:
+        """Return the number of agents queued or acting in this project."""
+        queue = self._project_queues.get(project_id)
+        return 0 if queue is None else queue.queue_depth()
 
     def is_agent_acting(self, project_id: UUID) -> bool:
         """Return True if any agent currently holds the project lock."""

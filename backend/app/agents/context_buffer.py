@@ -9,6 +9,7 @@ from uuid import UUID
 import redis.asyncio as aioredis
 from sqlalchemy import select, text
 
+from app.agents.conversation_state import ConversationStateTracker
 from app.config import settings
 from app.db.session import async_session_factory
 
@@ -94,18 +95,41 @@ class ContextBuffer:
         """Return the full context dict matching the spec §2.1 JSON format."""
         r = await self._get_redis()
 
-        canvas_state, current_stage, stage_duration, seats = await self._load_db_state()
+        canvas_state, current_stage, stage_duration, seats, project_name, project_description = await self._load_db_state()
         recent_chat = await self._load_chat(r)
         my_recent_actions = await self._load_my_actions(r)
 
+        # Extract seat index from role name (e.g. "crew_2" → 1, "supervisor" → 0)
+        seat_index = 0
+        role_lower = self._seat_role.lower()
+        if role_lower.startswith("crew_"):
+            try:
+                seat_index = int(role_lower.split("_")[1]) - 1
+            except (IndexError, ValueError):
+                seat_index = 0
+
+        # Load active conversation thread
+        tracker = ConversationStateTracker(self._project_id)
+        active_thread = await tracker.get_thread_context()
+
+        # Load timestamps for ASSESS Rules 2 & 5
+        typing_raw = await r.get(f"project:{self._project_id}:human_typing_ts")
+        event_raw = await r.get(f"project:{self._project_id}:last_event_ts")
+
         return {
+            "project_name": project_name,
+            "project_description": project_description,
             "canvas_state": canvas_state,
             "recent_chat": recent_chat,
             "current_stage": current_stage,
             "stage_duration_minutes": stage_duration,
             "seats": seats,
             "my_seat": self._seat_role,
+            "seat_index": seat_index,
             "my_recent_actions": my_recent_actions,
+            "active_thread": active_thread,
+            "_human_typing_timestamp": float(typing_raw) if typing_raw else None,
+            "_last_event_time": float(event_raw) if event_raw else None,
         }
 
     # ------------------------------------------------------------------
@@ -114,7 +138,7 @@ class ContextBuffer:
 
     async def _load_db_state(
         self,
-    ) -> tuple[dict, str, int, list[dict]]:
+    ) -> tuple[dict, str, int, list[dict], str, str]:
         """Load canvas notes, project stage info, and seat states from DB."""
         async with async_session_factory() as session:
             # Project stage + ai_contribution
@@ -124,6 +148,8 @@ class ContextBuffer:
             )
             project = project_row.scalar_one_or_none()
             current_stage = project.current_stage if project else "discover"
+            project_name = project.name if project else ""
+            project_description = (project.description or "") if project else ""
 
             # Stage duration: use the most recent stage_history entry
             # that transitions TO the current stage, or fall back to project.created_at
@@ -183,7 +209,7 @@ class ContextBuffer:
             # Canvas state: load from Yjs sidecar (source of truth)
             canvas_state = await self._load_canvas_from_sidecar()
 
-        return canvas_state, current_stage, stage_duration, seats
+        return canvas_state, current_stage, stage_duration, seats, project_name, project_description
 
     async def _load_canvas_from_sidecar(self) -> dict:
         """Load canvas state from Yjs sidecar (the source of truth)."""
@@ -221,6 +247,7 @@ class ContextBuffer:
         return [
             {
                 "sender": f"{m.sender_name}({'ai' if m.sender_type == 'ai' else 'human'})",
+                "sender_type": m.sender_type,
                 "content": m.content,
                 "time": m.created_at.strftime("%H:%M") if m.created_at else "",
             }
