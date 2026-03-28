@@ -8,6 +8,8 @@ from typing import Any
 from uuid import UUID
 
 from app.agents.assess import AssessEngine, AssessResult
+from app.agents.blackboard import BlackboardManager
+from app.agents.blackboard_schemas import AgentIntention
 from app.agents.context_buffer import ContextBuffer
 from app.agents.conversation_health import ConversationHealthAnalyzer
 from app.agents.coordinator import agent_coordinator
@@ -17,6 +19,17 @@ from app.llm.factory import LLMProviderFactory
 from app.ws.presence_tracker import presence_tracker
 
 logger = logging.getLogger(__name__)
+
+# Staggered entry delays (seconds after presence gate opens).
+# Supervisor speaks first; Crew agents phase in gradually so each sees
+# the previous agents' output before acting.  (論文 §4.1.3)
+_ENTRY_DELAYS: dict[str, float] = {
+    "supervisor": 0.0,
+    "crew_1": 8.0,
+    "crew_2": 12.0,
+    "crew_3": 16.0,
+    "crew_4": 20.0,
+}
 
 
 class BaseAgent:
@@ -67,6 +80,14 @@ class BaseAgent:
             else None
         )
         self._health_analyzer = ConversationHealthAnalyzer()
+        self._blackboard = BlackboardManager(
+            project_id=project_id,
+            agent_id=agent_id,
+            seat_role=seat_role,
+        )
+
+        # Guard against concurrent evaluations (race condition fix)
+        self._evaluation_in_progress = False
 
         # Human Presence Gate — created in start() to ensure a running event loop
         self._presence_event: asyncio.Event | None = None
@@ -78,6 +99,11 @@ class BaseAgent:
 
         # Proactive initiation budget (spec §5.2)
         self._last_proactive_time: float | None = None
+
+        # Staggered entry: one-time delay per agent lifecycle
+        self._entry_completed: bool = False
+        # Round gate: supervisor signals after first action
+        self._first_action_done: bool = False
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -107,6 +133,11 @@ class BaseAgent:
             if not self._running:
                 break
 
+            # ── Staggered Entry Protocol ────────────────────────
+            if not self._entry_completed:
+                await self._staggered_entry()
+                self._entry_completed = True
+
             try:
                 await self._decision_cycle()
             except Exception as exc:
@@ -131,6 +162,62 @@ class BaseAgent:
     @property
     def running(self) -> bool:
         return self._running
+
+    # ------------------------------------------------------------------
+    # Staggered entry (Solution A)
+    # ------------------------------------------------------------------
+
+    async def _staggered_entry(self) -> None:
+        """One-time delay so Supervisor speaks first, Crew phases in gradually.
+
+        Avoids the 'simultaneous burst' problem where all agents generate
+        independent actions before seeing each other's output.
+        """
+        delay = _ENTRY_DELAYS.get(self._seat_role, 10.0)
+        if delay > 0:
+            logger.info(
+                "Agent %s (%s) staggered entry: waiting %.1fs",
+                self._agent_id,
+                self._seat_role,
+                delay,
+            )
+            await asyncio.sleep(delay)
+        # Crew agents also wait for the round gate (supervisor's first action)
+        if not self._is_supervisor:
+            await agent_coordinator.wait_for_round_gate(self._project_id)
+
+    # ------------------------------------------------------------------
+    # Dynamic proactive cooldown (Solution C)
+    # ------------------------------------------------------------------
+
+    def _compute_proactive_cooldown(self, context: dict) -> float:
+        """Dynamic cooldown based on conversation state.
+
+        Active conversation → shorter cooldown (more to respond to).
+        Silent conversation → shorter cooldown (break the silence).
+        Normal flow where I'm not needed → longer cooldown.
+        """
+        base = 45.0 if self._is_supervisor else 60.0
+
+        # New thread starting → halve cooldown
+        active_thread = context.get("active_thread")
+        if active_thread and active_thread.get("turn_count", 0) <= 3:
+            base *= 0.5
+
+        # Long silence (>20s) → greatly reduce cooldown
+        last_event_time = context.get("_last_event_time")
+        if last_event_time:
+            silence = time.time() - last_event_time
+            if silence > 20:
+                base *= 0.3
+
+        # Directive invitation → bypass entirely
+        directive = context.get("blackboard", {}).get("coordination_directive")
+        if directive and directive.get("invited_speaker"):
+            if self._seat_role.lower() in directive["invited_speaker"].lower():
+                return 0.0
+
+        return base
 
     # ------------------------------------------------------------------
     # Main decision cycle
@@ -165,22 +252,24 @@ class BaseAgent:
             assess_result.rule,
         )
 
-        # Supervisor: run StageEvaluator on its own schedule
+        # Supervisor: run StageEvaluator on its own schedule (one at a time)
         if self._is_supervisor and self._evaluator is not None:
-            if self._evaluator.should_evaluate():
+            if self._evaluator.should_evaluate() and not self._evaluation_in_progress:
+                self._evaluation_in_progress = True
                 asyncio.create_task(self._run_evaluation(context))
 
         if assess_result.decision in ("wait", "observe"):
             return
 
-        # Proactive initiation budget (spec §5.2)
+        # Proactive initiation budget (dynamic cooldown — Solution C)
         _REACTIVE_RULES = frozenset((
-            "rule_1_mention", "rule_6_relevant_event",
-            "rule_7_addressed", "rule_5_idle",
+            "rule_0_invited", "rule_1_mention", "rule_5_idle",
+            "rule_5_5_reengagement", "rule_6_relevant_event",
+            "rule_7_addressed",
         ))
         is_reactive = assess_result.rule in _REACTIVE_RULES
         if not is_reactive:
-            budget = 120.0 if self._is_supervisor else 180.0
+            budget = self._compute_proactive_cooldown(context)
             if self._last_proactive_time is not None:
                 elapsed = time.time() - self._last_proactive_time
                 if elapsed < budget:
@@ -211,6 +300,9 @@ class BaseAgent:
             and think_result.actions[0].get("type") == "no_action"
         ):
             return
+
+        # Step 3.5: WRITE_BLACKBOARD — publish intention for coordination
+        await self._write_blackboard(think_result, context)
 
         # Queue backpressure: diminishing join probability as queue fills
         queue_depth = agent_coordinator.get_queue_depth(self._project_id)
@@ -268,6 +360,12 @@ class BaseAgent:
             )
         finally:
             await agent_coordinator.release(self._project_id, self._agent_id)
+            # Round gate: supervisor marks first action done so crew can proceed
+            if self._is_supervisor and not self._first_action_done:
+                self._first_action_done = True
+                await agent_coordinator.mark_supervisor_done(
+                    self._project_id, self._agent_id
+                )
 
     # ------------------------------------------------------------------
     # Supervisor evaluation task
@@ -289,6 +387,56 @@ class BaseAgent:
             )
         except Exception as exc:
             logger.error("Stage evaluation error: %s", exc)
+        finally:
+            self._evaluation_in_progress = False
+
+    # ------------------------------------------------------------------
+    # Blackboard write (§4.1)
+    # ------------------------------------------------------------------
+
+    async def _write_blackboard(self, think_result: Any, context: dict) -> None:
+        """Extract reasoning + intent from ThinkResult and write to Blackboard."""
+        try:
+            # Determine focus_topic and viewpoint from LLM response
+            # The LLM may include these in reasoning or we extract from actions
+            focus_topic: str | None = None
+            viewpoint: str | None = None
+            next_intent = "no_action"
+
+            for action in think_result.actions:
+                atype = action.get("type", "no_action")
+                if atype != "no_action":
+                    next_intent = atype
+                    if atype == "add_note":
+                        focus_topic = action.get("content", "")[:50]
+                    elif atype == "chat_message":
+                        focus_topic = action.get("content", "")[:50]
+                    break
+
+            # Try to extract focus_topic/viewpoint from raw JSON response
+            try:
+                import json as _json
+                raw_data = _json.loads(think_result.raw_response.strip().strip("`").strip())
+                focus_topic = raw_data.get("focus_topic", focus_topic)
+                viewpoint = raw_data.get("viewpoint", viewpoint)
+            except Exception:
+                pass
+
+            intention = AgentIntention(
+                agent_id=self._agent_id,
+                seat_role=self._seat_role,
+                reasoning_summary=think_result.reasoning[:200] if think_result.reasoning else "",
+                next_intent=next_intent,
+                focus_topic=focus_topic,
+                viewpoint=viewpoint,
+                confidence=0.7,
+                stage=context.get("current_stage", "discover"),
+            )
+            await self._blackboard.write_intention(intention)
+        except Exception:
+            logger.warning(
+                "Failed to write blackboard for %s", self._agent_id, exc_info=True
+            )
 
     # ------------------------------------------------------------------
     # Lazy component getters

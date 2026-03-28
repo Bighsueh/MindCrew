@@ -95,7 +95,12 @@ export function WorkspacePage() {
     [id, currentStage, addMessage, setCurrentStage, updateSeat],
   )
 
-  const wsUrl = id ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/project/${id}` : ''
+  // In dev mode, connect directly to the backend (Vite's WS proxy is unreliable)
+  const wsUrl = id
+    ? import.meta.env.DEV
+      ? `ws://localhost:8000/ws/project/${id}`
+      : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/project/${id}`
+    : ''
 
   const { status: wsStatus, send: sendWS } = useWebSocket(wsUrl, {
     onMessage: handleWSMessage,

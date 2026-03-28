@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from app.config import settings
 from app.db.base import Base
 from app.db.session import get_db_session
+from app.events.bus import event_bus
 from app.main import app
 
 # Import all models
@@ -55,6 +56,11 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
             pass
 
     app.dependency_overrides[get_db_session] = override_get_db
+
+    # Ensure EventBus is initialised for tests that trigger seat manager events.
+    # Always re-initialize: prior test teardowns may have closed the Redis connection.
+    await event_bus.initialize()
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

@@ -34,6 +34,9 @@ class _ProjectQueue:
         self._lock = asyncio.Lock()
         self._queue: deque[_QueueEntry] = deque()
         self._current: str | None = None  # agent_id currently holding the lock
+        # Round gate: blocks crew until supervisor completes first action
+        self._supervisor_first_round_done: bool = False
+        self._round_gate: asyncio.Event = asyncio.Event()
 
     async def acquire(self, agent_id: str, is_supervisor: bool) -> bool:
         """Request exclusive action rights.
@@ -44,8 +47,17 @@ class _ProjectQueue:
         entry = _QueueEntry(agent_id=agent_id, is_supervisor=is_supervisor)
 
         # Insert supervisor at front, crew at back (spec §3.2)
+        # Supervisor preempts: evict waiting crew to speak sooner
         async with self._lock:
             if is_supervisor:
+                evicted = [e for e in self._queue if not e.is_supervisor]
+                if evicted:
+                    self._queue = deque(e for e in self._queue if e.is_supervisor)
+                    logger.debug(
+                        "Supervisor %s preempted %d crew entries",
+                        agent_id,
+                        len(evicted),
+                    )
                 self._queue.appendleft(entry)
             else:
                 self._queue.append(entry)
@@ -80,6 +92,20 @@ class _ProjectQueue:
     def queue_depth(self) -> int:
         """Return the number of agents queued or acting."""
         return len(self._queue) + (1 if self._current else 0)
+
+    def mark_supervisor_first_round_done(self) -> None:
+        """Called after Supervisor completes its first action."""
+        self._supervisor_first_round_done = True
+        self._round_gate.set()
+
+    async def wait_for_round_gate(self) -> None:
+        """Crew agents wait here until Supervisor has spoken first."""
+        if self._supervisor_first_round_done:
+            return
+        try:
+            await asyncio.wait_for(self._round_gate.wait(), timeout=15.0)
+        except asyncio.TimeoutError:
+            logger.warning("Round gate timeout — proceeding without Supervisor")
 
     async def release(self, agent_id: str) -> None:
         async with self._lock:
@@ -186,6 +212,22 @@ class AgentCoordinator:
         """Return the number of agents queued or acting in this project."""
         queue = self._project_queues.get(project_id)
         return 0 if queue is None else queue.queue_depth()
+
+    async def mark_supervisor_done(self, project_id: UUID, agent_id: str) -> None:
+        """Notify that the supervisor completed its first action (round gate)."""
+        queue = self._project_queues.get(project_id)
+        if queue is not None:
+            queue.mark_supervisor_first_round_done()
+            logger.info(
+                "Supervisor %s marked first round done for project %s",
+                agent_id,
+                project_id,
+            )
+
+    async def wait_for_round_gate(self, project_id: UUID) -> None:
+        """Crew agents wait for the supervisor's first action."""
+        queue = await self._get_project_queue(project_id)
+        await queue.wait_for_round_gate()
 
     def is_agent_acting(self, project_id: UUID) -> bool:
         """Return True if any agent currently holds the project lock."""

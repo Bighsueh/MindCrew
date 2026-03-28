@@ -19,11 +19,12 @@ _VALID_ACTION_TYPES = {
     "edit_note",
     "delete_note",
     "group_notes",
+    "set_directive",
     "no_action",
 }
 
 # Text fields that must be converted to Traditional Chinese
-_TEXT_FIELDS = {"content", "new_content", "group_name", "reason"}
+_TEXT_FIELDS = {"content", "new_content", "group_name", "reason", "instruction", "focus_topic"}
 
 
 @dataclass

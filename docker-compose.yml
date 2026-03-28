@@ -67,6 +67,9 @@ services:
       dockerfile: Dockerfile
     environment:
       SIDECAR_PORT: "4000"
+      YJS_DATA_DIR: /data
+    volumes:
+      - yjsdata:/data
     networks:
       - mindcrew
     restart: unless-stopped
@@ -91,3 +94,4 @@ networks:
 volumes:
   pgdata:
   redisdata:
+  yjsdata:

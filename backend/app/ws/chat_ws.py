@@ -179,9 +179,8 @@ async def chat_websocket(ws: WebSocket, project_id: UUID) -> None:
                     content=content,
                     timestamp=timestamp,
                 )
-                # Broadcast to all WS clients in this project
-                await chat_manager.broadcast(project_id, event.to_dict())
-                # Publish to Redis so other processes (agents, teacher WS) get it
+                # Publish to Redis — _event_bus_forwarder delivers to all WS clients
+                # (single delivery path, consistent with AI message flow)
                 await event_bus.publish(event)
                 # Phase-3 hook – currently a noop
                 asyncio.create_task(handle_chat_message(

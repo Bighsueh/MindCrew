@@ -64,6 +64,24 @@ class AssessEngine:
         recent_chat: list[dict] = context.get("recent_chat", [])
         my_seat: str = context.get("my_seat", "")
 
+        # Rule 0: Supervisor Coordination Directive (hard constraint for Crew)
+        directive = context.get("blackboard", {}).get("coordination_directive")
+        if directive and "supervisor" not in my_seat.lower():
+            invited = directive.get("invited_speaker", "")
+            if invited:
+                if my_seat.lower() in invited.lower():
+                    return AssessResult(
+                        decision="intervene",
+                        rule="rule_0_invited",
+                        details={"reason": "Supervisor 邀請你發言"},
+                    )
+                else:
+                    return AssessResult(
+                        decision="wait",
+                        rule="rule_0_not_invited",
+                        details={"reason": f"Supervisor 指定 {invited} 發言"},
+                    )
+
         # Rule 1: @mention or direct question to this agent
         if self._is_mentioned(recent_chat, agent_id, my_seat):
             return AssessResult(
@@ -102,19 +120,22 @@ class AssessEngine:
                 )
 
         # Rule 4.5: Consecutive AI message limit (spec §5.2, §6)
-        # With humans: max 3 consecutive AI messages
+        # With humans: max 3 consecutive AI messages (Supervisor: 5)
         # All-AI mode: same agent max 2 consecutive; total max 6 consecutive
         seats: list[dict] = context.get("seats", [])
         has_humans = any(s.get("type") == "human" for s in seats)
+        is_supervisor = "supervisor" in my_seat.lower()
         consecutive_ai = self._count_trailing_ai_messages(recent_chat)
         if has_humans:
-            if consecutive_ai >= 3:
+            # Supervisor has relaxed limit (5) to maintain facilitation ability
+            ai_limit = 5 if is_supervisor else 3
+            if consecutive_ai >= ai_limit:
                 return AssessResult(
                     decision="wait",
                     rule="rule_4_5_consecutive_ai_limit",
                     details={
                         "consecutive_ai_messages": consecutive_ai,
-                        "reason": "連續 AI 訊息已達 3 則上限，等待人類發言",
+                        "reason": f"連續 AI 訊息已達 {ai_limit} 則上限，等待人類發言",
                     },
                 )
         else:
@@ -147,6 +168,21 @@ class AssessEngine:
                     },
                 )
 
+        # Rule 5.5: Re-engagement — topic overlap with other agents' intentions
+        blackboard = context.get("blackboard", {})
+        my_actions: list[dict] = context.get("my_recent_actions", [])
+        if my_actions and blackboard.get("other_agent_intentions"):
+            my_last_content = my_actions[-1].get("content", "")
+            if my_last_content:
+                for intent in blackboard["other_agent_intentions"]:
+                    other_topic = intent.get("focus_topic", "")
+                    if other_topic and self._topic_overlap(other_topic, my_last_content):
+                        return AssessResult(
+                            decision="intervene",
+                            rule="rule_5_5_reengagement",
+                            details={"reason": f"話題相關：{other_topic}"},
+                        )
+
         # Rule 6: New event is highly relevant (n-gram overlap, not single-char)
         if self._has_relevant_event_ngram(context):
             return AssessResult(
@@ -172,6 +208,9 @@ class AssessEngine:
 
         # Rule 7: Thread-aware intervention (replaces pure probabilistic)
         prob = _INTERVENTION_PROBABILITIES.get(ai_contribution, 0.50)
+        # Supervisor gets a 30% boost — it has facilitation responsibility
+        if is_supervisor:
+            prob = min(1.0, prob * 1.3)
 
         if active_thread:
             # Check persistent addressee (survives intervening messages)
@@ -324,3 +363,12 @@ class AssessEngine:
         if len(cjk) < n:
             return set()
         return {cjk[i : i + n] for i in range(len(cjk) - n + 1)}
+
+    @staticmethod
+    def _topic_overlap(text_a: str, text_b: str) -> bool:
+        """Return True if two texts share >= 2 CJK trigrams."""
+        ngrams_a = AssessEngine._extract_cjk_ngrams(text_a)
+        ngrams_b = AssessEngine._extract_cjk_ngrams(text_b)
+        if not ngrams_a or not ngrams_b:
+            return False
+        return len(ngrams_a & ngrams_b) >= 2

@@ -5,13 +5,15 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
+from app.agents.blackboard import BlackboardManager
 from app.db.models.stage_evaluation_log import StageEvaluationLog
 from app.db.session import async_session_factory
 from app.agents.evaluator_scoring import compute_quantitative
+from app.agents.topic_saturation import compute_and_write_topic_saturation
+from app.agents.stage_advancement import advance_stage, propose_advance
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +38,6 @@ _THRESHOLDS: dict[str, float] = {
     "high": 60.0,
 }
 
-# Proposal timeout seconds when humans are present
-_PROPOSAL_TIMEOUT_SECONDS = 60.0
-
-# Stage sequence for advance
-_STAGE_ORDER = ["discover", "define", "develop", "deliver"]
 
 
 @dataclass
@@ -81,6 +78,13 @@ class StageEvaluator:
         self._proposal_event: asyncio.Event = asyncio.Event()
         self._proposal_agreed: bool = False
         self._blind_spot_challenge_sent: bool = False
+        self._last_guidance_text: str = ""
+        self._last_guidance_time: float = 0.0
+        self._blackboard = BlackboardManager(
+            project_id=project_id,
+            agent_id=agent_id,
+            seat_role="supervisor",
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -154,15 +158,23 @@ class StageEvaluator:
         else:
             total = quant_score * quant_weight  # Only quantitative component
 
-        passed = total >= self._threshold
+        # Effective threshold: adjust for All-AI mode and time pressure
+        has_humans = any(s.get("type") == "human" for s in seats)
+        effective_threshold = self._threshold
+        if not has_humans:
+            effective_threshold -= 10.0  # All-AI 模式降低門檻
+        duration_minutes = context.get("stage_duration_minutes", 0.0)
+        effective_threshold -= self._time_pressure_adjustment(stage, duration_minutes)
 
-        # Blind spot veto (Discover only): block if blind_spot_score < 40
-        if stage == "discover" and blind_spot_score is not None and blind_spot_score < 40:
+        passed = total >= effective_threshold
+
+        # Blind spot veto (Discover only): block if blind_spot_score < 30
+        if stage == "discover" and blind_spot_score is not None and blind_spot_score < 30:
             passed = False
             if not any("盲區分數不足" in w for w in weak_areas):
                 weak_areas.insert(0, "盲區分數不足——團隊可能遺漏了重要面向")
             logger.info(
-                "Blind spot veto triggered: blind_spot_score=%.1f < 40",
+                "Blind spot veto triggered: blind_spot_score=%.1f < 30",
                 blind_spot_score,
             )
 
@@ -171,13 +183,12 @@ class StageEvaluator:
         else:
             self._consecutive_pass_count = 0
 
-        # Discover requires at least 3 consecutive passes regardless of contribution
+        # Discover requires at least 2 consecutive passes (lowered from 3)
         if stage == "discover":
-            required_passes = max(3, _COOLING_COUNTS.get(self._contribution, 2))
+            required_passes = max(2, _COOLING_COUNTS.get(self._contribution, 2))
         else:
             required_passes = _COOLING_COUNTS.get(self._contribution, 2)
 
-        has_humans = any(s.get("type") == "human" for s in seats)
         action_taken = "none"
 
         if not passed and weak_areas:
@@ -202,7 +213,7 @@ class StageEvaluator:
             quantitative_score=quant_score,
             qualitative_score=qual_score,
             total_score=total,
-            threshold=self._threshold,
+            threshold=effective_threshold,
             passed=passed,
             weak_areas=weak_areas,
             summary=summary,
@@ -212,6 +223,10 @@ class StageEvaluator:
         )
 
         await self._log_to_db(stage, result)
+
+        # Compute and write Topic Saturation to Blackboard (Summarizer role)
+        await self._compute_topic_saturation(stage, canvas_state, recent_chat, llm_service)
+
         return result
 
     def register_human_response(self, agreed: bool) -> None:
@@ -219,19 +234,30 @@ class StageEvaluator:
         self._proposal_agreed = agreed
         self._proposal_event.set()
 
-    # ------------------------------------------------------------------
-    # Quantitative scoring (delegated to evaluator_scoring module)
-    # ------------------------------------------------------------------
-
     def _compute_quantitative(
-        self,
-        stage: str,
-        canvas: dict,
-        recent_chat: list[dict],
-        seats: list[dict],
+        self, stage: str, canvas: dict, recent_chat: list[dict], seats: list[dict],
     ) -> float:
-        """Delegate to evaluator_scoring module (see evaluator_scoring.py)."""
         return compute_quantitative(stage, canvas, recent_chat, seats)
+
+    @staticmethod
+    def _time_pressure_adjustment(stage: str, duration_minutes: float) -> float:
+        """Gradually lower threshold as time exceeds target for the stage."""
+        _STAGE_TARGET_MINUTES: dict[str, float] = {
+            "discover": 15.0,
+            "define": 10.0,
+            "develop": 15.0,
+            "deliver": 10.0,
+        }
+        target = _STAGE_TARGET_MINUTES.get(stage, 15.0)
+        if duration_minutes <= target:
+            return 0.0
+        overtime = duration_minutes - target
+        reduction = min(20.0, (overtime / 5.0) * 5.0)
+        logger.info(
+            "Time pressure: stage=%s, duration=%.1f min, target=%.1f min, reduction=%.1f",
+            stage, duration_minutes, target, reduction,
+        )
+        return reduction
 
     # ------------------------------------------------------------------
     # Qualitative LLM analysis
@@ -308,121 +334,41 @@ class StageEvaluator:
     # ------------------------------------------------------------------
 
     async def _propose_advance(self, stage: str, total_score: float) -> str:
-        """Propose stage advancement to humans via chat. Wait up to 60s for response."""
-        stage_names = {"discover": "發現", "define": "定義", "develop": "發展", "deliver": "交付"}
-        current_name = stage_names.get(stage, stage)
-        next_stage = self._get_next_stage(stage)
-        if not next_stage:
-            return "already_final_stage"
-
-        next_name = stage_names.get(next_stage, next_stage)
-
-        await self._publish_supervisor_message(
-            f"我評估目前的 {current_name} 階段已經完成得相當充分（評分：{total_score:.0f} 分）。"
-            f"大家覺得可以進入下一個 {next_name} 階段了嗎？"
-        )
-
+        """Propose stage advancement to humans via chat. Wait up to 60s."""
         self._proposal_pending = True
-        self._proposal_event.clear()
         self._proposal_agreed = False
-
-        try:
-            await asyncio.wait_for(self._proposal_event.wait(), timeout=_PROPOSAL_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            logger.info("Stage advance proposal timed out — asking again")
-            return "proposal_timeout"
-        finally:
-            self._proposal_pending = False
-
-        if self._proposal_agreed:
-            return await self._advance_stage(stage)
-        else:
-            self._threshold += 10.0
-            logger.info(
-                "Stage advance proposal rejected — threshold raised to %.1f",
-                self._threshold,
-            )
-            return "proposal_rejected"
+        # Use a mutable ref so propose_advance can update threshold on rejection
+        threshold_ref = [self._threshold]
+        result = await propose_advance(
+            stage=stage,
+            total_score=total_score,
+            project_id=self._project_id,
+            agent_id=self._agent_id,
+            proposal_event=self._proposal_event,
+            get_proposal_agreed=lambda: self._proposal_agreed,
+            publish_supervisor_message=self._publish_supervisor_message,
+            threshold_ref=threshold_ref,
+            blackboard=self._blackboard,
+        )
+        self._threshold = threshold_ref[0]
+        self._proposal_pending = False
+        if result.startswith("advanced_to_"):
+            self._consecutive_pass_count = 0
+            self._blind_spot_challenge_sent = False
+        return result
 
     async def _advance_stage(self, current_stage: str) -> str:
         """Directly advance the project to the next stage."""
-        next_stage = self._get_next_stage(current_stage)
-        if not next_stage:
-            logger.info("Already at final stage: %s", current_stage)
-            return "already_final_stage"
-
-        try:
-            async with async_session_factory() as session:
-                from sqlalchemy import update
-                from app.db.models.project import Project
-                from app.db.models.stage_history import StageHistory  # type: ignore[attr-defined]
-                from datetime import datetime, timezone
-
-                now = datetime.now(timezone.utc)
-
-                # Close current stage history entry
-                await session.execute(
-                    update(StageHistory)
-                    .where(
-                        StageHistory.project_id == self._project_id,
-                        StageHistory.stage == current_stage,
-                        StageHistory.ended_at.is_(None),
-                    )
-                    .values(ended_at=now)
-                )
-
-                # Update project stage
-                await session.execute(
-                    update(Project)
-                    .where(Project.id == self._project_id)
-                    .values(current_stage=next_stage, updated_at=now)
-                )
-
-                # Open new stage history entry
-                sh = StageHistory(
-                    project_id=self._project_id,
-                    stage=next_stage,
-                    started_at=now,
-                )
-                session.add(sh)
-                await session.commit()
-
-            # Broadcast stage change event
-            from app.events.types import StageChangedEvent
-            from app.events.bus import event_bus
-
-            event = StageChangedEvent(
-                project_id=self._project_id,
-                from_stage=current_stage,
-                to=next_stage,
-                triggered_by="ai_evaluator",
-            )
-            await event_bus.publish(event)
-
+        result = await advance_stage(
+            current_stage=current_stage,
+            project_id=self._project_id,
+            agent_id=self._agent_id,
+            blackboard=self._blackboard,
+        )
+        if result.startswith("advanced_to_"):
             self._consecutive_pass_count = 0
             self._blind_spot_challenge_sent = False
-            logger.info(
-                "Project %s advanced: %s → %s",
-                self._project_id,
-                current_stage,
-                next_stage,
-            )
-            return f"advanced_to_{next_stage}"
-        except Exception as exc:
-            logger.error("Failed to advance stage: %s", exc)
-            self._consecutive_pass_count = 0
-            self._blind_spot_challenge_sent = False
-            return "advance_failed"
-
-    @staticmethod
-    def _get_next_stage(current: str) -> str | None:
-        try:
-            idx = _STAGE_ORDER.index(current)
-            if idx + 1 < len(_STAGE_ORDER):
-                return _STAGE_ORDER[idx + 1]
-        except ValueError:
-            pass
-        return None
+        return result
 
     # ------------------------------------------------------------------
     # Chat guidance helpers
@@ -456,18 +402,61 @@ class StageEvaluator:
             logger.error("Failed to publish blind spot challenge: %s", exc)
 
     async def _publish_weak_area_guidance(self, weak_areas: list[str]) -> None:
-        """Publish a chat message guiding the team to improve weak areas (spec §4.4)."""
+        """Publish a chat message guiding the team to improve weak areas (spec §4.4).
+
+        Dedup: skip if the same guidance text was sent within the last 5 minutes.
+        """
         if not weak_areas:
             return
         try:
             primary_area = weak_areas[0]
+
+            # Skip internal-only messages (not actionable by the team)
+            if "尚未達到質性分析門檻" in primary_area:
+                logger.debug(
+                    "Skipping pre-screening weak area (not actionable): %s",
+                    primary_area,
+                )
+                return
+
+            # Cooldown: don't repeat the same guidance within 5 minutes
+            now = time.time()
+            if (
+                primary_area == self._last_guidance_text
+                and (now - self._last_guidance_time) < 300
+            ):
+                logger.debug(
+                    "Skipping duplicate weak-area guidance (cooldown): %s",
+                    primary_area,
+                )
+                return
+
+            self._last_guidance_text = primary_area
+            self._last_guidance_time = now
+
             await self._publish_supervisor_message(
-                f"我覺得我們在 {primary_area} 方面可以再深入探討一些，"
+                f"我覺得我們在「{primary_area}」方面可以再深入探討一些，"
                 f"這樣能讓這個階段的產出更紮實。大家有什麼想法嗎？"
             )
             logger.info("Published weak-area guidance for project %s: %s", self._project_id, primary_area)
         except Exception as exc:
             logger.error("Failed to publish weak-area guidance: %s", exc)
+
+    async def _compute_topic_saturation(
+        self,
+        stage: str,
+        canvas: dict,
+        chat: list[dict],
+        llm_service: Any,
+    ) -> None:
+        """Delegate to topic_saturation module."""
+        await compute_and_write_topic_saturation(
+            blackboard=self._blackboard,
+            stage=stage,
+            canvas=canvas,
+            chat=chat,
+            llm_service=llm_service,
+        )
 
     # ------------------------------------------------------------------
     # DB logging

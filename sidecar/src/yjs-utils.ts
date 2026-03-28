@@ -1,13 +1,56 @@
 import * as Y from 'yjs'
+import { LeveldbPersistence } from 'y-leveldb'
+import path from 'path'
 
 // Per-project Yjs doc store
 const docs = new Map<string, Y.Doc>()
 
-export function getOrCreateDoc(projectId: string): Y.Doc {
+// Persistence: store Yjs updates in LevelDB so notes survive sidecar restarts
+const DATA_DIR = process.env.YJS_DATA_DIR || './data'
+const persistence = new LeveldbPersistence(DATA_DIR)
+
+export async function getOrCreateDoc(projectId: string): Promise<Y.Doc> {
   let doc = docs.get(projectId)
   if (!doc) {
     doc = new Y.Doc()
     docs.set(projectId, doc)
+
+    // Restore persisted state
+    try {
+      const stored = await persistence.getYDoc(projectId)
+      const update = Y.encodeStateAsUpdate(stored)
+      Y.applyUpdate(doc, update)
+      stored.destroy()
+    } catch {
+      // No persisted state yet — fresh doc
+    }
+
+    // Persist future updates
+    doc.on('update', (update: Uint8Array) => {
+      persistence.storeUpdate(projectId, update).catch(() => {
+        // Best-effort persistence
+      })
+    })
+  }
+  return doc
+}
+
+/** Synchronous getter for docs already in memory (used by getCanvasState etc.) */
+export function getOrCreateDocSync(projectId: string): Y.Doc {
+  let doc = docs.get(projectId)
+  if (!doc) {
+    doc = new Y.Doc()
+    docs.set(projectId, doc)
+    // Kick off async restore — will apply when ready
+    persistence.getYDoc(projectId).then(stored => {
+      const update = Y.encodeStateAsUpdate(stored)
+      Y.applyUpdate(doc!, update)
+      stored.destroy()
+    }).catch(() => {})
+
+    doc.on('update', (update: Uint8Array) => {
+      persistence.storeUpdate(projectId, update).catch(() => {})
+    })
   }
   return doc
 }
@@ -104,7 +147,7 @@ export function addNote(
   color: string = 'yellow',
   position?: string | { x: number; y: number }
 ): NoteShape {
-  const doc = getOrCreateDoc(projectId)
+  const doc = getOrCreateDocSync(projectId)
   const shapes = getShapesMap(doc)
   const pos = resolvePosition(doc, position)
   const id = generateNoteId()

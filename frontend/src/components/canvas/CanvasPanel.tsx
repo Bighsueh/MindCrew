@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Tldraw, TLRecord, createTLStore, defaultShapeUtils } from '@tldraw/tldraw'
 import '@tldraw/tldraw/tldraw.css'
 import * as Y from 'yjs'
@@ -28,38 +28,33 @@ function toTldrawColor(color: unknown): string {
 // Generate tldraw-compatible fractional index keys (base-62: 0-9A-Za-z)
 const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 function toIndexKey(n: number): string {
-  // "a" prefix means 2-char integer; use base-62 single digit (0-9, A-Z, a-z)
   return `a${BASE62[n % BASE62.length]}`
+}
+
+function getYjsWsUrl(): string {
+  if (import.meta.env.DEV) {
+    return 'ws://localhost:4000/yjs'
+  }
+  return `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/yjs`
 }
 
 export function CanvasPanel({ projectId }: CanvasPanelProps) {
   const [connected, setConnected] = useState(false)
-
-  // Create Yjs doc and provider per project
-  const { doc, provider } = useMemo(() => {
-    const ydoc = new Y.Doc()
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/yjs`
-    const prov = new WebsocketProvider(wsUrl, projectId, ydoc)
-    return { doc: ydoc, provider: prov }
-  }, [projectId])
+  const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), [])
+  const providerRef = useRef<WebsocketProvider | null>(null)
 
   useEffect(() => {
+    const doc = new Y.Doc()
+    const wsUrl = getYjsWsUrl()
+    const provider = new WebsocketProvider(wsUrl, projectId, doc)
+    providerRef.current = provider
+
     const onStatus = ({ status }: { status: string }) => {
       setConnected(status === 'connected')
     }
     provider.on('status', onStatus)
 
-    return () => {
-      provider.off('status', onStatus)
-      provider.disconnect()
-      doc.destroy()
-    }
-  }, [doc, provider])
-
-  // Sync Yjs shapes map → tldraw store
-  const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), [])
-
-  useEffect(() => {
+    // Sync Yjs shapes map → tldraw store
     const shapesMap = doc.getMap('shapes')
 
     const syncToStore = () => {
@@ -70,7 +65,6 @@ export function CanvasPanel({ projectId }: CanvasPanelProps) {
           const shape = value as Record<string, unknown>
           if (!shape || typeof shape !== 'object') return
 
-          // tldraw 2.0 requires IDs starting with "shape:"
           const id = key.startsWith('shape:') ? key : `shape:${key}`
 
           records.push({
@@ -112,10 +106,17 @@ export function CanvasPanel({ projectId }: CanvasPanelProps) {
     }
 
     shapesMap.observe(syncToStore)
-    // Initial sync
     syncToStore()
-    return () => shapesMap.unobserve(syncToStore)
-  }, [doc, store])
+
+    return () => {
+      shapesMap.unobserve(syncToStore)
+      provider.off('status', onStatus)
+      provider.disconnect()
+      provider.destroy()
+      doc.destroy()
+      providerRef.current = null
+    }
+  }, [projectId, store])
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-lg border border-border">
@@ -124,7 +125,7 @@ export function CanvasPanel({ projectId }: CanvasPanelProps) {
           白板連線中...
         </div>
       )}
-      <Tldraw store={store} forceDarkMode={false} hideUi={false} />
+      <Tldraw store={store} inferDarkMode={false} hideUi={false} />
     </div>
   )
 }

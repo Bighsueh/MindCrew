@@ -19,7 +19,7 @@ from app.events.types import ChatMessageEvent
 logger = logging.getLogger(__name__)
 
 # Action types that crew agents are forbidden to execute
-_SUPERVISOR_ONLY_ACTIONS = {"advance_stage"}
+_SUPERVISOR_ONLY_ACTIONS = {"advance_stage", "set_directive"}
 
 
 @dataclass
@@ -150,6 +150,8 @@ class ActEngine:
             await self._execute_canvas_op("delete_note", action)
         elif action_type == "group_notes":
             await self._execute_canvas_op("group_notes", action)
+        elif action_type == "set_directive":
+            await self._execute_set_directive(action)
         elif action_type == "no_action":
             logger.debug("Agent %s chose no_action: %s", self._agent_id, action.get("reason", ""))
         else:
@@ -289,6 +291,46 @@ class ActEngine:
 
         else:
             logger.warning("Unknown canvas op type: %s", op_type)
+
+    async def _execute_set_directive(self, action: dict) -> None:
+        """Execute set_directive: write a CoordinationDirective to Blackboard."""
+        from app.agents.blackboard import BlackboardManager
+        from app.agents.blackboard_schemas import CoordinationDirective
+
+        round_type = action.get("round_type", "open_diverge")
+        focus_topic = action.get("focus_topic")
+        invited_speaker = action.get("invited_speaker")
+        instruction = action.get("instruction", "")
+
+        if focus_topic:
+            focus_topic = self._chinese_convert(focus_topic)
+        if instruction:
+            instruction = self._chinese_convert(instruction)
+
+        try:
+            directive = CoordinationDirective(
+                round_type=round_type,
+                focus_topic=focus_topic,
+                invited_speaker=invited_speaker,
+                instruction=instruction,
+            )
+        except Exception as exc:
+            logger.warning("Invalid set_directive action: %s", exc)
+            return
+
+        bb = BlackboardManager(
+            project_id=self._project_id,
+            agent_id=self._agent_id,
+            seat_role=self._seat_role,
+        )
+        await bb.write_coordination_directive(directive)
+        logger.info(
+            "Agent %s set_directive: round_type=%s focus=%s invited=%s",
+            self._agent_id,
+            round_type,
+            focus_topic,
+            invited_speaker,
+        )
 
     def _chinese_convert(self, text: str) -> str:
         """Apply Chinese conversion if text is non-empty."""

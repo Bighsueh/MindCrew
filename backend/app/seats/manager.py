@@ -9,6 +9,7 @@ from uuid import UUID
 
 import redis.asyncio as aioredis
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.seat import Seat
@@ -53,6 +54,7 @@ class SeatManager:
         seat_role: str,
         user_id: UUID,
         user_name: str,
+        session: AsyncSession | None = None,
     ) -> None:
         """A human is taking a seat previously held by AI.
 
@@ -62,34 +64,25 @@ class SeatManager:
         3. Update PostgreSQL seat record
         4. Update Redis seat state
         5. Broadcast SeatChangedEvent
+
+        If `session` is provided (e.g. from the service layer), it is used
+        for the DB update to preserve transactional consistency in tests.
         """
         key = (project_id, seat_role)
+
+        # 0: Mark Blackboard intention as inactive (§7.7)
+        await self._mark_blackboard_inactive(project_id, seat_role)
 
         # 1 & 2: stop agent and send farewell (before DB update so the message appears)
         await self._stop_agent_with_farewell(project_id, seat_role)
 
         # 3. Update PostgreSQL
-        async with async_session_factory() as session:
-            result = await session.execute(
-                select(Seat).where(
-                    Seat.project_id == project_id,
-                    Seat.seat_role == seat_role,
-                )
-            )
-            seat = result.scalar_one_or_none()
-            if seat is None:
-                logger.error(
-                    "assign_human: seat %s not found in project %s", seat_role, project_id
-                )
-                return
-
-            seat.occupant_type = "human"
-            seat.user_id = user_id
-            seat.agent_id = None
-            seat.state = "human_active"
-            seat.joined_at = datetime.now(timezone.utc)
-            seat.updated_at = datetime.now(timezone.utc)
-            await session.commit()
+        if session is not None:
+            await self._update_seat_in_session(session, project_id, seat_role, user_id)
+        else:
+            async with async_session_factory() as own_session:
+                await self._update_seat_in_session(own_session, project_id, seat_role, user_id)
+                await own_session.commit()
 
         # 4. Update Redis seat state
         await self._update_redis_seat(project_id, seat_role, "human", str(user_id))
@@ -113,6 +106,7 @@ class SeatManager:
         self,
         project_id: UUID,
         seat_role: str,
+        session: AsyncSession | None = None,
     ) -> None:
         """A human is leaving a seat; AI should take over.
 
@@ -122,12 +116,16 @@ class SeatManager:
         3. Broadcast SeatChangedEvent
         4. Start new AI agent
         5. AI sends greeting + progress summary
+
+        If `session` is provided, it is used for the DB update.
         """
         # 1. Update PostgreSQL
         agent_id = f"agent_{seat_role}"
         previous_human_name: str = "（未知使用者）"
-        async with async_session_factory() as session:
-            result = await session.execute(
+
+        async def _do_release(s: AsyncSession) -> None:
+            nonlocal previous_human_name
+            result = await s.execute(
                 select(Seat).where(
                     Seat.project_id == project_id,
                     Seat.seat_role == seat_role,
@@ -144,7 +142,7 @@ class SeatManager:
             if seat.user_id is not None:
                 from app.db.models.user import User
 
-                user_result = await session.execute(
+                user_result = await s.execute(
                     select(User).where(User.id == seat.user_id)
                 )
                 user_obj = user_result.scalar_one_or_none()
@@ -157,7 +155,13 @@ class SeatManager:
             seat.state = "ai_running"
             seat.joined_at = None
             seat.updated_at = datetime.now(timezone.utc)
-            await session.commit()
+
+        if session is not None:
+            await _do_release(session)
+        else:
+            async with async_session_factory() as own_session:
+                await _do_release(own_session)
+                await own_session.commit()
 
         # 2. Update Redis
         await self._update_redis_seat(project_id, seat_role, "ai", agent_id)
@@ -481,6 +485,44 @@ class SeatManager:
         except Exception as exc:
             logger.warning("Failed to fetch ai_contribution: %s", exc)
         return "medium"
+
+    @staticmethod
+    async def _update_seat_in_session(
+        session: AsyncSession, project_id: UUID, seat_role: str, user_id: UUID
+    ) -> None:
+        """Update seat record to human occupant within the given session."""
+        result = await session.execute(
+            select(Seat).where(
+                Seat.project_id == project_id,
+                Seat.seat_role == seat_role,
+            )
+        )
+        seat = result.scalar_one_or_none()
+        if seat is None:
+            logger.error(
+                "assign_human: seat %s not found in project %s", seat_role, project_id
+            )
+            return
+        seat.occupant_type = "human"
+        seat.user_id = user_id
+        seat.agent_id = None
+        seat.state = "human_active"
+        seat.joined_at = datetime.now(timezone.utc)
+        seat.updated_at = datetime.now(timezone.utc)
+
+    @staticmethod
+    async def _mark_blackboard_inactive(project_id: UUID, seat_role: str) -> None:
+        """Mark a seat's Blackboard intention as inactive (human takeover, §7.7)."""
+        try:
+            from app.agents.blackboard import BlackboardManager
+
+            agent_id = f"agent_{seat_role}"
+            bb = BlackboardManager(project_id, agent_id, seat_role)
+            await bb.mark_inactive()
+        except Exception as exc:
+            logger.warning(
+                "Failed to mark blackboard inactive for %s: %s", seat_role, exc
+            )
 
     @staticmethod
     def _role_to_display_name(seat_role: str) -> str:

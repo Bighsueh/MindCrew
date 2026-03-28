@@ -5,7 +5,7 @@ import * as Y from 'yjs'
 import * as encoding from 'lib0/encoding'
 import * as decoding from 'lib0/decoding'
 import { canvasRouter } from './canvas-api.js'
-import { getOrCreateDoc } from './yjs-utils.js'
+import { getOrCreateDoc, getOrCreateDocSync } from './yjs-utils.js'
 
 const PORT = parseInt(process.env.SIDECAR_PORT || '4000', 10)
 
@@ -16,7 +16,15 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
-app.use('/api', canvasRouter)
+// Ensure doc listener is registered and persistence loaded for HTTP API requests
+app.use('/api', async (req, _res, next) => {
+  const match = req.path.match(/^\/projects\/([^/]+)/)
+  if (match) {
+    await getOrCreateDoc(match[1])  // ensures persistence is loaded
+    ensureDocListener(match[1])
+  }
+  next()
+}, canvasRouter)
 
 const server = http.createServer(app)
 
@@ -81,7 +89,7 @@ function broadcastUpdate(projectId: string, update: Uint8Array, origin: WebSocke
 }
 
 function handleSyncMessage(projectId: string, ws: WebSocket, decoder: decoding.Decoder) {
-  const doc = getOrCreateDoc(projectId)
+  const doc = getOrCreateDocSync(projectId)
   const syncType = decoding.readVarUint(decoder)
 
   switch (syncType) {
@@ -108,15 +116,15 @@ function ensureDocListener(projectId: string) {
   if (docListeners.has(projectId)) return
   docListeners.add(projectId)
 
-  const doc = getOrCreateDoc(projectId)
+  const doc = getOrCreateDocSync(projectId)
   doc.on('update', (update: Uint8Array, origin: unknown) => {
     const wsOrigin = origin instanceof WebSocket ? origin : null
     broadcastUpdate(projectId, update, wsOrigin)
   })
 }
 
-wss.on('connection', (ws: WebSocket, projectId: string) => {
-  const doc = getOrCreateDoc(projectId)
+wss.on('connection', async (ws: WebSocket, projectId: string) => {
+  const doc = await getOrCreateDoc(projectId)
   const conns = getConnections(projectId)
   conns.add(ws)
   ensureDocListener(projectId)

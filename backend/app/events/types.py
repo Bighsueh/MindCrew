@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 
 def _now_iso() -> str:
@@ -18,6 +18,7 @@ class ChatMessageEvent:
     sender_name: str
     content: str
     timestamp: str = field(default_factory=_now_iso)
+    id: str = field(default_factory=lambda: str(uuid4()))
 
     @property
     def type(self) -> str:
@@ -27,6 +28,7 @@ class ChatMessageEvent:
         return {
             "type": self.type,
             "payload": {
+                "id": self.id,
                 "sender_id": self.sender_id,
                 "sender_type": self.sender_type,
                 "sender_name": self.sender_name,

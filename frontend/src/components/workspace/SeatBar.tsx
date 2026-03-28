@@ -25,7 +25,7 @@ export function SeatBar({ seats, currentUserId }: SeatBarProps) {
 
         return (
           <div
-            key={seat.id}
+            key={seat.seat_role}
             className={cn(
               'flex flex-shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium',
               isAI && 'bg-secondary/30 text-text-muted',

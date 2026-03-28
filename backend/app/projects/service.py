@@ -177,19 +177,21 @@ class ProjectService:
             )
 
         # Delegate to SeatManager: stops AI agent, updates DB/Redis, broadcasts event
+        # Pass our session so the DB update stays within this transaction
         await seat_manager.assign_human(
             project_id=project_id,
             seat_role=request.seat_role,
             user_id=user.id,
             user_name=user.display_name,
+            session=self.session,
         )
+        await self.session.flush()
 
         # Ensure all other AI seats have running agents
         await seat_manager.start_all_agents(project_id)
 
-        # Re-read seat from DB for the response (SeatManager committed via its own session)
-        self.session.expire_all()
-        seat = await self.repo.get_seat(project_id, request.seat_role)
+        # Re-read seat from DB for the response
+        await self.session.refresh(seat)
 
         return JoinResponse(
             seat=self._seat_to_response(seat),
@@ -212,7 +214,9 @@ class ProjectService:
         await seat_manager.release_human(
             project_id=project_id,
             seat_role=user_seat.seat_role,
+            session=self.session,
         )
+        await self.session.flush()
 
         return {"message": "Left successfully"}
 

@@ -4,11 +4,19 @@ import json
 import logging
 
 from app.agents.prompts.base import BASE_PERSONA_PROMPT, FULL_AI_MODE_PROMPT
+from app.agents.prompts.blackboard_rules import (
+    BLACKBOARD_COORDINATION_RULES,
+    SUPERVISOR_DIRECTIVE_PROMPT,
+)
 from app.agents.prompts.discover_subphase import (
     DISCOVER_SUPERVISOR_SUBPHASE_PROMPTS,
     determine_discover_subphase,
 )
-from app.agents.prompts.roles import SUPERVISOR_ROLE_PROMPT, get_crew_prompt
+from app.agents.prompts.roles import (
+    CREW_CAPABILITY_PROMPTS,
+    CREW_ROLE_BASE_PROMPT,
+    SUPERVISOR_ROLE_PROMPT,
+)
 from app.agents.prompts.stages import STAGE_PROMPTS
 
 logger = logging.getLogger(__name__)
@@ -17,6 +25,8 @@ _RESPONSE_FORMAT_INSTRUCTION = """\
 請以 JSON 格式回應，格式如下：
 {
   "reasoning": "簡短思考（1-2句）",
+  "focus_topic": "你目前聚焦的主題（簡短描述）",
+  "viewpoint": "你的切入角度（例如：從使用者體驗角度、從技術可行性角度）",
   "actions": [
     {"type": "chat_message", "content": "你要在聊天室說的話"},
     {"type": "add_note", "content": "便條紙內容", "color": "yellow"}
@@ -171,6 +181,82 @@ def _build_context_description(context: dict) -> str:
     else:
         parts.append("【我最近的行動】目前還沒有行動記錄。")
 
+    # Blackboard data (if available)
+    blackboard: dict = context.get("blackboard", {})
+    if blackboard:
+        bb_parts = _build_blackboard_description(blackboard)
+        if bb_parts:
+            parts.append(bb_parts)
+
+    return "\n".join(parts)
+
+
+def _build_blackboard_description(blackboard: dict) -> str:
+    """Serialize Blackboard data into a natural language description for Layer 4."""
+    parts: list[str] = []
+
+    # Other agents' intentions
+    intentions: list[dict] = blackboard.get("other_agent_intentions", [])
+    if intentions:
+        intention_lines = []
+        for i in intentions:
+            line = f"  - {i.get('seat_role', '?')}：意圖={i.get('next_intent', '?')}"
+            if i.get("focus_topic"):
+                line += f"，主題=「{i['focus_topic']}」"
+            if i.get("viewpoint"):
+                line += f"，角度=「{i['viewpoint']}」"
+            if i.get("reasoning_summary"):
+                line += f"\n    思考：{i['reasoning_summary']}"
+            intention_lines.append(line)
+        parts.append(
+            "【其他 AI 成員的思考（Blackboard）】\n" + "\n".join(intention_lines)
+        )
+
+    # Topic saturation
+    saturation: dict | None = blackboard.get("topic_saturation")
+    if saturation:
+        topics: list[dict] = saturation.get("topics", [])
+        if topics:
+            topic_lines = []
+            for t in topics:
+                sat_level = t.get("saturation", "?")
+                diversity = t.get("viewpoint_diversity", "?")
+                topic_lines.append(
+                    f"  - {t.get('name', '?')}：飽和度={sat_level}，觀點多元性={diversity}"
+                )
+                if t.get("missing_angles"):
+                    topic_lines.append(
+                        f"    缺少的角度：{'、'.join(t['missing_angles'])}"
+                    )
+            parts.append("【主題飽和度】\n" + "\n".join(topic_lines))
+
+        blind_spots: list[str] = saturation.get("blind_spots", [])
+        if blind_spots:
+            parts.append(f"【盲區（尚未討論）】{'、'.join(blind_spots)}")
+
+    # Coordination Directive (Supervisor's current instruction)
+    directive: dict | None = blackboard.get("coordination_directive")
+    if directive:
+        dir_lines: list[str] = []
+        rt = directive.get("round_type", "open_diverge")
+        if rt == "focused_discuss":
+            dir_lines.append(
+                f"Supervisor 指示：聚焦討論「{directive.get('focus_topic', '')}」"
+            )
+            dir_lines.append("你的回應必須與這個話題直接相關。")
+        elif rt == "respond_to":
+            speaker = directive.get("invited_speaker", "")
+            dir_lines.append(f"Supervisor 指示：{speaker} 請回應")
+        elif rt == "summarize":
+            dir_lines.append("Supervisor 指示：摘要回合，請整理討論重點")
+        instruction = directive.get("instruction", "")
+        if instruction:
+            dir_lines.append(f"補充說明：{instruction}")
+        if dir_lines:
+            parts.append("【Supervisor 指令（必須遵守）】\n" + "\n".join(dir_lines))
+
+    if not parts:
+        return ""
     return "\n".join(parts)
 
 
@@ -193,12 +279,15 @@ class PromptAssembler:
         # Layer 1 — base persona
         system_parts = [BASE_PERSONA_PROMPT]
 
-        # Layer 2 — role (Crew gets personality based on seat index)
+        # Layer 2 — role (Crew gets base + capability prompt based on seat_role)
         if is_supervisor:
             system_parts.append(SUPERVISOR_ROLE_PROMPT)
         else:
-            seat_index = context.get("seat_index", 0)
-            system_parts.append(get_crew_prompt(seat_index))
+            seat_role = str(role).lower()
+            system_parts.append(CREW_ROLE_BASE_PROMPT)
+            capability_prompt = CREW_CAPABILITY_PROMPTS.get(seat_role)
+            if capability_prompt:
+                system_parts.append(capability_prompt)
 
         # Layer 3 — stage strategy (Supervisor gets sub-phase prompts in Discover)
         if stage == "discover" and is_supervisor:
@@ -210,6 +299,22 @@ class PromptAssembler:
         else:
             stage_prompt = STAGE_PROMPTS.get(stage, STAGE_PROMPTS["discover"])
         system_parts.append(stage_prompt)
+
+        # Blackboard coordination rules (only when data available)
+        blackboard = context.get("blackboard", {})
+        has_blackboard = (
+            blackboard
+            and (
+                blackboard.get("other_agent_intentions")
+                or blackboard.get("topic_saturation")
+            )
+        )
+        if has_blackboard:
+            system_parts.append(BLACKBOARD_COORDINATION_RULES)
+
+        # Supervisor-only: set_directive capability prompt
+        if is_supervisor and has_blackboard:
+            system_parts.append(SUPERVISOR_DIRECTIVE_PROMPT)
 
         # Full AI mode appendix
         if _is_all_ai(context):

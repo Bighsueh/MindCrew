@@ -9,6 +9,7 @@ from uuid import UUID
 import redis.asyncio as aioredis
 from sqlalchemy import select, text
 
+from app.agents.blackboard import BlackboardManager
 from app.agents.conversation_state import ConversationStateTracker
 from app.config import settings
 from app.db.session import async_session_factory
@@ -116,6 +117,9 @@ class ContextBuffer:
         typing_raw = await r.get(f"project:{self._project_id}:human_typing_ts")
         event_raw = await r.get(f"project:{self._project_id}:last_event_ts")
 
+        # Load Blackboard data (graceful fallback if unavailable)
+        blackboard = await self._load_blackboard()
+
         return {
             "project_name": project_name,
             "project_description": project_description,
@@ -128,9 +132,57 @@ class ContextBuffer:
             "seat_index": seat_index,
             "my_recent_actions": my_recent_actions,
             "active_thread": active_thread,
+            "blackboard": blackboard,
             "_human_typing_timestamp": float(typing_raw) if typing_raw else None,
             "_last_event_time": float(event_raw) if event_raw else None,
         }
+
+    # ------------------------------------------------------------------
+    # Blackboard integration (§4.2)
+    # ------------------------------------------------------------------
+
+    async def _load_blackboard(self) -> dict:
+        """Load Blackboard data for this agent's context.
+
+        Returns a dict with other_agent_intentions, topic_saturation,
+        and coordination. Graceful fallback to empty values on failure.
+        """
+        try:
+            bb = BlackboardManager(
+                self._project_id, self._agent_id, self._seat_role
+            )
+            # Share our Redis connection
+            bb._redis = await self._get_redis()
+
+            intentions = await bb.read_other_intentions()
+            saturation = await bb.read_topic_saturation()
+            coordination = await bb.read_coordination()
+            directive = await bb.read_coordination_directive()
+
+            return {
+                "other_agent_intentions": [
+                    i.model_dump(mode="json") for i in intentions
+                ],
+                "topic_saturation": (
+                    saturation.model_dump(mode="json") if saturation else None
+                ),
+                "coordination": (
+                    coordination.model_dump(mode="json") if coordination else None
+                ),
+                "coordination_directive": (
+                    directive.model_dump(mode="json") if directive else None
+                ),
+            }
+        except Exception:
+            logger.warning(
+                "Failed to load blackboard for %s", self._agent_id, exc_info=True
+            )
+            return {
+                "other_agent_intentions": [],
+                "topic_saturation": None,
+                "coordination": None,
+                "coordination_directive": None,
+            }
 
     # ------------------------------------------------------------------
     # Private helpers
