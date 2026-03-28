@@ -81,8 +81,8 @@ export function ProjectMonitorCard({ project, onRefresh }: ProjectMonitorCardPro
     <>
       <div
         className={cn(
-          'rounded-xl border bg-surface p-4 shadow-sm transition-colors',
-          hasError ? 'border-error/40' : hasAlerts ? 'border-warning/40' : 'border-border',
+          'card-hover-warm rounded-2xl border bg-surface p-5 shadow-md',
+          hasError ? 'border-error/40' : hasAlerts ? 'border-warning/40' : 'border-border-light',
         )}
       >
         {/* Header */}

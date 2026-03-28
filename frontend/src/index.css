@@ -254,6 +254,36 @@ details .faq-answer > div {
   overflow: hidden;
 }
 
+/* ── Page entrance stagger ── */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-enter {
+  animation: page-enter 0.6s var(--ease-out) both;
+}
+
+.page-enter > * {
+  opacity: 0;
+  animation: page-enter 0.5s var(--ease-out) both;
+}
+
+.page-enter > *:nth-child(1) { animation-delay: 0ms; }
+.page-enter > *:nth-child(2) { animation-delay: 100ms; }
+.page-enter > *:nth-child(3) { animation-delay: 180ms; }
+.page-enter > *:nth-child(4) { animation-delay: 250ms; }
+.page-enter > *:nth-child(5) { animation-delay: 310ms; }
+.page-enter > *:nth-child(6) { animation-delay: 370ms; }
+.page-enter > *:nth-child(7) { animation-delay: 420ms; }
+.page-enter > *:nth-child(8) { animation-delay: 460ms; }
+
 /* Feature card hover lift — only transform+shadow for GPU perf */
 .card-hover {
   transition: transform var(--duration-normal) var(--ease-out),
@@ -263,6 +293,29 @@ details .faq-answer > div {
 .card-hover:hover {
   transform: translateY(-4px);
   box-shadow: var(--shadow-lg);
+}
+
+/* Warm card hover — lift + subtle warm glow */
+.card-hover-warm {
+  transition: transform var(--duration-normal) var(--ease-out),
+              box-shadow var(--duration-normal) var(--ease-out),
+              border-color var(--duration-normal) var(--ease-out);
+}
+
+.card-hover-warm:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg), 0 8px 40px rgba(var(--color-secondary), 0.15);
+  border-color: rgba(var(--color-primary), 0.15);
+}
+
+/* Gentle icon float — subtle version for stat icons */
+@keyframes icon-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.animate-icon-breathe {
+  animation: icon-breathe 3s var(--ease-smooth) infinite;
 }
 
 /* Sticky note hover — straighten + lift */

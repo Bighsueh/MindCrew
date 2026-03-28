@@ -70,26 +70,28 @@ export function usePageTransition() {
     }
   }, [clearAllTimers])
 
-  // Detect browser back/forward: auth → landing
+  // Safety net: if phase is stuck when this hook mounts, reset it.
+  // This handles edge cases where timers were cleared by unmount.
   useEffect(() => {
-    const prev = prevPathRef.current
+    const phase = getState().phase
     const curr = location.pathname
+    const isAuth = AUTH_PATHS.has(curr)
+    const isLanding = curr === '/'
 
-    if (prev !== curr) {
-      const wasAuth = AUTH_PATHS.has(prev)
-      const isLanding = curr === '/'
-
-      if (wasAuth && isLanding && getState().phase === 'idle') {
-        if (!isReducedMotion()) {
-          // Browser triggered this navigation; animate the landing entrance
-          getState().enterLanding()
-          scheduleTimeout(() => getState().reset(), LANDING_FADE_OUT_MS)
+    if (isAuth && phase === 'exiting-landing') {
+      // Mounted on auth page with pending landing→auth transition
+      getState().enterAuth()
+      window.setTimeout(() => {
+        if (useTransitionStore.getState().phase === 'entering-auth') {
+          useTransitionStore.getState().reset()
         }
-      }
-
-      prevPathRef.current = curr
+      }, AUTH_FADE_OUT_MS)
+    } else if (isLanding && (phase === 'exiting-auth' || phase === 'entering-auth')) {
+      // Mounted on landing with stuck auth-related phase
+      getState().reset()
     }
-  }, [location.pathname, getState, scheduleTimeout])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const navigateWithTransition = useCallback(
     async (to: string) => {
@@ -107,10 +109,15 @@ export function usePageTransition() {
 
       scheduleTimeout(() => {
         navigate(to)
-        // Re-check phase before advancing
         if (getState().phase === 'exiting-landing') {
           getState().enterAuth()
-          scheduleTimeout(() => getState().reset(), AUTH_FADE_OUT_MS)
+          // Use window.setTimeout (not scheduleTimeout) so unmount cleanup
+          // of the landing page won't cancel this timer.
+          window.setTimeout(() => {
+            if (useTransitionStore.getState().phase === 'entering-auth') {
+              useTransitionStore.getState().reset()
+            }
+          }, AUTH_FADE_OUT_MS)
         }
       }, LANDING_FADE_OUT_MS)
     },
@@ -129,13 +136,38 @@ export function usePageTransition() {
 
     scheduleTimeout(() => {
       navigate('/')
-      // Re-check phase before advancing
       if (getState().phase === 'exiting-auth') {
         getState().enterLanding()
-        scheduleTimeout(() => getState().reset(), LANDING_FADE_OUT_MS)
+        // Use window.setTimeout (not scheduleTimeout) so unmount cleanup
+        // of the auth page won't cancel this timer.
+        window.setTimeout(() => {
+          if (useTransitionStore.getState().phase === 'entering-landing') {
+            useTransitionStore.getState().reset()
+          }
+        }, LANDING_FADE_OUT_MS)
       }
     }, AUTH_FADE_OUT_MS)
   }, [navigate, getState, scheduleTimeout])
 
-  return { navigateWithTransition, navigateBackToLanding }
+  /** Fade out auth panel, then navigate to an authenticated route (e.g. after login). */
+  const navigateToApp = useCallback(
+    (to: string) => {
+      if (getState().phase !== 'idle') return
+
+      if (isReducedMotion()) {
+        navigate(to, { replace: true })
+        return
+      }
+
+      getState().startExitAuthToApp(to)
+
+      scheduleTimeout(() => {
+        navigate(to, { replace: true })
+        getState().reset()
+      }, AUTH_FADE_OUT_MS)
+    },
+    [navigate, getState, scheduleTimeout],
+  )
+
+  return { navigateWithTransition, navigateBackToLanding, navigateToApp }
 }

@@ -27,17 +27,17 @@ export function SeatSelectionGrid({
   const crewSeats = seats.filter((s) => s.seat_role !== 'supervisor')
 
   return (
-    <div className="rounded-xl border border-border bg-surface shadow-sm">
+    <div className="overflow-hidden rounded-2xl bg-surface shadow-md">
       {/* Header */}
-      <div className="border-b border-border px-5 py-4">
-        <h2 className="text-base font-semibold text-text">選擇座位</h2>
-        <p className="mt-0.5 text-xs text-text-muted">
+      <div className="border-b border-border-light px-6 py-5">
+        <h2 className="text-lg font-semibold text-text">選擇座位</h2>
+        <p className="mt-0.5 text-sm text-text-muted">
           選擇一個座位加入討論，或以觀察者身份旁聽
         </p>
       </div>
 
       {joinError && (
-        <div className="mx-5 mt-4 rounded-md bg-error-bg px-4 py-3 text-sm text-error">
+        <div className="mx-6 mt-4 rounded-lg bg-error-bg px-4 py-3 text-sm text-error">
           {joinError}
         </div>
       )}
@@ -53,7 +53,7 @@ export function SeatSelectionGrid({
       )}
 
       {/* Crew section */}
-      <div className="divide-y divide-border/50">
+      <div className="divide-y divide-border-light">
         {crewSeats.map((seat) => (
           <CrewRow
             key={seat.seat_role}

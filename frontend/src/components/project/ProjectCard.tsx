@@ -20,6 +20,14 @@ const STAGE_BORDER_COLORS: Record<DTStage, string> = {
   completed: 'bg-success',
 }
 
+const STAGE_BG_TINTS: Record<DTStage, string> = {
+  discover: 'hover:bg-[#fefce8]/40',
+  define: 'hover:bg-[#fef3e2]/40',
+  develop: 'hover:bg-[#fdf5ee]/40',
+  deliver: 'hover:bg-[#faf0e6]/40',
+  completed: 'hover:bg-[#f0fdf4]/30',
+}
+
 const STAGE_LABELS: Record<DTStage, string> = {
   discover: 'Discover',
   define: 'Define',
@@ -90,13 +98,15 @@ export function ProjectCard({ project, isOwner, onDelete }: ProjectCardProps) {
 
   return (
     <div
-      className="group relative flex cursor-pointer overflow-hidden rounded-xl border border-border
-                 bg-surface shadow-sm transition-all duration-200
-                 hover:border-primary/20 hover:shadow-md"
+      className={cn(
+        'card-hover-warm group relative flex cursor-pointer overflow-hidden rounded-2xl border border-border-light',
+        'bg-surface shadow-md transition-all',
+        STAGE_BG_TINTS[project.current_stage],
+      )}
       onClick={() => navigate(`/projects/${project.id}/lobby`)}
     >
       {/* Left color accent bar */}
-      <div className={cn('w-1 shrink-0', STAGE_BORDER_COLORS[project.current_stage])} />
+      <div className={cn('w-1.5 shrink-0', STAGE_BORDER_COLORS[project.current_stage])} />
 
       <div className="flex flex-1 flex-col gap-3 p-5">
         {/* Header row: title + menu */}

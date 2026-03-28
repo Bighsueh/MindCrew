@@ -8,7 +8,7 @@ interface ObserverCardProps {
 
 export function ObserverCard({ onEnter, hasCurrentSeat }: ObserverCardProps) {
   return (
-    <div className="flex flex-col rounded-xl border border-border bg-surface p-5 shadow-sm">
+    <div className="flex flex-col rounded-2xl bg-surface p-6 shadow-md">
       <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-info/10 text-info">
         <Eye size={20} />
       </div>

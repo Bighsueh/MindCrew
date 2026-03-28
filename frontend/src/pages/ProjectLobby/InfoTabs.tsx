@@ -49,9 +49,9 @@ export function InfoTabs({
   const [activeTab, setActiveTab] = useState<TabKey>('activity')
 
   return (
-    <div className="rounded-xl border border-border bg-surface shadow-sm">
+    <div className="overflow-hidden rounded-2xl bg-surface shadow-md">
       {/* Tab bar */}
-      <div className="flex border-b border-border px-2">
+      <div className="relative flex border-b border-border-light px-2">
         {TABS.map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.key
@@ -60,21 +60,24 @@ export function InfoTabs({
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                'flex items-center gap-1.5 px-4 py-3 text-sm transition-colors',
+                'relative flex items-center gap-1.5 px-4 py-3.5 text-sm transition-colors cursor-pointer',
                 isActive
-                  ? 'border-b-2 border-primary font-medium text-primary'
+                  ? 'font-medium text-primary'
                   : 'text-text-muted hover:text-text',
               )}
             >
               <Icon size={14} />
               <span className="hidden sm:inline">{tab.label}</span>
+              {isActive && (
+                <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-primary" />
+              )}
             </button>
           )
         })}
       </div>
 
-      {/* Tab content */}
-      <div className="p-5">
+      {/* Tab content with fade transition */}
+      <div key={activeTab} className="animate-fade-in p-5">
         {activeTab === 'activity' && (
           <LiveActivityFeed
             messages={messages}

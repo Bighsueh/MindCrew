@@ -100,10 +100,10 @@ export function TeacherDashboardPage() {
   return (
     <div>
       {/* Page header */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-text">教師儀表板</h1>
-          <p className="text-sm text-text-muted">{user?.display_name} 老師</p>
+          <h1 className="text-2xl font-bold text-text">教師儀表板</h1>
+          <p className="mt-1 text-sm text-text-muted">{user?.display_name} 老師</p>
         </div>
         <div className="flex gap-2">
           {activeTab === 'projects' && (
@@ -112,7 +112,7 @@ export function TeacherDashboardPage() {
               重新整理
             </Button>
           )}
-          <Button onClick={() => setShowCreateProject(true)}>
+          <Button className="rounded-full px-6" onClick={() => setShowCreateProject(true)}>
             <Plus size={16} />
             建立新專案
           </Button>
@@ -120,20 +120,23 @@ export function TeacherDashboardPage() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-border mb-6">
+      <div className="border-b border-border-light mb-8">
         <div className="flex gap-0">
           {(['projects', 'students'] as const).map((tab) => (
             <button
               key={tab}
               className={cn(
-                'px-5 py-3 text-sm font-medium border-b-2 transition-colors cursor-pointer',
+                'relative px-5 py-3 text-sm font-medium transition-colors cursor-pointer',
                 activeTab === tab
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-text-muted hover:text-text',
+                  ? 'text-primary'
+                  : 'text-text-muted hover:text-text',
               )}
               onClick={() => setActiveTab(tab)}
             >
               {tab === 'projects' ? '專案監控' : '學生管理'}
+              {activeTab === tab && (
+                <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-primary" />
+              )}
             </button>
           ))}
         </div>
@@ -147,9 +150,10 @@ export function TeacherDashboardPage() {
               <Loading text="載入監控資料…" />
             </div>
           ) : overview === null || overview.projects.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-surface py-16">
-              <p className="text-text-muted">尚無專案。</p>
-              <Button className="mt-4" onClick={() => setShowCreateProject(true)}>
+            <div className="flex flex-col items-center justify-center rounded-2xl bg-bg-warm py-16">
+              <p className="text-lg font-medium text-text">尚無專案</p>
+              <p className="mt-1 text-sm text-text-muted">建立你的第一個 Design Thinking 專案</p>
+              <Button className="mt-5 rounded-full px-8" onClick={() => setShowCreateProject(true)}>
                 建立第一個專案
               </Button>
             </div>
@@ -185,27 +189,28 @@ export function TeacherDashboardPage() {
           {isLoadingStudents ? (
             <Loading text="載入學生列表…" />
           ) : students.length === 0 ? (
-            <div className="rounded-xl border-2 border-dashed border-border bg-surface py-12 text-center">
-              <p className="text-text-muted">尚無學生帳號。</p>
+            <div className="rounded-2xl bg-bg-warm py-12 text-center">
+              <p className="text-lg font-medium text-text">尚無學生帳號</p>
+              <p className="mt-1 text-sm text-text-muted">新增學生以開始管理課堂</p>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+            <div className="overflow-hidden rounded-2xl bg-surface shadow-md">
               <table className="w-full text-left">
-                <thead className="border-b border-border bg-bg">
+                <thead className="border-b border-border-light bg-bg-warm/50">
                   <tr>
                     {['顯示名稱', '電子郵件', '可建立專案', '建立時間'].map((h) => (
-                      <th key={h} className="px-4 py-3 text-xs font-semibold text-text-muted uppercase tracking-wide">
+                      <th key={h} className="px-5 py-3.5 text-xs font-semibold text-text-muted uppercase tracking-wide">
                         {h}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
+                <tbody className="divide-y divide-border-light">
                   {students.map((s) => (
-                    <tr key={s.id} className="hover:bg-surface-hover">
-                      <td className="px-4 py-3 font-medium text-text">{s.display_name}</td>
-                      <td className="px-4 py-3 text-sm text-text-muted">{s.email}</td>
-                      <td className="px-4 py-3">
+                    <tr key={s.id} className="transition-colors hover:bg-surface-hover">
+                      <td className="px-5 py-3.5 font-medium text-text">{s.display_name}</td>
+                      <td className="px-5 py-3.5 text-sm text-text-muted">{s.email}</td>
+                      <td className="px-5 py-3.5">
                         <span className={cn(
                           'rounded-full px-2.5 py-0.5 text-xs font-medium',
                           s.can_create_project
@@ -215,7 +220,7 @@ export function TeacherDashboardPage() {
                           {s.can_create_project ? '是' : '否'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-text-muted">
+                      <td className="px-5 py-3.5 text-sm text-text-muted">
                         {s.created_at
                           ? new Date(s.created_at).toLocaleDateString('zh-TW')
                           : '-'}

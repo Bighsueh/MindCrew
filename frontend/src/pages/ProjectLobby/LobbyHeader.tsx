@@ -21,7 +21,7 @@ export function LobbyHeader({ project }: LobbyHeaderProps) {
       <div className="mb-4 flex items-center gap-2 text-sm text-text-muted">
         <Link
           to="/projects"
-          className="flex items-center gap-1 hover:text-text transition-colors"
+          className="flex items-center gap-1 rounded-md px-2 py-1 hover:text-text hover:bg-surface transition-colors"
         >
           <ChevronLeft size={16} />
           返回專案列表
@@ -32,23 +32,23 @@ export function LobbyHeader({ project }: LobbyHeaderProps) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-text">{project.name}</h1>
+            <h1 className="text-3xl font-bold text-text">{project.name}</h1>
             <PhaseIndicator phase={project.current_stage} />
           </div>
-          <p className="mt-1 text-sm text-text-muted">
+          <p className="mt-1.5 text-sm text-text-muted">
             AI 貢獻度：{AI_LABELS[project.ai_contribution] ?? project.ai_contribution}
           </p>
         </div>
       </div>
 
       {/* Double Diamond Progress */}
-      <div className="mt-4">
+      <div className="mt-5">
         <DoubleDiamondProgress currentStage={project.current_stage} />
       </div>
 
       {/* Description */}
       {project.description && (
-        <div className="mt-5 rounded-xl bg-surface p-5 border border-border shadow-sm">
+        <div className="mt-6 rounded-2xl bg-surface p-6 shadow-md">
           <h2 className="mb-2 text-sm font-semibold text-text">工作坊主題</h2>
           <p className="text-sm text-text-muted leading-relaxed">
             {project.description}

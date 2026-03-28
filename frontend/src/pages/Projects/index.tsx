@@ -6,6 +6,7 @@ import { Loading } from '../../components/common/Loading'
 import { CreateProjectDialog } from '../../components/project/CreateProjectDialog'
 import { DeleteProjectDialog } from '../../components/project/DeleteProjectDialog'
 import { ProjectCard } from '../../components/project/ProjectCard'
+import { StickyNoteSVG } from '../../components/landing/StickyNoteSVG'
 import { cn } from '../../lib/utils'
 import { Plus, Search, FolderOpen, Sparkles, CheckCircle2 } from 'lucide-react'
 import type { ProjectListItem, DTStage } from '../../types/models'
@@ -26,20 +27,25 @@ function StatCard({
   label,
   value,
   accent,
+  delay,
 }: {
   icon: typeof FolderOpen
   label: string
   value: number
   accent: string
+  delay: number
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-surface px-5 py-4">
-      <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg', accent)}>
-        <Icon size={18} />
+    <div
+      className="card-hover flex items-center gap-4 rounded-2xl bg-surface px-6 py-5 shadow-md"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      <div className={cn('animate-icon-breathe flex h-11 w-11 items-center justify-center rounded-xl', accent)}>
+        <Icon size={20} />
       </div>
       <div>
         <div className="text-2xl font-bold text-text">{value}</div>
-        <div className="text-xs text-text-muted">{label}</div>
+        <div className="text-xs font-medium text-text-muted">{label}</div>
       </div>
     </div>
   )
@@ -109,41 +115,41 @@ export function ProjectsPage() {
     : '歡迎回來'
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Welcome + Stats */}
-      <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-8">
+      {/* Welcome Hero + Stats */}
+      <div className="flex flex-col gap-6">
         <div className="flex items-end justify-between">
           <div>
-            <h1 className="text-xl font-bold text-text">{greeting}</h1>
-            <p className="mt-0.5 text-sm text-text-muted">管理你的設計思考專案</p>
+            <h1 className="text-3xl font-bold text-text">{greeting}</h1>
+            <p className="mt-1 text-base text-text-muted">管理你的設計思考專案</p>
           </div>
           {canCreateProject && (
-            <Button onClick={() => setShowCreate(true)}>
+            <Button className="rounded-full px-6" onClick={() => setShowCreate(true)}>
               <Plus size={16} />
               新增專案
             </Button>
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <StatCard icon={FolderOpen} label="全部專案" value={stats.total} accent="bg-primary/10 text-primary" />
-          <StatCard icon={Sparkles} label="進行中" value={stats.active} accent="bg-info/10 text-info" />
-          <StatCard icon={CheckCircle2} label="已完成" value={stats.completed} accent="bg-success/10 text-success" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatCard icon={FolderOpen} label="全部專案" value={stats.total} accent="bg-primary/10 text-primary" delay={0} />
+          <StatCard icon={Sparkles} label="進行中" value={stats.active} accent="bg-info/10 text-info" delay={100} />
+          <StatCard icon={CheckCircle2} label="已完成" value={stats.completed} accent="bg-success/10 text-success" delay={200} />
         </div>
       </div>
 
       {/* Filter + Search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {STAGE_FILTERS.map((f) => (
             <button
               key={f.value}
               onClick={() => setStageFilter(f.value)}
               className={cn(
-                'rounded-full px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer',
+                'rounded-full px-4 py-1.5 text-xs font-medium transition-all cursor-pointer',
                 stageFilter === f.value
-                  ? 'bg-primary text-text-inverse'
-                  : 'bg-surface-hover text-text-muted hover:text-text',
+                  ? 'bg-primary text-text-inverse shadow-sm scale-105'
+                  : 'bg-surface text-text-muted shadow-sm hover:text-text hover:shadow-md',
               )}
             >
               {f.label}
@@ -158,7 +164,7 @@ export function ProjectsPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="搜尋專案名稱…"
-            className="w-full rounded-lg border border-border bg-surface py-2 pl-9 pr-3 text-sm text-text
+            className="w-full rounded-xl border border-border-light bg-surface py-2.5 pl-9 pr-3 text-sm text-text shadow-sm
                        placeholder:text-text-muted
                        focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
@@ -171,32 +177,36 @@ export function ProjectsPage() {
           <Loading text="載入專案中…" />
         </div>
       ) : projects.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-surface py-16 text-center">
-          <FolderOpen size={40} className="text-text-muted/40" />
-          <h3 className="mt-4 text-base font-medium text-text">尚無專案</h3>
+        <div className="flex flex-col items-center justify-center rounded-2xl bg-bg-warm py-16 text-center">
+          <div className="flex items-center justify-center gap-4">
+            <StickyNoteSVG color="#F5E6C8" rotation={-6} text="痛點" float floatDelay="0s" />
+            <StickyNoteSVG color="#D4E4C8" rotation={3} text="點子" float floatDelay="1s" />
+            <StickyNoteSVG color="#C8D8E8" rotation={-2} text="方案" float floatDelay="2s" />
+          </div>
+          <h3 className="mt-6 text-lg font-semibold text-text">尚無專案</h3>
           <p className="mt-1 text-sm text-text-muted">
             {canCreateProject ? '點擊「新增專案」開始你的設計思考之旅。' : '等待老師邀請你加入專案。'}
           </p>
           {canCreateProject && (
-            <Button className="mt-4" onClick={() => setShowCreate(true)}>
+            <Button className="mt-5 rounded-full px-8" onClick={() => setShowCreate(true)}>
               建立第一個專案
             </Button>
           )}
         </div>
       ) : filteredProjects.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-surface py-12 text-center">
+        <div className="flex flex-col items-center justify-center rounded-2xl bg-bg-warm py-12 text-center">
           <Search size={32} className="text-text-muted/40" />
           <p className="mt-3 text-sm text-text-muted">找不到符合條件的專案</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-8">
           {/* Active projects */}
           {activeProjects.length > 0 && (
             <section>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-text-muted">
+              <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-text-muted">
                 進行中 ({activeProjects.length})
               </h2>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {activeProjects.map((project) => (
                   <ProjectCard
                     key={project.id}
@@ -212,10 +222,10 @@ export function ProjectsPage() {
           {/* Completed projects */}
           {completedProjects.length > 0 && (
             <section>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-text-muted">
+              <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-text-muted">
                 已完成 ({completedProjects.length})
               </h2>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {completedProjects.map((project) => (
                   <ProjectCard
                     key={project.id}

@@ -18,10 +18,10 @@ export function AppLayout() {
   ]
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur-sm">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
-          <Link to="/projects" className="text-lg font-bold text-primary">
+    <div className="flex min-h-screen flex-col bg-bg">
+      <header className="sticky top-0 z-40 bg-bg/95 backdrop-blur-md shadow-sm">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+          <Link to="/projects" className="font-brand text-xl text-primary transition-opacity hover:opacity-80">
             MindCrew
           </Link>
 
@@ -31,14 +31,17 @@ export function AppLayout() {
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  'nav-link-underline relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                   location.pathname === item.to
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-text-muted hover:bg-surface-hover hover:text-text'
+                    ? 'text-primary'
+                    : 'text-text-muted hover:text-text'
                 )}
               >
                 <item.icon size={16} />
                 {item.label}
+                {location.pathname === item.to && (
+                  <span className="absolute bottom-0 left-3 right-3 h-0.5 rounded-full bg-primary" />
+                )}
               </Link>
             ))}
           </nav>
@@ -49,7 +52,7 @@ export function AppLayout() {
             )}
             <button
               onClick={logout}
-              className="flex items-center gap-1 rounded-md px-3 py-2 text-sm text-text-muted transition-colors hover:bg-error/10 hover:text-error cursor-pointer"
+              className="flex items-center gap-1 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:bg-error/10 hover:text-error cursor-pointer"
             >
               <LogOut size={16} />
               登出
@@ -58,8 +61,10 @@ export function AppLayout() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
-        <Outlet />
+      <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-8">
+        <div key={location.pathname} className="page-enter">
+          <Outlet />
+        </div>
       </main>
     </div>
   )

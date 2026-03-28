@@ -21,8 +21,8 @@ export function HeroBackgroundVideo({ mode = 'playing' }: HeroBackgroundVideoPro
   const mountedRef = useRef(true)
   const reducedMotionRef = useRef(false)
   const expectingFadeEndRef = useRef(false)
-  const [showStartFrame, setShowStartFrame] = useState(false)
-  const [noOpacityTransition, setNoOpacityTransition] = useState(false)
+  const [showStartFrame, setShowStartFrame] = useState(isStatic)
+  const [noOpacityTransition, setNoOpacityTransition] = useState(isStatic)
 
   const fadeTransitionStyle = noOpacityTransition
     ? undefined
@@ -85,6 +85,7 @@ export function HeroBackgroundVideo({ mode = 'playing' }: HeroBackgroundVideoPro
       const playEl = playVideoRef.current
       if (playEl) {
         playEl.pause()
+        playEl.currentTime = 0
       }
       setShowStartFrame(true)
       setNoOpacityTransition(true)

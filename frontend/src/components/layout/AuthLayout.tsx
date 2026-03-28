@@ -13,7 +13,7 @@ export function AuthLayout() {
   const panelClass =
     phase === 'entering-auth' && source === 'landing'
       ? 'animate-auth-enter'
-      : phase === 'exiting-auth'
+      : phase === 'exiting-auth' || phase === 'exiting-auth-to-app'
         ? 'animate-auth-exit'
         : ''
 

@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { register } from '../../services/authService'
 import { useAuthStore } from '../../stores/authStore'
+import { usePageTransition } from '../../hooks/usePageTransition'
 import { Button } from '../../components/common/Button'
 import { Input } from '../../components/common/Input'
 
 export function RegisterPage() {
-  const navigate = useNavigate()
   const loginStore = useAuthStore((s) => s.login)
+  const { navigateToApp } = usePageTransition()
 
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
@@ -35,7 +36,7 @@ export function RegisterPage() {
     try {
       const data = await register({ email, password, display_name: displayName })
       loginStore(data.user)
-      navigate('/projects', { replace: true })
+      navigateToApp('/projects')
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status
       if (status === 409) {

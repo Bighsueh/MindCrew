@@ -1,14 +1,15 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { login } from '../../services/authService'
 import { useAuthStore } from '../../stores/authStore'
+import { usePageTransition } from '../../hooks/usePageTransition'
 import { Button } from '../../components/common/Button'
 import { Input } from '../../components/common/Input'
 
 export function LoginPage() {
-  const navigate = useNavigate()
   const location = useLocation()
   const loginStore = useAuthStore((s) => s.login)
+  const { navigateToApp } = usePageTransition()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -25,7 +26,7 @@ export function LoginPage() {
     try {
       const data = await login({ email, password })
       loginStore(data.user)
-      navigate(from, { replace: true })
+      navigateToApp(from)
     } catch {
       setError('帳號或密碼錯誤，請重試。')
     } finally {
