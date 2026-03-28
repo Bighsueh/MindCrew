@@ -4,12 +4,16 @@ import { ArrowRight, Lightbulb, Users, Zap, MessageSquare, LayoutGrid, BarChart3
 import { StickyNoteSVG } from '@/components/landing/StickyNoteSVG'
 import { HeroBackgroundVideo } from '@/components/landing/HeroBackgroundVideo'
 import { ScrollReveal } from '@/components/common/ScrollReveal'
+import { useScrollReveal } from '@/hooks/useScrollReveal'
 
 function useNavScrolled(threshold = 32) {
   const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > threshold)
+    const onScroll = () => {
+      const next = window.scrollY > threshold
+      setScrolled(prev => (prev === next ? prev : next))
+    }
     onScroll() // init
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
@@ -86,8 +90,18 @@ const SHOWCASE_NOTES = [
   { color: '#F5E6C8', text: '原型：一鍵匯出摘要', rot: 2 },
 ] as const
 
+function useInView() {
+  const { ref, isRevealed } = useScrollReveal<HTMLElement>({
+    threshold: 0,
+    rootMargin: '100px 0px 100px 0px',
+    once: true,
+  })
+  return { ref, inView: isRevealed }
+}
+
 export function LandingPage() {
   const navScrolled = useNavScrolled()
+  const processSection = useInView()
 
   return (
     <div className="overflow-x-hidden">
@@ -264,7 +278,11 @@ export function LandingPage() {
       </section>
 
       {/* ─── Process — Double Diamond (dark) ─── */}
-      <section id="process" className="scroll-mt-16 relative bg-bg-dark px-6 py-28 overflow-hidden">
+      <section
+        id="process"
+        ref={processSection.ref as React.Ref<HTMLElement>}
+        className={`scroll-mt-16 relative bg-bg-dark px-6 py-28 overflow-hidden${processSection.inView ? ' in-view' : ''}`}
+      >
         {/* Double diamond background decoration */}
         <svg
           className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-[0.06]"

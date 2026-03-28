@@ -174,7 +174,7 @@ export function HeroBackgroundVideo() {
           ref={startFrameVideoRef}
           muted
           playsInline
-          preload="auto"
+          preload="metadata"
           className="h-full w-full object-cover"
           onLoadedData={() => {
             const el = startFrameVideoRef.current

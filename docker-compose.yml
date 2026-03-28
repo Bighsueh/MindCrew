@@ -50,6 +50,8 @@ services:
       APP_ENV: production
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
       SIDECAR_URL: http://sidecar:4000
+    ports:
+      - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,6 +70,8 @@ services:
     environment:
       SIDECAR_PORT: "4000"
       YJS_DATA_DIR: /data
+    ports:
+      - "4000:4000"
     volumes:
       - yjsdata:/data
     networks:

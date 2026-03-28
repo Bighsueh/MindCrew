@@ -139,6 +139,7 @@ html, body, #root {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    animation-play-state: running !important;
     transition-duration: 0.01ms !important;
   }
 }
@@ -250,6 +251,11 @@ details .faq-answer > div {
 .animate-process-breathe {
   animation: process-breathe 4s var(--ease-smooth) infinite;
   animation-delay: var(--wave-delay, 0s);
+  animation-play-state: paused;
+}
+
+.in-view .animate-process-breathe {
+  animation-play-state: running;
 }
 
 /* Shimmer sweep across the accent bar */
@@ -274,6 +280,11 @@ details .faq-answer > div {
   );
   animation: shimmer-bar 6s ease-in-out infinite;
   animation-delay: var(--wave-delay, 0s);
+  animation-play-state: paused;
+}
+
+.in-view .process-accent-bar {
+  animation-play-state: running;
 }
 
 /* Ambient glow pulse behind process cards */
@@ -299,4 +310,9 @@ details .faq-answer > div {
   pointer-events: none;
   animation: glow-pulse 4s var(--ease-smooth) infinite;
   animation-delay: var(--wave-delay, 0s);
+  animation-play-state: paused;
+}
+
+.in-view .process-glow {
+  animation-play-state: running;
 }

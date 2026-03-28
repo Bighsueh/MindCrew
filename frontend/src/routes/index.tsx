@@ -1,15 +1,22 @@
+import { lazy, Suspense } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { App } from '../App'
 import { ProtectedRoute } from '../components/common/ProtectedRoute'
 import { AppLayout } from '../components/layout/AppLayout'
 import { AuthLayout } from '../components/layout/AuthLayout'
-import { LoginPage } from '../pages/Login'
-import { RegisterPage } from '../pages/Register'
-import { ProjectsPage } from '../pages/Projects'
-import { ProjectLobbyPage } from '../pages/ProjectLobby'
-import { WorkspacePage } from '../pages/Workspace'
-import { TeacherDashboardPage } from '../pages/TeacherDashboard'
 import { LandingPage } from '../pages/Landing'
+import { Loading } from '../components/common/Loading'
+
+const LoginPage = lazy(() => import('../pages/Login').then(m => ({ default: m.LoginPage })))
+const RegisterPage = lazy(() => import('../pages/Register').then(m => ({ default: m.RegisterPage })))
+const ProjectsPage = lazy(() => import('../pages/Projects').then(m => ({ default: m.ProjectsPage })))
+const ProjectLobbyPage = lazy(() => import('../pages/ProjectLobby').then(m => ({ default: m.ProjectLobbyPage })))
+const WorkspacePage = lazy(() => import('../pages/Workspace').then(m => ({ default: m.WorkspacePage })))
+const TeacherDashboardPage = lazy(() => import('../pages/TeacherDashboard').then(m => ({ default: m.TeacherDashboardPage })))
+
+function SuspenseOutlet({ children }: { readonly children: React.ReactNode }) {
+  return <Suspense fallback={<Loading fullScreen text="載入中…" />}>{children}</Suspense>
+}
 
 export const router = createBrowserRouter([
   {
@@ -23,8 +30,8 @@ export const router = createBrowserRouter([
       {
         element: <AuthLayout />,
         children: [
-          { path: 'login', element: <LoginPage /> },
-          { path: 'register', element: <RegisterPage /> },
+          { path: 'login', element: <SuspenseOutlet><LoginPage /></SuspenseOutlet> },
+          { path: 'register', element: <SuspenseOutlet><RegisterPage /></SuspenseOutlet> },
         ],
       },
 
@@ -35,8 +42,8 @@ export const router = createBrowserRouter([
           {
             element: <AppLayout />,
             children: [
-              { path: 'projects', element: <ProjectsPage /> },
-              { path: 'projects/:id/lobby', element: <ProjectLobbyPage /> },
+              { path: 'projects', element: <SuspenseOutlet><ProjectsPage /></SuspenseOutlet> },
+              { path: 'projects/:id/lobby', element: <SuspenseOutlet><ProjectLobbyPage /></SuspenseOutlet> },
             ],
           },
         ],
@@ -49,7 +56,7 @@ export const router = createBrowserRouter([
           {
             element: <AppLayout />,
             children: [
-              { path: 'teacher/dashboard', element: <TeacherDashboardPage /> },
+              { path: 'teacher/dashboard', element: <SuspenseOutlet><TeacherDashboardPage /></SuspenseOutlet> },
             ],
           },
         ],
@@ -59,7 +66,7 @@ export const router = createBrowserRouter([
       {
         element: <ProtectedRoute />,
         children: [
-          { path: 'projects/:id/workspace', element: <WorkspacePage /> },
+          { path: 'projects/:id/workspace', element: <SuspenseOutlet><WorkspacePage /></SuspenseOutlet> },
         ],
       },
 

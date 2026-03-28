@@ -243,7 +243,7 @@ export function WorkspacePage() {
         </div>
 
         {/* Tablet/Desktop: fullwidth canvas + floating chat */}
-        <div className="hidden md:block h-full">
+        <div className="hidden md:block h-full relative overflow-hidden">
           <CanvasPanel projectId={id!} currentStage={currentStage} />
 
           {/* Floating chat panel */}

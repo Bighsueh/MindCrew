@@ -1,4 +1,4 @@
-import { type ReactNode, type CSSProperties } from 'react'
+import { type ReactNode, type CSSProperties, useMemo } from 'react'
 import { useScrollReveal } from '@/hooks/useScrollReveal'
 
 type AnimationVariant =
@@ -48,18 +48,17 @@ export function ScrollReveal({
   as: Tag = 'div',
   threshold = 0.15,
 }: ScrollRevealProps) {
-  const { ref, isRevealed } = useScrollReveal({ threshold })
+  const { ref, isRevealed, isNear } = useScrollReveal({ threshold })
 
-  const style: CSSProperties = {
+  const style = useMemo<CSSProperties>(() => ({
     ...(isRevealed ? REVEALED_STYLE : VARIANT_STYLES[variant]),
     transitionProperty: 'opacity, transform',
     transitionDuration: `${duration}ms`,
     transitionTimingFunction: 'var(--ease-out)',
     transitionDelay: `${delay}ms`,
-    willChange: isRevealed ? 'auto' : 'opacity, transform',
-  }
+    willChange: isRevealed ? 'auto' : (isNear ? 'opacity, transform' : 'auto'),
+  }), [isRevealed, isNear, variant, duration, delay])
 
-  // Using a type assertion since `as` prop with dynamic tags is hard to type perfectly
   const Element = Tag as 'div'
 
   return (
