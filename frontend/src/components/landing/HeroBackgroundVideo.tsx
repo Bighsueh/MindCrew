@@ -87,6 +87,11 @@ export function HeroBackgroundVideo({ mode = 'playing' }: HeroBackgroundVideoPro
         playEl.pause()
         playEl.currentTime = 0
       }
+      const startEl = startFrameVideoRef.current
+      if (startEl) {
+        startEl.pause()
+        startEl.currentTime = 0
+      }
       setShowStartFrame(true)
       setNoOpacityTransition(true)
     } else {
@@ -184,6 +189,13 @@ export function HeroBackgroundVideo({ mode = 'playing' }: HeroBackgroundVideoPro
           preload="auto"
           className="h-full w-full object-cover"
           onEnded={handleEnded}
+          onLoadedData={() => {
+            if (!isStatic) return
+            const el = playVideoRef.current
+            if (!el) return
+            el.pause()
+            el.currentTime = 0
+          }}
         >
           <source src={heroBgVideo} type="video/mp4" />
         </video>
@@ -202,7 +214,7 @@ export function HeroBackgroundVideo({ mode = 'playing' }: HeroBackgroundVideoPro
           ref={startFrameVideoRef}
           muted
           playsInline
-          preload="metadata"
+          preload="auto"
           className="h-full w-full object-cover"
           onLoadedData={() => {
             const el = startFrameVideoRef.current
