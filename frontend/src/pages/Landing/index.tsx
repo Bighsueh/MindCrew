@@ -19,10 +19,10 @@ function useNavScrolled(threshold = 32) {
 }
 
 const PROCESS_CARDS = [
-  { phase: 'Discover', desc: '發散：探索痛點與需求', icon: Lightbulb, tag: '發散' },
-  { phase: 'Define', desc: '收斂：歸納洞察與 HMW', icon: LayoutGrid, tag: '收斂' },
-  { phase: 'Develop', desc: '發散：快速發想解決方案', icon: Zap, tag: '發散' },
-  { phase: 'Deliver', desc: '收斂：評估可行性與排序', icon: BarChart3, tag: '收斂' },
+  { phase: 'Discover', desc: '發散：探索痛點與需求', icon: Lightbulb, tag: '發散', accent: '#F5E6C8' },
+  { phase: 'Define', desc: '收斂：歸納洞察與 HMW', icon: LayoutGrid, tag: '收斂', accent: '#F0D9C4' },
+  { phase: 'Develop', desc: '發散：快速發想解決方案', icon: Zap, tag: '發散', accent: '#D4E4C8' },
+  { phase: 'Deliver', desc: '收斂：評估可行性與排序', icon: BarChart3, tag: '收斂', accent: '#C8D8E8' },
 ] as const
 
 const FEATURES = [
@@ -100,7 +100,7 @@ export function LandingPage() {
         }`}
       >
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-          <span className="text-xl font-bold tracking-tight text-primary">MindCrew</span>
+          <span className="font-brand text-xl font-normal tracking-normal text-primary">MindCrew</span>
           <div className="hidden items-center gap-8 md:flex">
             <a href="#features" className="text-sm text-text-muted transition-colors hover:text-text">功能</a>
             <a href="#process" className="text-sm text-text-muted transition-colors hover:text-text">流程</a>
@@ -124,25 +124,25 @@ export function LandingPage() {
       </nav>
 
       {/* ─── Hero ─── */}
-      <section className="relative flex min-h-svh flex-col items-center justify-center px-6 pt-16 pb-40">
+      <section className="relative flex min-h-svh flex-col items-center px-6 pt-16 pb-8">
         {/* Full-bleed video background */}
         <div className="absolute inset-0 overflow-hidden">
           <HeroBackgroundVideo />
           <div className="absolute inset-0 bg-bg/60" />
         </div>
 
-        <div className="relative z-10 mx-auto max-w-5xl text-center">
-          <h1 className="animate-fade-up text-[clamp(3.5rem,10vw,9rem)] font-extrabold leading-[0.9] tracking-[-0.04em] text-primary">
+        <div className="relative z-10 mx-auto flex max-w-5xl flex-1 flex-col items-center justify-center text-center">
+          <h1 className="font-brand animate-fade-up text-[clamp(3.5rem,10vw,9rem)] font-normal leading-[0.9] tracking-[0.02em] text-primary">
             MIND
             <br />
             CREW
           </h1>
-          <p className="animate-fade-up mx-auto mt-8 max-w-xl text-lg leading-relaxed text-text-muted" style={{ animationDelay: '0.15s' }}>
+          <p className="animate-fade-up mx-auto mt-6 max-w-xl text-xl leading-relaxed text-text/80" style={{ animationDelay: '0.15s' }}>
             AI 驅動的 Design Thinking 協作平台。
             <br />
             五位 AI 隊友，與你一起發散、收斂、創造。
           </p>
-          <div className="animate-fade-up mt-10 flex flex-wrap items-center justify-center gap-4" style={{ animationDelay: '0.3s' }}>
+          <div className="animate-fade-up mt-8 flex flex-wrap items-center justify-center gap-4" style={{ animationDelay: '0.3s' }}>
             <Link
               to="/register"
               className="group flex items-center gap-2 rounded-full bg-primary px-8 py-3.5 text-sm font-semibold text-text-inverse transition-all hover:bg-primary-light hover:shadow-lg cursor-pointer"
@@ -160,7 +160,7 @@ export function LandingPage() {
         </div>
 
         {/* Floating sticky notes decoration */}
-        <div className="animate-fade-up pointer-events-none absolute bottom-8 left-0 right-0 z-10 flex justify-center gap-6 opacity-80" style={{ animationDelay: '0.5s' }}>
+        <div className="animate-fade-up pointer-events-none relative z-10 mt-6 flex shrink-0 justify-center gap-8" style={{ animationDelay: '0.5s' }}>
           <StickyNoteSVG color="#F5E6C8" rotation={-6} text="痛點" float floatDelay="0s" />
           <StickyNoteSVG color="#F0D9C4" rotation={3} text="洞察" float floatDelay="1s" />
           <StickyNoteSVG color="#D4E4C8" rotation={-2} text="點子" float floatDelay="2s" />
@@ -169,7 +169,7 @@ export function LandingPage() {
       </section>
 
       {/* ─── Statement (dark) ─── */}
-      <section className="bg-bg-dark px-6 py-28">
+      <section className="bg-bg-dark px-6 py-20">
         <div className="mx-auto max-w-4xl">
           <div className="grid gap-12 md:grid-cols-2 md:items-center">
             <ScrollReveal variant="fade-right" duration={700}>
@@ -211,13 +211,14 @@ export function LandingPage() {
                         threshold={0.05}
                       >
                         <div
-                          className="card-hover flex aspect-square items-center justify-center rounded-md p-4 shadow-md"
+                          className="card-hover-note flex aspect-square items-center justify-center rounded-sm p-4 shadow-note"
                           style={{
                             backgroundColor: note.color,
                             transform: `rotate(${note.rot}deg)`,
+                            ['--note-rotate' as string]: `${note.rot}deg`,
                           }}
                         >
-                          <p className="text-center text-xs font-medium text-primary/80 leading-snug">
+                          <p className="text-center text-sm font-semibold text-primary/90 leading-snug">
                             {note.text}
                           </p>
                         </div>
@@ -260,8 +261,21 @@ export function LandingPage() {
       </section>
 
       {/* ─── Process — Double Diamond (dark) ─── */}
-      <section id="process" className="bg-bg-dark px-6 py-28">
-        <div className="mx-auto max-w-5xl text-center">
+      <section id="process" className="relative bg-bg-dark px-6 py-28 overflow-hidden">
+        {/* Double diamond background decoration */}
+        <svg
+          className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-[0.06]"
+          width="960" height="240" viewBox="0 0 960 240" fill="none"
+        >
+          {/* First diamond (Discover → Define) */}
+          <path d="M40 120 L240 20 L440 120 L240 220 Z" stroke="currentColor" strokeWidth="1.5" className="text-text-on-dark" />
+          {/* Second diamond (Develop → Deliver) */}
+          <path d="M520 120 L720 20 L920 120 L720 220 Z" stroke="currentColor" strokeWidth="1.5" className="text-text-on-dark" />
+          {/* Connecting line */}
+          <line x1="440" y1="120" x2="520" y2="120" stroke="currentColor" strokeWidth="1.5" strokeDasharray="6 4" className="text-text-on-dark" />
+        </svg>
+
+        <div className="relative z-10 mx-auto max-w-5xl text-center">
           <ScrollReveal variant="fade-up">
             <p className="text-sm font-medium uppercase tracking-widest text-text-muted-on-dark">/03</p>
             <h2 className="mt-4 text-3xl font-bold text-text-on-dark md:text-5xl">
@@ -275,7 +289,13 @@ export function LandingPage() {
           <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {PROCESS_CARDS.map((item, i) => (
               <ScrollReveal key={item.phase} variant="fade-up" delay={i * 120} duration={600}>
-                <div className="card-hover group rounded-xl border border-border-dark bg-surface-dark p-6 text-left transition-colors hover:border-accent/40 hover:bg-surface-dark/80">
+                <div
+                  className={`card-hover group relative overflow-hidden rounded-xl border border-border-dark bg-surface-dark p-6 text-left transition-colors hover:border-accent/40 hover:bg-surface-dark/80 ${
+                    i === 1 || i === 2 ? 'lg:-translate-y-3' : ''
+                  }`}
+                >
+                  {/* Accent bar */}
+                  <div className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: item.accent }} />
                   <div className="flex items-center justify-between">
                     <item.icon size={24} className="text-text-muted-on-dark group-hover:text-text-on-dark transition-colors" />
                     <span className="rounded-full border border-border-dark px-2.5 py-0.5 text-[10px] font-medium text-text-muted-on-dark">
@@ -284,7 +304,7 @@ export function LandingPage() {
                   </div>
                   <h3 className="mt-4 text-xl font-bold text-text-on-dark">{item.phase}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-text-muted-on-dark">{item.desc}</p>
-                  <div className="mt-4 text-xs text-accent-light">0{i + 1}/04</div>
+                  <div className="mt-4 text-xs" style={{ color: item.accent }}>0{i + 1}/04</div>
                 </div>
               </ScrollReveal>
             ))}
@@ -306,11 +326,13 @@ export function LandingPage() {
             {FEATURES.map((feature, i) => (
               <ScrollReveal key={feature.title} variant="fade-up" delay={i * 100} duration={600}>
                 <div className="card-hover group rounded-xl border border-border bg-surface p-6 transition-colors hover:border-primary/20">
-                  <feature.icon
-                    size={28}
-                    strokeWidth={1.5}
-                    className="text-text-muted group-hover:text-primary transition-colors"
-                  />
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-bg-warm transition-colors group-hover:bg-primary/10">
+                    <feature.icon
+                      size={20}
+                      strokeWidth={1.5}
+                      className="text-text-muted group-hover:text-primary transition-colors"
+                    />
+                  </div>
                   <h3 className="mt-4 text-base font-bold text-text">{feature.title}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-text-muted">{feature.desc}</p>
                 </div>
@@ -353,10 +375,10 @@ export function LandingPage() {
       </section>
 
       {/* ─── CTA footer (dark) ─── */}
-      <section className="bg-bg-dark px-6 py-28">
+      <section className="bg-bg-dark px-6 py-32">
         <div className="mx-auto max-w-4xl text-center">
           <ScrollReveal variant="fade-up" duration={800}>
-            <h2 className="text-[clamp(2.5rem,6vw,5rem)] font-extrabold leading-[0.95] tracking-[-0.03em] text-text-on-dark">
+            <h2 className="font-brand text-[clamp(2.5rem,6vw,5rem)] font-normal leading-[0.95] tracking-[0.02em] text-text-on-dark">
               MIND
               <br />
               CREW
@@ -370,7 +392,7 @@ export function LandingPage() {
           <ScrollReveal variant="fade-up" delay={300} duration={700}>
             <Link
               to="/register"
-              className="mt-10 inline-flex items-center gap-2 rounded-full border border-text-on-dark/20 bg-transparent px-10 py-4 text-sm font-semibold text-text-on-dark transition-all duration-300 hover:bg-text-on-dark hover:text-bg-dark cursor-pointer"
+              className="group mt-10 inline-flex items-center gap-2 rounded-full border border-text-on-dark/20 bg-transparent px-10 py-4 text-sm font-semibold text-text-on-dark transition-all duration-300 hover:bg-text-on-dark hover:text-bg-dark cursor-pointer"
             >
               免費開始
               <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" />

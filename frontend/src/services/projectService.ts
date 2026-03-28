@@ -7,16 +7,28 @@ import type {
   AdvanceStageResponse,
   MessagesResponse,
 } from '../types/api'
-import type { Project, StageInfo, StageHistoryEntry, AgentTrace } from '../types/models'
+import type {
+  Project,
+  ProjectListItem,
+  StageInfo,
+  StageHistoryEntry,
+  AgentTrace,
+  CanvasStateResponse,
+  ProjectSummaryResponse,
+} from '../types/models'
 
 export async function createProject(data: CreateProjectRequest): Promise<Project> {
   const response = await api.post<Project>('/projects', data)
   return response.data
 }
 
-export async function listProjects(): Promise<Project[]> {
-  const response = await api.get<Project[]>('/projects')
+export async function listProjects(): Promise<ProjectListItem[]> {
+  const response = await api.get<ProjectListItem[]>('/projects')
   return response.data
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await api.delete(`/projects/${id}`)
 }
 
 export async function getProject(id: string): Promise<Project> {
@@ -62,6 +74,16 @@ export async function getMessages(
   const params: Record<string, string | number> = { limit }
   if (before) params.before = before
   const response = await api.get<MessagesResponse>(`/projects/${id}/messages`, { params })
+  return response.data
+}
+
+export async function getCanvasState(id: string): Promise<CanvasStateResponse> {
+  const response = await api.get<CanvasStateResponse>(`/projects/${id}/canvas-state`)
+  return response.data
+}
+
+export async function getProjectSummary(id: string): Promise<ProjectSummaryResponse> {
+  const response = await api.post<ProjectSummaryResponse>(`/projects/${id}/summary`)
   return response.data
 }
 

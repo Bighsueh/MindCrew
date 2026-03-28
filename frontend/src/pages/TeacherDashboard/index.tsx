@@ -1,66 +1,17 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { getTeacherProjects, createStudent, listStudents } from '../../services/teacherService'
+import { getTeacherProjects, createStudent, listStudents, getProjectsOverview } from '../../services/teacherService'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../../components/common/Button'
 import { Input } from '../../components/common/Input'
 import { Modal } from '../../components/common/Modal'
 import { Loading } from '../../components/common/Loading'
-import { PhaseIndicator } from '../../components/common/PhaseIndicator'
 import { CreateProjectDialog } from '../../components/project/CreateProjectDialog'
-import { Eye, LogIn, Users, Bot, Plus } from 'lucide-react'
+import { StageDistributionBar } from '../../components/teacher/StageDistributionBar'
+import { AlertBanner } from '../../components/teacher/AlertBanner'
+import { ProjectMonitorCard } from '../../components/teacher/ProjectMonitorCard'
+import { Plus, RefreshCw } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import type { TeacherProjectSummary, User } from '../../types/models'
-
-function ProjectCard({ project }: { project: TeacherProjectSummary }) {
-  const navigate = useNavigate()
-
-  const lastActivity = new Date(project.last_activity).toLocaleString('zh-TW', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-
-  return (
-    <div className="rounded-xl border border-border bg-surface p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-text truncate">{project.name}</h3>
-          <p className="text-xs text-text-muted mt-0.5">最近活動：{lastActivity}</p>
-        </div>
-        <PhaseIndicator phase={project.current_stage} />
-      </div>
-
-      <div className="flex items-center gap-3 text-sm text-text-muted mb-4">
-        <span className="flex items-center gap-1"><Users size={14} />{project.seat_summary.human} 人類</span>
-        <span className="flex items-center gap-1"><Bot size={14} />{project.seat_summary.ai} AI</span>
-        <span>{project.note_count} 張便條</span>
-      </div>
-
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          variant="ghost"
-          className="flex-1 gap-1"
-          onClick={() => navigate(`/projects/${project.id}/lobby`)}
-        >
-          <Eye size={14} />
-          觀察
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="flex-1 gap-1"
-          onClick={() => navigate(`/projects/${project.id}/lobby`)}
-        >
-          <LogIn size={14} />
-          進入
-        </Button>
-      </div>
-    </div>
-  )
-}
+import type { TeacherProjectSummary, ProjectOverviewResponse, User } from '../../types/models'
 
 interface NewStudentFormData {
   displayName: string
@@ -71,10 +22,11 @@ interface NewStudentFormData {
 
 export function TeacherDashboardPage() {
   const { user } = useAuthStore()
-  const [projects, setProjects] = useState<TeacherProjectSummary[]>([])
+  const [overview, setOverview] = useState<ProjectOverviewResponse | null>(null)
   const [students, setStudents] = useState<User[]>([])
   const [isLoadingProjects, setIsLoadingProjects] = useState(true)
   const [isLoadingStudents, setIsLoadingStudents] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [activeTab, setActiveTab] = useState<'projects' | 'students'>('projects')
   const [showAddStudent, setShowAddStudent] = useState(false)
   const [showCreateProject, setShowCreateProject] = useState(false)
@@ -87,11 +39,25 @@ export function TeacherDashboardPage() {
   const [addStudentError, setAddStudentError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
+  const loadOverview = async () => {
+    try {
+      const data = await getProjectsOverview()
+      setOverview(data)
+    } catch {
+      // Fallback: overview API might fail, leave null
+      setOverview(null)
+    }
+  }
+
   useEffect(() => {
-    getTeacherProjects()
-      .then(setProjects)
-      .finally(() => setIsLoadingProjects(false))
+    loadOverview().finally(() => setIsLoadingProjects(false))
   }, [])
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    await loadOverview()
+    setIsRefreshing(false)
+  }
 
   const loadStudents = () => {
     setIsLoadingStudents(true)
@@ -139,10 +105,18 @@ export function TeacherDashboardPage() {
           <h1 className="text-xl font-bold text-text">教師儀表板</h1>
           <p className="text-sm text-text-muted">{user?.display_name} 老師</p>
         </div>
-        <Button onClick={() => setShowCreateProject(true)}>
-          <Plus size={16} />
-          建立新專案
-        </Button>
+        <div className="flex gap-2">
+          {activeTab === 'projects' && (
+            <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+              重新整理
+            </Button>
+          )}
+          <Button onClick={() => setShowCreateProject(true)}>
+            <Plus size={16} />
+            建立新專案
+          </Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -167,12 +141,12 @@ export function TeacherDashboardPage() {
 
       {/* Projects tab */}
       {activeTab === 'projects' && (
-        <div>
+        <div className="space-y-4">
           {isLoadingProjects ? (
             <div className="flex justify-center py-16">
-              <Loading text="載入專案…" />
+              <Loading text="載入監控資料…" />
             </div>
-          ) : projects.length === 0 ? (
+          ) : overview === null || overview.projects.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-surface py-16">
               <p className="text-text-muted">尚無專案。</p>
               <Button className="mt-4" onClick={() => setShowCreateProject(true)}>
@@ -180,11 +154,19 @@ export function TeacherDashboardPage() {
               </Button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {projects.map((p) => (
-                <ProjectCard key={p.id} project={p} />
-              ))}
-            </div>
+            <>
+              <StageDistributionBar distribution={overview.stage_distribution} />
+              <AlertBanner projects={overview.projects} />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {overview.projects.map((p) => (
+                  <ProjectMonitorCard
+                    key={p.id}
+                    project={p}
+                    onRefresh={handleRefresh}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -315,7 +297,7 @@ export function TeacherDashboardPage() {
         onClose={() => setShowCreateProject(false)}
         onCreated={() => {
           setShowCreateProject(false)
-          getTeacherProjects().then(setProjects)
+          loadOverview()
         }}
       />
     </div>

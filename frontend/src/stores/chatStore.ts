@@ -13,12 +13,15 @@ interface ChatState {
   hasMore: boolean
   isLoading: boolean
   oldestTimestamp: string | null
+  unreadCount: number
 
   addMessage: (message: Message) => void
   loadHistory: (projectId: string) => Promise<void>
   loadMore: (projectId: string) => Promise<void>
   setTyping: (userName: string, isTyping: boolean) => void
   clearMessages: () => void
+  incrementUnread: () => void
+  resetUnread: () => void
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -27,6 +30,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   hasMore: false,
   isLoading: false,
   oldestTimestamp: null,
+  unreadCount: 0,
 
   addMessage: (message: Message) => {
     set((state) => {
@@ -89,6 +93,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearMessages: () => {
-    set({ messages: [], hasMore: false, oldestTimestamp: null })
+    set({ messages: [], hasMore: false, oldestTimestamp: null, unreadCount: 0 })
+  },
+
+  incrementUnread: () => {
+    set((state) => ({ unreadCount: state.unreadCount + 1 }))
+  },
+
+  resetUnread: () => {
+    set({ unreadCount: 0 })
   },
 }))

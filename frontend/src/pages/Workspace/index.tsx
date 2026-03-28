@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useProjectStore } from '../../stores/projectStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -15,6 +15,7 @@ import { CanvasPanel } from '../../components/canvas/CanvasPanel'
 import { Button } from '../../components/common/Button'
 import { Modal } from '../../components/common/Modal'
 import { Loading } from '../../components/common/Loading'
+import { MessageCircle } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { WSMessage, WSChatMessagePayload, WSTypingPayload, WSStageChangedPayload, WSSeatChangedPayload } from '../../types/ws'
 import type { Message, DTStage } from '../../types/models'
@@ -30,7 +31,7 @@ export function WorkspacePage() {
   const navigate = useNavigate()
 
   const { currentProject, fetchProject } = useProjectStore()
-  const { addMessage } = useChatStore()
+  const { addMessage, unreadCount, incrementUnread, resetUnread } = useChatStore()
   const { seats, setSeats, updateSeat } = useSeatStore()
   const { currentStage, setCurrentStage } = useStageStore()
   const { user } = useAuthStore()
@@ -39,6 +40,33 @@ export function WorkspacePage() {
   const [isAdvancing, setIsAdvancing] = useState(false)
   const [wsError, setWsError] = useState(false)
   const [activeTab, setActiveTab] = useState<'canvas' | 'chat'>('canvas')
+  const [chatOpen, setChatOpen] = useState(true)
+  const chatOpenRef = useRef(chatOpen)
+  chatOpenRef.current = chatOpen
+
+  const [chatWidth, setChatWidth] = useState(380)
+  const isResizing = useRef(false)
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    isResizing.current = true
+    const startX = e.clientX
+    const startWidth = chatWidth
+
+    const onMove = (ev: MouseEvent) => {
+      if (!isResizing.current) return
+      const delta = startX - ev.clientX
+      const next = Math.min(Math.max(startWidth + delta, 280), window.innerWidth * 0.6)
+      setChatWidth(next)
+    }
+    const onUp = () => {
+      isResizing.current = false
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [chatWidth])
 
   useEffect(() => {
     if (id) fetchProject(id)
@@ -67,6 +95,7 @@ export function WorkspacePage() {
             created_at: p.timestamp,
           }
           addMessage(message)
+          if (!chatOpenRef.current) incrementUnread()
           break
         }
         case 'typing_indicator': {
@@ -92,7 +121,7 @@ export function WorkspacePage() {
         }
       }
     },
-    [id, currentStage, addMessage, setCurrentStage, updateSeat],
+    [id, currentStage, addMessage, incrementUnread, setCurrentStage, updateSeat],
   )
 
   // In dev mode, connect directly to the backend (Vite's WS proxy is unreliable)
@@ -177,9 +206,9 @@ export function WorkspacePage() {
       </header>
 
       {/* Main content area */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex-1 overflow-hidden">
         {/* Mobile: tabs */}
-        <div className="flex lg:hidden flex-col flex-1 overflow-hidden">
+        <div className="flex md:hidden flex-col h-full overflow-hidden">
           <div className="flex border-b border-border bg-surface">
             <button
               className={cn(
@@ -206,21 +235,60 @@ export function WorkspacePage() {
           </div>
           <div className="flex-1 overflow-hidden">
             {activeTab === 'canvas' ? (
-              <CanvasPanel projectId={id!} />
+              <CanvasPanel projectId={id!} currentStage={currentStage} />
             ) : (
               <ChatPanel projectId={id!} sendWS={sendWS} />
             )}
           </div>
         </div>
 
-        {/* Desktop: side-by-side */}
-        <div className="hidden lg:flex flex-1 overflow-hidden gap-0">
-          <div className="w-3/5 p-3">
-            <CanvasPanel projectId={id!} />
+        {/* Tablet/Desktop: fullwidth canvas + floating chat */}
+        <div className="hidden md:block h-full">
+          <CanvasPanel projectId={id!} currentStage={currentStage} />
+
+          {/* Floating chat panel */}
+          <div
+            className={cn(
+              'absolute top-3 right-3 bottom-3 z-30',
+              'overflow-hidden rounded-xl shadow-xl border border-border',
+              'transition-transform duration-300 ease-out',
+              'motion-reduce:transition-none',
+              chatOpen ? 'translate-x-0' : 'translate-x-[calc(100%+12px)]',
+            )}
+            style={{ width: chatWidth }}
+          >
+            {/* Resize handle */}
+            <div
+              className="absolute left-0 top-0 bottom-0 z-10 w-1.5 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors"
+              onMouseDown={handleResizeStart}
+            />
+            <ChatPanel projectId={id!} sendWS={sendWS} onClose={() => setChatOpen(false)} />
           </div>
-          <div className="w-2/5 border-l border-border bg-surface overflow-hidden">
-            <ChatPanel projectId={id!} sendWS={sendWS} />
-          </div>
+
+          {/* Toggle button: visible when chat is collapsed */}
+          <button
+            className={cn(
+              'absolute bottom-6 right-4 z-40',
+              'flex items-center gap-2 rounded-full px-4 py-2.5',
+              'bg-primary text-text-inverse shadow-lg',
+              'hover:bg-primary-dark cursor-pointer',
+              'transition-all duration-300 ease-out',
+              'motion-reduce:transition-none',
+              chatOpen
+                ? 'opacity-0 pointer-events-none scale-90'
+                : 'opacity-100 scale-100',
+            )}
+            onClick={() => { setChatOpen(true); resetUnread() }}
+            aria-label="開啟聊天室"
+          >
+            <MessageCircle size={18} />
+            <span className="text-sm font-medium">聊天室</span>
+            {unreadCount > 0 && (
+              <span className="flex items-center justify-center min-w-[1.25rem] h-5 rounded-full bg-error px-1.5 text-xs font-bold text-white">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 

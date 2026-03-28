@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
+import { X } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useAuthStore } from '../../stores/authStore'
 import { ChatMessage } from './ChatMessage'
@@ -9,9 +10,10 @@ interface ChatPanelProps {
   projectId: string
   sendWS: (msg: WSClientMessage) => void
   disabled?: boolean
+  onClose?: () => void
 }
 
-export function ChatPanel({ projectId, sendWS, disabled = false }: ChatPanelProps) {
+export function ChatPanel({ projectId, sendWS, disabled = false, onClose }: ChatPanelProps) {
   const { messages, typingUsers, hasMore, isLoading, loadHistory, loadMore } = useChatStore()
   const { user } = useAuthStore()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -59,8 +61,17 @@ export function ChatPanel({ projectId, sendWS, disabled = false }: ChatPanelProp
   return (
     <div className="flex h-full flex-col bg-surface">
       {/* Header */}
-      <div className="border-b border-border px-4 py-3">
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <h3 className="text-sm font-semibold text-text">聊天室</h3>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="flex items-center justify-center w-7 h-7 rounded-md text-text-muted hover:text-text hover:bg-surface-hover transition-colors cursor-pointer"
+            aria-label="關閉聊天室"
+          >
+            <X size={16} />
+          </button>
+        )}
       </div>
 
       {/* Message list */}

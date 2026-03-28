@@ -8,11 +8,13 @@ from app.auth.jwt import get_current_user
 from app.db.models.user import User
 from app.db.session import get_db_session
 from app.projects.schemas import (
+    CanvasStateResponse,
     JoinRequest,
     JoinResponse,
     ProjectCreateRequest,
     ProjectListItem,
     ProjectResponse,
+    ProjectSummaryResponse,
     ProjectUpdateRequest,
     SeatResponse,
 )
@@ -91,6 +93,37 @@ async def join_project(
 ) -> JoinResponse:
     service = ProjectService(session)
     return await service.join_project(project_id, request, current_user)
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> None:
+    service = ProjectService(session)
+    await service.delete_project(project_id, current_user)
+    await session.commit()
+
+
+@router.get("/{project_id}/canvas-state", response_model=CanvasStateResponse)
+async def get_canvas_state(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> CanvasStateResponse:
+    service = ProjectService(session)
+    return await service.get_canvas_state(project_id)
+
+
+@router.post("/{project_id}/summary", response_model=ProjectSummaryResponse)
+async def generate_summary(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ProjectSummaryResponse:
+    service = ProjectService(session)
+    return await service.generate_summary(project_id)
 
 
 @router.post("/{project_id}/leave")

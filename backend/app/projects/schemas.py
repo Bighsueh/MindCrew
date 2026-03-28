@@ -37,9 +37,12 @@ class ProjectResponse(BaseModel):
 class ProjectListItem(BaseModel):
     id: UUID
     name: str
+    description: str | None = None
     current_stage: str
     status: str
+    creator_id: UUID
     seat_summary: dict[str, int]
+    created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
@@ -58,3 +61,31 @@ class JoinRequest(BaseModel):
 class JoinResponse(BaseModel):
     seat: SeatResponse
     workspace_url: str
+
+
+class CanvasNoteResponse(BaseModel):
+    id: str
+    content: str
+    color: str
+    author: str = ""
+    group_name: str | None = None
+
+
+class CanvasGroupResponse(BaseModel):
+    name: str
+    notes: list[str]
+
+
+class CanvasStateResponse(BaseModel):
+    total_notes: int
+    groups: list[CanvasGroupResponse]
+    ungrouped: list[str]
+    notes: list[CanvasNoteResponse]
+
+
+class ProjectSummaryResponse(BaseModel):
+    summary: str
+    topics: list[str]
+    current_focus: str
+    blind_spots: list[str]
+    generated_at: datetime

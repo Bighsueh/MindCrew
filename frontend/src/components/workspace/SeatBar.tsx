@@ -3,11 +3,11 @@ import { cn } from '../../lib/utils'
 import type { Seat } from '../../types/models'
 
 const SEAT_ROLE_LABELS: Record<string, string> = {
-  supervisor: 'Supervisor',
-  crew_1: 'Crew 1',
-  crew_2: 'Crew 2',
-  crew_3: 'Crew 3',
-  crew_4: 'Crew 4',
+  supervisor: '引導者',
+  crew_1: '同理心專家',
+  crew_2: '結構化專家',
+  crew_3: '創意專家',
+  crew_4: '可行性專家',
 }
 
 interface SeatBarProps {

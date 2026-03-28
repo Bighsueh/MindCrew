@@ -89,6 +89,17 @@ export interface AgentTracesResponse {
   has_more: boolean
 }
 
+// ── Teacher Monitoring ──────────────────────────────────────────────────
+
+export interface SendHintRequest {
+  content: string
+}
+
+export interface SendHintResponse {
+  message_id: string
+  sent_at: string
+}
+
 // ── Re-exports for convenience ────────────────────────────────────────────
 
 export type {

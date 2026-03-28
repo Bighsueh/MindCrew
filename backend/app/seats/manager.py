@@ -527,11 +527,11 @@ class SeatManager:
     @staticmethod
     def _role_to_display_name(seat_role: str) -> str:
         mapping = {
-            "supervisor": "AI 主持人",
-            "crew_1": "AI 成員 1",
-            "crew_2": "AI 成員 2",
-            "crew_3": "AI 成員 3",
-            "crew_4": "AI 成員 4",
+            "supervisor": "AI 引導者",
+            "crew_1": "AI 同理心專家",
+            "crew_2": "AI 結構化專家",
+            "crew_3": "AI 創意專家",
+            "crew_4": "AI 可行性專家",
         }
         return mapping.get(seat_role, f"AI {seat_role}")
 

@@ -60,3 +60,7 @@ class ProjectRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def delete(self, project: Project) -> None:
+        await self.session.delete(project)
+        await self.session.flush()

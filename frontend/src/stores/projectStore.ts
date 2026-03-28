@@ -1,15 +1,16 @@
 import { create } from 'zustand'
-import type { Project } from '../types/models'
-import { listProjects, getProject } from '../services/projectService'
+import type { Project, ProjectListItem } from '../types/models'
+import { listProjects, getProject, deleteProject as deleteProjectApi } from '../services/projectService'
 
 interface ProjectState {
-  projects: Project[]
+  projects: ProjectListItem[]
   currentProject: Project | null
   isLoading: boolean
   error: string | null
 
   fetchProjects: () => Promise<void>
   fetchProject: (id: string) => Promise<void>
+  deleteProject: (id: string) => Promise<void>
   setCurrentProject: (project: Project | null) => void
   updateCurrentProject: (updates: Partial<Project>) => void
   clearError: () => void
@@ -26,7 +27,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     try {
       const projects = await listProjects()
       set({ projects, isLoading: false })
-    } catch (err) {
+    } catch {
       set({ error: '載入專案列表失敗', isLoading: false })
     }
   },
@@ -36,9 +37,16 @@ export const useProjectStore = create<ProjectState>((set) => ({
     try {
       const project = await getProject(id)
       set({ currentProject: project, isLoading: false })
-    } catch (err) {
+    } catch {
       set({ error: '載入專案失敗', isLoading: false })
     }
+  },
+
+  deleteProject: async (id: string) => {
+    await deleteProjectApi(id)
+    set((state) => ({
+      projects: state.projects.filter((p) => p.id !== id),
+    }))
   },
 
   setCurrentProject: (project: Project | null) => {

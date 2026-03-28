@@ -79,3 +79,76 @@ class AgentTraceListResponse(BaseModel):
     traces: list[AgentTraceResponse]
     next_cursor: str | None
     has_more: bool
+
+
+# ---------------------------------------------------------------------------
+# Teacher Dashboard Monitoring (specs/10)
+# ---------------------------------------------------------------------------
+
+
+class EvaluationScoreSummary(BaseModel):
+    latest_total: float | None
+    threshold: float | None
+    consecutive_passes: int
+    trend: str  # "improving" | "stagnant" | "declining"
+
+
+class ParticipationSummary(BaseModel):
+    human_messages: int
+    ai_messages: int
+    active_members: int
+    total_members: int
+
+
+class AIActivitySummary(BaseModel):
+    total_interventions: int
+    recent_interventions: int
+    action_distribution: dict[str, int]
+
+
+class AlertItem(BaseModel):
+    level: str  # "error" | "warning" | "info"
+    type: str  # "stage_stagnation" | "low_participation" | "ai_dominant"
+    message: str
+
+
+class ProjectMonitorItem(BaseModel):
+    id: UUID
+    name: str
+    current_stage: str
+    status: str
+    seat_summary: SeatSummary
+    note_count: int
+    last_activity: datetime | None
+    created_at: datetime
+    ai_contribution: str
+    stage_duration_seconds: int
+    stage_started_at: datetime | None
+    evaluation_score: EvaluationScoreSummary
+    participation: ParticipationSummary
+    ai_activity: AIActivitySummary
+    alerts: list[AlertItem]
+
+    model_config = {"from_attributes": True}
+
+
+class StageDistribution(BaseModel):
+    discover: int = 0
+    define: int = 0
+    develop: int = 0
+    deliver: int = 0
+    completed: int = 0
+
+
+class ProjectOverviewResponse(BaseModel):
+    projects: list[ProjectMonitorItem]
+    stage_distribution: StageDistribution
+
+
+class SendHintRequest(BaseModel):
+    content: str
+
+
+class SendHintResponse(BaseModel):
+    message_id: UUID
+    sent_at: datetime

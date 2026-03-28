@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Tldraw, TLRecord, createTLStore, defaultShapeUtils } from '@tldraw/tldraw'
+import { Tldraw, TLRecord, TLComponents, createTLStore, defaultShapeUtils } from '@tldraw/tldraw'
 import '@tldraw/tldraw/tldraw.css'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
+import type { DTStage } from '../../types/models'
+import { MiniToolbar } from './MiniToolbar'
+import { ZoomControls } from './ZoomControls'
+import { NoteAuthorLabels } from './NoteAuthorLabels'
 
 interface CanvasPanelProps {
   projectId: string
+  currentStage?: DTStage
 }
 
 // Map sidecar color names to tldraw's TLDefaultColorStyle values
@@ -38,7 +43,27 @@ function getYjsWsUrl(): string {
   return `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/yjs`
 }
 
-export function CanvasPanel({ projectId }: CanvasPanelProps) {
+const TLDRAW_COMPONENTS: TLComponents = {
+  StylePanel: null,
+  Toolbar: null,
+  PageMenu: null,
+  ActionsMenu: null,
+  HelpMenu: null,
+  DebugPanel: null,
+  DebugMenu: null,
+  NavigationPanel: null,
+  Minimap: null,
+  MenuPanel: null,
+}
+
+const STAGE_BG: Record<string, string> = {
+  discover: 'bg-[#fefce8]',
+  define: 'bg-[#eff6ff]',
+  develop: 'bg-[#f0fdf4]',
+  deliver: 'bg-[#fdf4ff]',
+}
+
+export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
   const [connected, setConnected] = useState(false)
   const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), [])
   const providerRef = useRef<WebsocketProvider | null>(null)
@@ -78,7 +103,7 @@ export function CanvasPanel({ projectId }: CanvasPanelProps) {
             index: toIndexKey(idx),
             isLocked: false,
             opacity: 1,
-            meta: {},
+            meta: { author: (shape.author as string) || '' },
             props: {
               text: (shape.content as string) || '',
               color: toTldrawColor(shape.color),
@@ -118,14 +143,24 @@ export function CanvasPanel({ projectId }: CanvasPanelProps) {
     }
   }, [projectId, store])
 
+  const stageBg = currentStage ? STAGE_BG[currentStage] ?? '' : ''
+
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-lg border border-border">
+    <div className={`relative h-full w-full overflow-hidden ${stageBg}`}>
       {!connected && (
         <div className="absolute top-2 left-2 z-50 rounded bg-warning-bg px-2 py-1 text-xs text-warning">
           白板連線中...
         </div>
       )}
-      <Tldraw store={store} inferDarkMode={false} hideUi={false} />
+      <Tldraw
+        store={store}
+        inferDarkMode={false}
+        components={TLDRAW_COMPONENTS}
+      >
+        <MiniToolbar />
+        <ZoomControls />
+        <NoteAuthorLabels />
+      </Tldraw>
     </div>
   )
 }

@@ -66,6 +66,7 @@
   /* Typography */
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans TC', sans-serif;
   --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-brand: 'Coiny', cursive;
 
   /* Radius */
   --radius-sm: 6px;
@@ -80,6 +81,11 @@
   --shadow-md: 0 4px 16px rgba(26, 26, 26, 0.06);
   --shadow-lg: 0 8px 32px rgba(26, 26, 26, 0.08);
   --shadow-xl: 0 20px 60px rgba(26, 26, 26, 0.12);
+
+  /* Shadows — Sticky notes (multi-layer for paper realism) */
+  --shadow-note:       0 2px 4px rgba(26, 26, 26, 0.08), 0 8px 24px rgba(26, 26, 26, 0.12);
+  --shadow-note-hover: 0 4px 8px rgba(26, 26, 26, 0.10), 0 16px 40px rgba(26, 26, 26, 0.16);
+  --shadow-note-float: 0 6px 12px rgba(26, 26, 26, 0.10), 0 20px 48px rgba(26, 26, 26, 0.14);
 
   /* Animation */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -154,6 +160,22 @@ html, body, #root {
   animation: float 4s var(--ease-smooth) infinite;
 }
 
+/* Enhanced float — larger travel + rotation wobble + dynamic shadow */
+@keyframes float-note {
+  0%, 100% {
+    transform: translateY(0) rotate(var(--note-rotate, 0deg));
+    box-shadow: var(--shadow-note);
+  }
+  50% {
+    transform: translateY(-12px) rotate(calc(var(--note-rotate, 0deg) + 1.5deg));
+    box-shadow: var(--shadow-note-float);
+  }
+}
+
+.animate-float-note {
+  animation: float-note 5s var(--ease-smooth) infinite;
+}
+
 /* Navbar scroll state */
 .nav-scrolled {
   --tw-bg-opacity: 0.95;
@@ -187,4 +209,15 @@ details .faq-answer > div {
 .card-hover:hover {
   transform: translateY(-4px);
   box-shadow: var(--shadow-lg);
+}
+
+/* Sticky note hover — straighten + lift */
+.card-hover-note {
+  transition: transform var(--duration-normal) var(--ease-out),
+              box-shadow var(--duration-normal) var(--ease-out);
+}
+
+.card-hover-note:hover {
+  transform: translateY(-6px) rotate(0deg) !important;
+  box-shadow: var(--shadow-note-hover);
 }

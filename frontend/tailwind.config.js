@@ -68,6 +68,7 @@ export default {
       fontFamily: {
         sans: ['var(--font-sans)'],
         display: ['var(--font-display)'],
+        brand: ['var(--font-brand)'],
       },
       borderRadius: {
         sm: 'var(--radius-sm)',
@@ -82,6 +83,9 @@ export default {
         md: 'var(--shadow-md)',
         lg: 'var(--shadow-lg)',
         xl: 'var(--shadow-xl)',
+        note: 'var(--shadow-note)',
+        'note-hover': 'var(--shadow-note-hover)',
+        'note-float': 'var(--shadow-note-float)',
       },
     },
   },

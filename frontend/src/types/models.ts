@@ -49,6 +49,18 @@ export interface Project {
   updated_at: string
 }
 
+export interface ProjectListItem {
+  id: string
+  name: string
+  description?: string
+  current_stage: DTStage
+  status: ProjectStatus
+  creator_id: string
+  seat_summary: SeatSummary
+  created_at: string
+  updated_at: string
+}
+
 export interface Message {
   id: string
   project_id: string
@@ -120,4 +132,93 @@ export interface ProjectRecord {
     total_calls: number
     total_cost_estimate: string
   }
+}
+
+// ── Lobby Types ─────────────────────────────────────────────────────────
+
+export interface CanvasNote {
+  id: string
+  content: string
+  color: string
+  author: string
+  group_name: string | null
+}
+
+export interface CanvasGroup {
+  name: string
+  notes: string[]
+}
+
+export interface CanvasStateResponse {
+  total_notes: number
+  groups: CanvasGroup[]
+  ungrouped: string[]
+  notes: CanvasNote[]
+}
+
+export interface ProjectSummaryResponse {
+  summary: string
+  topics: string[]
+  current_focus: string
+  blind_spots: string[]
+  generated_at: string
+}
+
+// ── Teacher Dashboard Monitoring ─────────────────────────────────────────
+
+export interface EvaluationScoreSummary {
+  latest_total: number | null
+  threshold: number | null
+  consecutive_passes: number
+  trend: 'improving' | 'stagnant' | 'declining'
+}
+
+export interface ParticipationSummary {
+  human_messages: number
+  ai_messages: number
+  active_members: number
+  total_members: number
+}
+
+export interface AIActivitySummary {
+  total_interventions: number
+  recent_interventions: number
+  action_distribution: Record<string, number>
+}
+
+export interface AlertItem {
+  level: 'error' | 'warning' | 'info'
+  type: 'stage_stagnation' | 'low_participation' | 'ai_dominant'
+  message: string
+}
+
+export interface ProjectMonitorItem {
+  id: string
+  name: string
+  current_stage: DTStage
+  status: ProjectStatus
+  seat_summary: SeatSummary
+  note_count: number
+  last_activity: string | null
+  created_at: string
+  ai_contribution: AIContribution
+  stage_duration_seconds: number
+  stage_started_at: string | null
+  evaluation_score: EvaluationScoreSummary
+  participation: ParticipationSummary
+  ai_activity: AIActivitySummary
+  alerts: AlertItem[]
+}
+
+export interface StageDistribution {
+  discover: number
+  define: number
+  develop: number
+  deliver: number
+  completed: number
+}
+
+export interface ProjectOverviewResponse {
+  projects: ProjectMonitorItem[]
+  stage_distribution: StageDistribution
 }

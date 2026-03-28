@@ -11,7 +11,7 @@ interface StickyNoteSVGProps {
 export function StickyNoteSVG({ color, rotation, text, float = false, floatDelay = '0s' }: StickyNoteSVGProps) {
   return (
     <div
-      className={`hidden sm:flex h-20 w-20 items-center justify-center rounded-sm p-2 shadow-md md:h-24 md:w-24 ${float ? 'animate-float' : ''}`}
+      className={`hidden sm:flex h-28 w-28 items-center justify-center rounded-sm p-3 shadow-note md:h-36 md:w-36 ${float ? 'animate-float-note' : ''}`}
       style={{
         backgroundColor: color,
         transform: `rotate(${rotation}deg)`,
@@ -19,7 +19,7 @@ export function StickyNoteSVG({ color, rotation, text, float = false, floatDelay
         animationDelay: float ? floatDelay : undefined,
       }}
     >
-      <p className="text-center text-[10px] font-semibold text-primary/70 leading-tight md:text-xs">
+      <p className="text-center text-sm font-bold text-primary/90 leading-tight md:text-base">
         {text}
       </p>
     </div>
