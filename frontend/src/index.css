@@ -126,7 +126,9 @@ html, body, #root {
   }
 }
 
-/* Fade-up animation */
+/* ── Animations ── */
+
+/* Fade-up (existing — used for Hero entrance) */
 @keyframes fade-up {
   from {
     opacity: 0;
@@ -140,4 +142,49 @@ html, body, #root {
 
 .animate-fade-up {
   animation: fade-up 0.8s var(--ease-out) both;
+}
+
+/* Subtle float — for Hero sticky notes */
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(var(--note-rotate, 0deg)); }
+  50% { transform: translateY(-6px) rotate(var(--note-rotate, 0deg)); }
+}
+
+.animate-float {
+  animation: float 4s var(--ease-smooth) infinite;
+}
+
+/* Navbar scroll state */
+.nav-scrolled {
+  --tw-bg-opacity: 0.95;
+  box-shadow: var(--shadow-sm);
+}
+
+/* FAQ smooth expand with grid technique */
+details .faq-answer {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--duration-slow) var(--ease-out),
+              opacity var(--duration-slow) var(--ease-out);
+  opacity: 0;
+}
+
+details[open] .faq-answer {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+details .faq-answer > div {
+  overflow: hidden;
+}
+
+/* Feature card hover lift — only transform+shadow for GPU perf */
+.card-hover {
+  transition: transform var(--duration-normal) var(--ease-out),
+              box-shadow var(--duration-normal) var(--ease-out);
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
 }
