@@ -1,57 +1,12 @@
 import {
-  Compass,
-  Heart,
-  LayoutGrid,
-  Lightbulb,
-  Target,
   Bot,
   User,
   LogIn,
-  type LucideIcon,
+  Crown,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Button } from '../../components/common/Button'
 import type { Seat, SeatRole } from '../../types/models'
-
-interface SeatConfig {
-  seatLabel: string
-  expertName: string
-  expertDesc: string
-  icon: LucideIcon
-}
-
-const SEAT_CONFIG: Record<string, SeatConfig> = {
-  supervisor: {
-    seatLabel: '組員 1 席',
-    expertName: '引導者',
-    expertDesc: '引導討論方向、整理白板、管理進度',
-    icon: Compass,
-  },
-  crew_1: {
-    seatLabel: '組員 2 席',
-    expertName: '同理心專家',
-    expertDesc: '關注使用者感受、需求和痛點',
-    icon: Heart,
-  },
-  crew_2: {
-    seatLabel: '組員 3 席',
-    expertName: '結構化專家',
-    expertDesc: '整理框架、分類觀點、找出邏輯',
-    icon: LayoutGrid,
-  },
-  crew_3: {
-    seatLabel: '組員 4 席',
-    expertName: '創意專家',
-    expertDesc: '跳脫框架、提出新穎連結和角度',
-    icon: Lightbulb,
-  },
-  crew_4: {
-    seatLabel: '組員 5 席',
-    expertName: '可行性專家',
-    expertDesc: '評估落地現實、技術限制和資源',
-    icon: Target,
-  },
-}
 
 interface SeatSelectionGridProps {
   seats: Seat[]
@@ -68,12 +23,16 @@ export function SeatSelectionGrid({
   joiningRole,
   joinError,
 }: SeatSelectionGridProps) {
+  const supervisorSeat = seats.find((s) => s.seat_role === 'supervisor')
+  const crewSeats = seats.filter((s) => s.seat_role !== 'supervisor')
+
   return (
     <div className="rounded-xl border border-border bg-surface shadow-sm">
+      {/* Header */}
       <div className="border-b border-border px-5 py-4">
-        <h2 className="text-base font-semibold text-text">選擇席位加入</h2>
+        <h2 className="text-base font-semibold text-text">選擇座位</h2>
         <p className="mt-0.5 text-xs text-text-muted">
-          每個席位目前由 AI 專家代理，你可以取代任一位加入討論
+          選擇一個座位加入討論，或以觀察者身份旁聽
         </p>
       </div>
 
@@ -83,9 +42,20 @@ export function SeatSelectionGrid({
         </div>
       )}
 
+      {/* Supervisor section */}
+      {supervisorSeat && (
+        <SupervisorRow
+          seat={supervisorSeat}
+          currentUserId={currentUserId}
+          onJoin={onJoin}
+          isJoining={joiningRole === 'supervisor'}
+        />
+      )}
+
+      {/* Crew section */}
       <div className="divide-y divide-border/50">
-        {seats.map((seat) => (
-          <SeatRow
+        {crewSeats.map((seat) => (
+          <CrewRow
             key={seat.seat_role}
             seat={seat}
             currentUserId={currentUserId}
@@ -98,6 +68,8 @@ export function SeatSelectionGrid({
   )
 }
 
+/* ── Supervisor Row ── */
+
 interface SeatRowProps {
   seat: Seat
   currentUserId: string | undefined
@@ -105,9 +77,58 @@ interface SeatRowProps {
   isJoining: boolean
 }
 
-function SeatRow({ seat, currentUserId, onJoin, isJoining }: SeatRowProps) {
-  const config = SEAT_CONFIG[seat.seat_role]
-  const Icon = config?.icon ?? Bot
+function SupervisorRow({ seat, currentUserId, onJoin, isJoining }: SeatRowProps) {
+  const isMyCurrentSeat =
+    seat.occupant_type === 'human' && seat.user_id === currentUserId
+  const isHumanOccupied =
+    seat.occupant_type === 'human' && !isMyCurrentSeat
+  const isAI = seat.occupant_type === 'ai'
+
+  return (
+    <div
+      className={cn(
+        'border-b border-border px-5 py-4 transition-colors',
+        isMyCurrentSeat && 'bg-supervisor/5',
+        isAI && 'hover:bg-surface-hover',
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <SeatAvatar
+          isAI={isAI}
+          isMe={isMyCurrentSeat}
+          isSupervisor
+        />
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <Crown size={14} className="text-supervisor" />
+            <span className="text-sm font-semibold text-text">組長</span>
+            <OccupantBadge
+              isAI={isAI}
+              isMe={isMyCurrentSeat}
+              isOtherHuman={isHumanOccupied}
+              displayName={seat.display_name}
+            />
+          </div>
+          <p className="mt-0.5 text-xs text-text-muted">
+            引導討論方向、整理白板、管理進度
+          </p>
+        </div>
+
+        <SeatAction
+          isAI={isAI}
+          isJoining={isJoining}
+          seatRole={seat.seat_role as SeatRole}
+          onJoin={onJoin}
+        />
+      </div>
+    </div>
+  )
+}
+
+/* ── Crew Row ── */
+
+function CrewRow({ seat, currentUserId, onJoin, isJoining }: SeatRowProps) {
   const isMyCurrentSeat =
     seat.occupant_type === 'human' && seat.user_id === currentUserId
   const isHumanOccupied =
@@ -123,73 +144,136 @@ function SeatRow({ seat, currentUserId, onJoin, isJoining }: SeatRowProps) {
         isHumanOccupied && 'bg-accent/5',
       )}
     >
-      {/* Icon */}
-      <div
-        className={cn(
-          'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
-          isMyCurrentSeat
-            ? 'bg-primary/10 text-primary'
-            : 'bg-accent/10 text-accent',
-        )}
-      >
-        <Icon size={18} />
-      </div>
+      <SeatAvatar
+        isAI={isAI}
+        isMe={isMyCurrentSeat}
+        isSupervisor={false}
+      />
 
-      {/* Seat info */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-text">
-            {config?.seatLabel ?? seat.seat_role}
-          </span>
-          <span className="text-xs text-text-muted">
-            {isAI && `${config?.expertName ?? 'AI'}`}
-            {isMyCurrentSeat && '你'}
-            {isHumanOccupied && (seat.display_name ?? '其他成員')}
-          </span>
+          <span className="text-sm font-medium text-text">組員</span>
+          <OccupantBadge
+            isAI={isAI}
+            isMe={isMyCurrentSeat}
+            isOtherHuman={isHumanOccupied}
+            displayName={seat.display_name}
+          />
         </div>
-        <p className="text-xs text-text-muted/70">{config?.expertDesc}</p>
       </div>
 
-      {/* Occupant badge */}
-      <div className="flex shrink-0 items-center gap-1 text-xs text-text-muted">
-        {isAI && (
-          <>
-            <Bot size={12} className="text-accent" />
-            <span className="hidden sm:inline">AI 代理中</span>
-          </>
-        )}
-        {isMyCurrentSeat && (
-          <>
-            <User size={12} className="text-primary" />
-            <span className="font-medium text-primary">已加入</span>
-          </>
-        )}
-        {isHumanOccupied && (
-          <>
-            <User size={12} className="text-accent" />
-          </>
-        )}
-      </div>
+      <SeatAction
+        isAI={isAI}
+        isJoining={isJoining}
+        seatRole={seat.seat_role as SeatRole}
+        onJoin={onJoin}
+      />
+    </div>
+  )
+}
 
-      {/* Action */}
-      {isAI && (
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => onJoin(seat.seat_role as SeatRole)}
-          disabled={isJoining}
-          className="shrink-0"
-        >
-          {isJoining ? (
-            '加入中…'
-          ) : (
-            <span className="flex items-center gap-1.5">
-              <LogIn size={14} />
-              取代 AI
-            </span>
-          )}
-        </Button>
+/* ── Shared Sub-components ── */
+
+function SeatAvatar({
+  isAI,
+  isMe,
+  isSupervisor,
+}: {
+  isAI: boolean
+  isMe: boolean
+  isSupervisor: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        'flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
+        isAI && 'border-2 border-dashed border-border text-text-muted',
+        isAI && 'animate-pulse-slow',
+        isMe && isSupervisor && 'border-2 border-supervisor bg-supervisor/10 text-supervisor',
+        isMe && !isSupervisor && 'border-2 border-primary bg-primary/10 text-primary',
+        !isAI && !isMe && 'border-2 border-accent bg-accent/10 text-accent',
+      )}
+    >
+      {isAI ? (
+        <Bot size={16} />
+      ) : (
+        isMe ? <User size={16} /> : <User size={16} />
       )}
     </div>
+  )
+}
+
+function OccupantBadge({
+  isAI,
+  isMe,
+  isOtherHuman,
+  displayName,
+}: {
+  isAI: boolean
+  isMe: boolean
+  isOtherHuman: boolean
+  displayName?: string
+}) {
+  if (isAI) {
+    const agentLabel = displayName?.replace(/^AI\s*/, '') ?? 'AI'
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-secondary/40 px-2 py-0.5 text-[11px] text-text-muted">
+        <Bot size={10} />
+        {agentLabel} · 代理中
+      </span>
+    )
+  }
+
+  if (isMe) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+        <User size={10} />
+        你
+      </span>
+    )
+  }
+
+  if (isOtherHuman) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] text-accent">
+        <User size={10} />
+        {displayName ?? '其他成員'}
+      </span>
+    )
+  }
+
+  return null
+}
+
+function SeatAction({
+  isAI,
+  isJoining,
+  seatRole,
+  onJoin,
+}: {
+  isAI: boolean
+  isJoining: boolean
+  seatRole: SeatRole
+  onJoin: (role: SeatRole) => void
+}) {
+  if (!isAI) return null
+
+  return (
+    <Button
+      size="sm"
+      variant="primary"
+      onClick={() => onJoin(seatRole)}
+      disabled={isJoining}
+      className="shrink-0"
+    >
+      {isJoining ? (
+        '加入中…'
+      ) : (
+        <span className="flex items-center gap-1.5">
+          <LogIn size={14} />
+          入座
+        </span>
+      )}
+    </Button>
   )
 }

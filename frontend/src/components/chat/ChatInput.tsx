@@ -68,7 +68,7 @@ export function ChatInput({
         rows={2}
         className={cn(
           'flex-1 resize-none rounded-lg border border-border px-3 py-2 text-sm bg-surface text-text',
-          'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary',
+          'focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent',
           'placeholder:text-text-muted',
           'disabled:bg-surface-hover disabled:cursor-not-allowed',
         )}
@@ -78,7 +78,7 @@ export function ChatInput({
         disabled={disabled || !value.trim()}
         className={cn(
           'flex-shrink-0 flex items-center justify-center rounded-lg px-4 py-2',
-          'bg-primary text-text-inverse hover:bg-primary-dark',
+          'bg-accent text-white hover:bg-accent/90',
           'disabled:opacity-40 disabled:cursor-not-allowed',
           'transition-colors cursor-pointer',
         )}

@@ -214,7 +214,7 @@ export function WorkspacePage() {
               className={cn(
                 'flex-1 py-2 text-sm font-medium border-b-2 transition-colors',
                 activeTab === 'canvas'
-                  ? 'border-primary text-primary'
+                  ? 'border-accent text-accent'
                   : 'border-transparent text-text-muted',
               )}
               onClick={() => setActiveTab('canvas')}
@@ -225,7 +225,7 @@ export function WorkspacePage() {
               className={cn(
                 'flex-1 py-2 text-sm font-medium border-b-2 transition-colors',
                 activeTab === 'chat'
-                  ? 'border-primary text-primary'
+                  ? 'border-accent text-accent'
                   : 'border-transparent text-text-muted',
               )}
               onClick={() => setActiveTab('chat')}
@@ -270,8 +270,8 @@ export function WorkspacePage() {
             className={cn(
               'absolute bottom-6 right-4 z-40',
               'flex items-center gap-2 rounded-full px-4 py-2.5',
-              'bg-primary text-text-inverse shadow-lg',
-              'hover:bg-primary-dark cursor-pointer',
+              'bg-accent text-white shadow-lg',
+              'hover:bg-accent/90 cursor-pointer',
               'transition-all duration-300 ease-out',
               'motion-reduce:transition-none',
               chatOpen

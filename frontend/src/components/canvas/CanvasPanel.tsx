@@ -58,9 +58,9 @@ const TLDRAW_COMPONENTS: TLComponents = {
 
 const STAGE_BG: Record<string, string> = {
   discover: 'bg-[#fefce8]',
-  define: 'bg-[#eff6ff]',
-  develop: 'bg-[#f0fdf4]',
-  deliver: 'bg-[#fdf4ff]',
+  define: 'bg-[#fef3e2]',
+  develop: 'bg-[#fdf5ee]',
+  deliver: 'bg-[#faf0e6]',
 }
 
 export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {

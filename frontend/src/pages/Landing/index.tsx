@@ -106,18 +106,20 @@ export function LandingPage() {
             <a href="#process" className="text-sm text-text-muted transition-colors hover:text-text">流程</a>
             <a href="#faq" className="text-sm text-text-muted transition-colors hover:text-text">常見問題</a>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <Link
               to="/login"
-              className="text-sm font-medium text-text-muted transition-colors hover:text-text"
+              className="rounded-full border border-border bg-surface/80 px-3.5 py-2 text-sm font-medium text-text shadow-sm transition-colors hover:border-primary/30 hover:bg-surface cursor-pointer"
+              title="已有教師或管理帳號時使用"
             >
-              登入
+              帳號登入
             </Link>
             <Link
               to="/register"
-              className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-text-inverse transition-colors hover:bg-primary-light cursor-pointer"
+              className="rounded-full bg-primary px-3.5 py-2 text-sm font-semibold text-text-inverse shadow-sm transition-colors hover:bg-primary-light cursor-pointer sm:px-5"
+              title="首次使用：建立教師帳號以管理課堂與學生"
             >
-              免費開始
+              教師免費註冊
             </Link>
           </div>
         </div>
@@ -146,13 +148,14 @@ export function LandingPage() {
             <Link
               to="/register"
               className="group flex items-center gap-2 rounded-full bg-primary px-8 py-3.5 text-sm font-semibold text-text-inverse transition-all hover:bg-primary-light hover:shadow-lg cursor-pointer"
+              title="建立教師帳號後即可建立專案、邀請學生與 AI 協作"
             >
-              開始協作
+              教師免費註冊
               <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" />
             </Link>
             <a
               href="#process"
-              className="rounded-full border border-border px-8 py-3.5 text-sm font-medium text-text transition-colors hover:bg-surface cursor-pointer"
+              className="rounded-full border border-border bg-surface/60 backdrop-blur-sm px-8 py-3.5 text-sm font-medium text-text transition-colors hover:bg-surface/90 cursor-pointer"
             >
               了解更多
             </a>
@@ -261,7 +264,7 @@ export function LandingPage() {
       </section>
 
       {/* ─── Process — Double Diamond (dark) ─── */}
-      <section id="process" className="relative bg-bg-dark px-6 py-28 overflow-hidden">
+      <section id="process" className="scroll-mt-16 relative bg-bg-dark px-6 py-28 overflow-hidden">
         {/* Double diamond background decoration */}
         <svg
           className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-[0.06]"
@@ -287,33 +290,48 @@ export function LandingPage() {
           </ScrollReveal>
 
           <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {PROCESS_CARDS.map((item, i) => (
-              <ScrollReveal key={item.phase} variant="fade-up" delay={i * 120} duration={600}>
-                <div
-                  className={`card-hover group relative overflow-hidden rounded-xl border border-border-dark bg-surface-dark p-6 text-left transition-colors hover:border-accent/40 hover:bg-surface-dark/80 ${
-                    i === 1 || i === 2 ? 'lg:-translate-y-3' : ''
-                  }`}
-                >
-                  {/* Accent bar */}
-                  <div className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: item.accent }} />
-                  <div className="flex items-center justify-between">
-                    <item.icon size={24} className="text-text-muted-on-dark group-hover:text-text-on-dark transition-colors" />
-                    <span className="rounded-full border border-border-dark px-2.5 py-0.5 text-[10px] font-medium text-text-muted-on-dark">
-                      {item.tag}
-                    </span>
+            {PROCESS_CARDS.map((item, i) => {
+              const waveDelay = `${i * 0.8}s`
+              const baseY = i === 1 || i === 2 ? '-12px' : '0px'
+              return (
+                <ScrollReveal key={item.phase} variant="fade-up" delay={i * 120} duration={600}>
+                  <div
+                    className="animate-process-breathe group relative overflow-hidden rounded-xl border border-border-dark bg-surface-dark p-6 text-left transition-colors hover:border-accent/40 hover:bg-surface-dark/80"
+                    style={{
+                      '--wave-delay': waveDelay,
+                      '--base-y': baseY,
+                      '--wave-rgb': item.accent,
+                    } as React.CSSProperties}
+                  >
+                    {/* Ambient glow */}
+                    <div
+                      className="process-glow"
+                      style={{ '--wave-delay': waveDelay, '--glow-color': item.accent } as React.CSSProperties}
+                    />
+                    {/* Accent bar with shimmer */}
+                    <div
+                      className="process-accent-bar absolute inset-x-0 top-0 h-1"
+                      style={{ '--bar-color': item.accent, '--wave-delay': waveDelay } as React.CSSProperties}
+                    />
+                    <div className="relative flex items-center justify-between">
+                      <item.icon size={24} className="text-text-muted-on-dark group-hover:text-text-on-dark transition-colors" />
+                      <span className="rounded-full border border-border-dark px-2.5 py-0.5 text-[10px] font-medium text-text-muted-on-dark">
+                        {item.tag}
+                      </span>
+                    </div>
+                    <h3 className="relative mt-4 text-xl font-bold text-text-on-dark">{item.phase}</h3>
+                    <p className="relative mt-2 text-sm leading-relaxed text-text-muted-on-dark">{item.desc}</p>
+                    <div className="relative mt-4 text-xs" style={{ color: item.accent }}>0{i + 1}/04</div>
                   </div>
-                  <h3 className="mt-4 text-xl font-bold text-text-on-dark">{item.phase}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-text-muted-on-dark">{item.desc}</p>
-                  <div className="mt-4 text-xs" style={{ color: item.accent }}>0{i + 1}/04</div>
-                </div>
-              </ScrollReveal>
-            ))}
+                </ScrollReveal>
+              )
+            })}
           </div>
         </div>
       </section>
 
       {/* ─── Features grid (light) ─── */}
-      <section id="features" className="px-6 py-28">
+      <section id="features" className="scroll-mt-16 px-6 py-28">
         <div className="mx-auto max-w-5xl">
           <ScrollReveal variant="fade-up">
             <p className="text-sm font-medium uppercase tracking-widest text-text-muted">/04</p>
@@ -343,7 +361,7 @@ export function LandingPage() {
       </section>
 
       {/* ─── FAQ (warm bg) ─── */}
-      <section id="faq" className="bg-bg-warm px-6 py-28">
+      <section id="faq" className="scroll-mt-16 bg-bg-warm px-6 py-28">
         <div className="mx-auto max-w-3xl">
           <ScrollReveal variant="fade-up">
             <p className="text-sm font-medium uppercase tracking-widest text-text-muted">/05</p>
@@ -393,8 +411,9 @@ export function LandingPage() {
             <Link
               to="/register"
               className="group mt-10 inline-flex items-center gap-2 rounded-full border border-text-on-dark/20 bg-transparent px-10 py-4 text-sm font-semibold text-text-on-dark transition-all duration-300 hover:bg-text-on-dark hover:text-bg-dark cursor-pointer"
+              title="首次使用：建立教師帳號"
             >
-              免費開始
+              教師免費註冊
               <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" />
             </Link>
           </ScrollReveal>
@@ -403,12 +422,8 @@ export function LandingPage() {
 
       {/* ─── Footer ─── */}
       <footer className="border-t border-border px-6 py-8">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
+        <div className="mx-auto max-w-7xl">
           <span className="text-sm text-text-muted">© 2026 MindCrew</span>
-          <div className="flex gap-6">
-            <a href="#" className="text-xs text-text-muted hover:text-text transition-colors">隱私政策</a>
-            <a href="#" className="text-xs text-text-muted hover:text-text transition-colors">服務條款</a>
-          </div>
         </div>
       </footer>
     </div>

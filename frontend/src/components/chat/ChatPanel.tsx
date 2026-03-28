@@ -2,9 +2,11 @@ import { useEffect, useRef, useCallback } from 'react'
 import { X } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useAuthStore } from '../../stores/authStore'
+import { useSeatStore } from '../../stores/seatStore'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
 import type { WSClientMessage } from '../../types/ws'
+import type { Seat, SeatRole } from '../../types/models'
 
 interface ChatPanelProps {
   projectId: string
@@ -13,9 +15,14 @@ interface ChatPanelProps {
   onClose?: () => void
 }
 
+function getSeatRole(seats: Seat[], senderId: string): SeatRole | undefined {
+  return seats.find(s => s.user_id === senderId || s.agent_id === senderId)?.seat_role
+}
+
 export function ChatPanel({ projectId, sendWS, disabled = false, onClose }: ChatPanelProps) {
   const { messages, typingUsers, hasMore, isLoading, loadHistory, loadMore } = useChatStore()
   const { user } = useAuthStore()
+  const { seats } = useSeatStore()
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const autoScrollRef = useRef(true)
@@ -90,6 +97,7 @@ export function ChatPanel({ projectId, sendWS, disabled = false, onClose }: Chat
             key={msg.id}
             message={msg}
             isOwn={msg.sender_id === user?.id}
+            seatRole={getSeatRole(seats, msg.sender_id)}
           />
         ))}
         <div ref={bottomRef} />

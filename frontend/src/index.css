@@ -49,18 +49,22 @@
   /* Colors — Semantic */
   --color-error: 197 48 48;
   --color-error-bg: 254 242 242;
-  --color-success: 90 107 47;
-  --color-success-bg: 240 244 228;
+  --color-success: 120 100 50;
+  --color-success-bg: 248 244 230;
   --color-warning: 217 119 6;
   --color-warning-bg: 255 251 235;
-  --color-info: 37 99 235;
-  --color-info-bg: 239 246 255;
+  --color-info: 180 120 60;
+  --color-info-bg: 255 247 235;
+
+  /* Colors — Supervisor (赤陶色) */
+  --color-supervisor: 189 108 72;
+  --color-supervisor-light: 242 222 210;
 
   /* Sticky note colors (保持 hex，不需要透明度) */
   --color-note-yellow: #F5E6C8;
   --color-note-orange: #F0D9C4;
-  --color-note-green: #D4E4C8;
-  --color-note-blue: #C8D8E8;
+  --color-note-green: #D8DCC0;
+  --color-note-blue: #D8CCC0;
   --color-note-pink: #EEDCE4;
 
   /* Typography */
@@ -115,6 +119,13 @@ body {
 
 html, body, #root {
   min-height: 100svh;
+}
+
+/* In-page anchors (#section): smooth scroll unless user prefers reduced motion */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 /* Focus visible */
@@ -220,4 +231,72 @@ details .faq-answer > div {
 .card-hover-note:hover {
   transform: translateY(-6px) rotate(0deg) !important;
   box-shadow: var(--shadow-note-hover);
+}
+
+/* ── Process card wave animations ── */
+
+/* Gentle breathing float for process cards — staggered via --wave-delay */
+@keyframes process-breathe {
+  0%, 100% {
+    transform: translateY(var(--base-y, 0px));
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    transform: translateY(calc(var(--base-y, 0px) - 6px));
+    box-shadow: 0 8px 32px rgba(var(--wave-rgb, 245 230 200), 0.08);
+  }
+}
+
+.animate-process-breathe {
+  animation: process-breathe 4s var(--ease-smooth) infinite;
+  animation-delay: var(--wave-delay, 0s);
+}
+
+/* Shimmer sweep across the accent bar */
+@keyframes shimmer-bar {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.process-accent-bar {
+  background-size: 200% 100%;
+  background-image: linear-gradient(
+    90deg,
+    var(--bar-color) 0%,
+    var(--bar-color) 35%,
+    rgba(255, 255, 255, 0.45) 50%,
+    var(--bar-color) 65%,
+    var(--bar-color) 100%
+  );
+  animation: shimmer-bar 6s ease-in-out infinite;
+  animation-delay: var(--wave-delay, 0s);
+}
+
+/* Ambient glow pulse behind process cards */
+@keyframes glow-pulse {
+  0%, 100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  50% {
+    opacity: 0.12;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.process-glow {
+  position: absolute;
+  bottom: -20%;
+  left: 50%;
+  width: 80%;
+  height: 60%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, var(--glow-color, rgba(245, 230, 200, 0.3)) 0%, transparent 70%);
+  pointer-events: none;
+  animation: glow-pulse 4s var(--ease-smooth) infinite;
+  animation-delay: var(--wave-delay, 0s);
 }

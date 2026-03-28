@@ -36,8 +36,8 @@ export const NoteAuthorLabels = track(function NoteAuthorLabels() {
               className="inline-flex items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none shadow-sm"
               style={{
                 fontSize: `${Math.max(8, 10 * zoom)}px`,
-                backgroundColor: type === 'ai' ? 'rgba(99,102,241,0.15)' : 'rgba(16,185,129,0.15)',
-                color: type === 'ai' ? '#4f46e5' : '#059669',
+                backgroundColor: type === 'ai' ? 'rgba(156,142,124,0.15)' : 'rgba(189,108,72,0.15)',
+                color: type === 'ai' ? '#8a7a6a' : '#bd6c48',
               }}
             >
               {type === 'ai' ? '🤖' : '👤'} {name}

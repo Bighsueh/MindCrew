@@ -64,6 +64,10 @@ export default {
           DEFAULT: 'rgb(var(--color-info) / <alpha-value>)',
           bg: 'rgb(var(--color-info-bg) / <alpha-value>)',
         },
+        supervisor: {
+          DEFAULT: 'rgb(var(--color-supervisor) / <alpha-value>)',
+          light: 'rgb(var(--color-supervisor-light) / <alpha-value>)',
+        },
       },
       fontFamily: {
         sans: ['var(--font-sans)'],
@@ -86,6 +90,15 @@ export default {
         note: 'var(--shadow-note)',
         'note-hover': 'var(--shadow-note-hover)',
         'note-float': 'var(--shadow-note-float)',
+      },
+      animation: {
+        'pulse-slow': 'pulse-slow 2.5s ease-in-out infinite',
+      },
+      keyframes: {
+        'pulse-slow': {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.5' },
+        },
       },
     },
   },

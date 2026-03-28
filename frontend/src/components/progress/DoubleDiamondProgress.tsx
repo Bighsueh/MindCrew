@@ -36,7 +36,7 @@ export function DoubleDiamondProgress({ currentStage, onPhaseClick }: DoubleDiam
             className={cn(
               'group relative flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium transition-all',
               isCompleted && 'bg-accent/15 text-accent hover:bg-accent/25 cursor-pointer',
-              isCurrent && 'bg-primary text-text-inverse shadow-md',
+              isCurrent && 'bg-accent text-white shadow-md',
               isFuture && 'bg-secondary/30 text-text-muted cursor-default',
             )}
           >
@@ -44,7 +44,7 @@ export function DoubleDiamondProgress({ currentStage, onPhaseClick }: DoubleDiam
               className={cn(
                 'inline-block h-2.5 w-2.5 rotate-45 rounded-sm',
                 isCompleted && 'bg-accent',
-                isCurrent && 'bg-text-inverse animate-pulse',
+                isCurrent && 'bg-white animate-pulse',
                 isFuture && 'bg-text-muted/40',
               )}
             />
