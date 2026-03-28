@@ -8,7 +8,13 @@ const PRE_RESTART_DELAY_MS = 2000
 const FADE_DURATION_MS = 3000
 const FADE_END_FALLBACK_BUFFER_MS = 120
 
-export function HeroBackgroundVideo() {
+interface HeroBackgroundVideoProps {
+  /** 'playing' = normal loop, 'static-frame' = paused at frame 0 */
+  readonly mode?: 'playing' | 'static-frame'
+}
+
+export function HeroBackgroundVideo({ mode = 'playing' }: HeroBackgroundVideoProps) {
+  const isStatic = mode === 'static-frame'
   const playVideoRef = useRef<HTMLVideoElement>(null)
   const startFrameVideoRef = useRef<HTMLVideoElement>(null)
   const timeoutIdsRef = useRef<number[]>([])
@@ -71,12 +77,33 @@ export function HeroBackgroundVideo() {
     return () => mq.removeEventListener('change', onChange)
   }, [])
 
+  // Handle mode changes: pause/resume playback
   useEffect(() => {
-    scheduleTimeout(() => tryPlay(playVideoRef.current), INITIAL_PLAY_DELAY_MS)
+    if (isStatic) {
+      clearScheduledTimeouts()
+      expectingFadeEndRef.current = false
+      const playEl = playVideoRef.current
+      if (playEl) {
+        playEl.pause()
+      }
+      setShowStartFrame(true)
+      setNoOpacityTransition(true)
+    } else {
+      // Resume playing mode
+      setNoOpacityTransition(true)
+      setShowStartFrame(false)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!mountedRef.current) return
+          setNoOpacityTransition(false)
+          scheduleTimeout(() => tryPlay(playVideoRef.current), INITIAL_PLAY_DELAY_MS)
+        })
+      })
+    }
     return () => {
       clearScheduledTimeouts()
     }
-  }, [scheduleTimeout, tryPlay, clearScheduledTimeouts])
+  }, [isStatic, scheduleTimeout, tryPlay, clearScheduledTimeouts])
 
   const completeCrossfade = useCallback(() => {
     if (!expectingFadeEndRef.current) return

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import { ArrowRight, Lightbulb, Users, Zap, MessageSquare, LayoutGrid, BarChart3 } from 'lucide-react'
 import { StickyNoteSVG } from '@/components/landing/StickyNoteSVG'
-import { HeroBackgroundVideo } from '@/components/landing/HeroBackgroundVideo'
 import { ScrollReveal } from '@/components/common/ScrollReveal'
+import { TransitionLink } from '@/components/common/TransitionLink'
 import { useScrollReveal } from '@/hooks/useScrollReveal'
+import { useTransitionStore } from '@/stores/transitionStore'
 
 function useNavScrolled(threshold = 32) {
   const [scrolled, setScrolled] = useState(false)
@@ -102,9 +102,17 @@ function useInView() {
 export function LandingPage() {
   const navScrolled = useNavScrolled()
   const processSection = useInView()
+  const phase = useTransitionStore((s) => s.phase)
+
+  const transitionClass =
+    phase === 'exiting-landing'
+      ? 'animate-fade-out'
+      : phase === 'entering-landing'
+        ? 'animate-fade-in'
+        : ''
 
   return (
-    <div className="overflow-x-hidden">
+    <div className={`overflow-x-hidden ${transitionClass}`}>
       {/* ─── Navbar ─── */}
       <nav
         className={`fixed top-0 left-0 right-0 z-50 backdrop-blur-md border-b transition-all duration-300 ${
@@ -121,32 +129,26 @@ export function LandingPage() {
             <a href="#faq" className="text-sm text-text-muted transition-colors hover:text-text">常見問題</a>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
-            <Link
+            <TransitionLink
               to="/login"
               className="rounded-full border border-border bg-surface/80 px-3.5 py-2 text-sm font-medium text-text shadow-sm transition-colors hover:border-primary/30 hover:bg-surface cursor-pointer"
               title="已有教師或管理帳號時使用"
             >
               帳號登入
-            </Link>
-            <Link
+            </TransitionLink>
+            <TransitionLink
               to="/register"
               className="rounded-full bg-primary px-3.5 py-2 text-sm font-semibold text-text-inverse shadow-sm transition-colors hover:bg-primary-light cursor-pointer sm:px-5"
               title="首次使用：建立教師帳號以管理課堂與學生"
             >
               教師免費註冊
-            </Link>
+            </TransitionLink>
           </div>
         </div>
       </nav>
 
       {/* ─── Hero ─── */}
       <section className="relative flex min-h-svh flex-col items-center px-6 pt-16 pb-8">
-        {/* Full-bleed video background */}
-        <div className="absolute inset-0 overflow-hidden">
-          <HeroBackgroundVideo />
-          <div className="absolute inset-0 bg-bg/60" />
-        </div>
-
         <div className="relative z-10 mx-auto flex max-w-5xl flex-1 flex-col items-center justify-center text-center">
           <h1 className="font-brand animate-fade-up text-[clamp(3.5rem,10vw,9rem)] font-normal leading-[0.9] tracking-[0.02em] text-primary">
             MIND
@@ -159,14 +161,14 @@ export function LandingPage() {
             五位 AI 隊友，與你一起發散、收斂、創造。
           </p>
           <div className="animate-fade-up mt-8 flex flex-wrap items-center justify-center gap-4" style={{ animationDelay: '0.3s' }}>
-            <Link
+            <TransitionLink
               to="/register"
               className="group flex items-center gap-2 rounded-full bg-primary px-8 py-3.5 text-sm font-semibold text-text-inverse transition-all hover:bg-primary-light hover:shadow-lg cursor-pointer"
               title="建立教師帳號後即可建立專案、邀請學生與 AI 協作"
             >
               教師免費註冊
               <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" />
-            </Link>
+            </TransitionLink>
             <a
               href="#process"
               className="rounded-full border border-border bg-surface/60 backdrop-blur-sm px-8 py-3.5 text-sm font-medium text-text transition-colors hover:bg-surface/90 cursor-pointer"
@@ -211,7 +213,7 @@ export function LandingPage() {
       </section>
 
       {/* ─── Visual showcase (light, with sticky note illustration) ─── */}
-      <section className="px-6 py-28">
+      <section className="bg-bg px-6 py-28">
         <div className="mx-auto max-w-6xl">
           <div className="grid gap-8 md:grid-cols-5">
             {/* Left: large visual area */}
@@ -349,7 +351,7 @@ export function LandingPage() {
       </section>
 
       {/* ─── Features grid (light) ─── */}
-      <section id="features" className="scroll-mt-16 px-6 py-28">
+      <section id="features" className="scroll-mt-16 bg-bg px-6 py-28">
         <div className="mx-auto max-w-5xl">
           <ScrollReveal variant="fade-up">
             <p className="text-sm font-medium uppercase tracking-widest text-text-muted">/04</p>
@@ -426,14 +428,14 @@ export function LandingPage() {
             </p>
           </ScrollReveal>
           <ScrollReveal variant="fade-up" delay={300} duration={700}>
-            <Link
+            <TransitionLink
               to="/register"
               className="group mt-10 inline-flex items-center gap-2 rounded-full border border-text-on-dark/20 bg-transparent px-10 py-4 text-sm font-semibold text-text-on-dark transition-all duration-300 hover:bg-text-on-dark hover:text-bg-dark cursor-pointer"
               title="首次使用：建立教師帳號"
             >
               教師免費註冊
               <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" />
-            </Link>
+            </TransitionLink>
           </ScrollReveal>
         </div>
       </section>

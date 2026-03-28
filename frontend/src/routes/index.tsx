@@ -4,6 +4,7 @@ import { App } from '../App'
 import { ProtectedRoute } from '../components/common/ProtectedRoute'
 import { AppLayout } from '../components/layout/AppLayout'
 import { AuthLayout } from '../components/layout/AuthLayout'
+import { TransitionLayout } from '../components/layout/TransitionLayout'
 import { LandingPage } from '../pages/Landing'
 import { Loading } from '../components/common/Loading'
 
@@ -23,15 +24,18 @@ export const router = createBrowserRouter([
     path: '/',
     element: <App />,
     children: [
-      // 公開路由
-      { index: true, element: <LandingPage /> },
-
-      // 登入/註冊 — 包裹在 AuthLayout
+      // 公開路由 — Landing + Auth 共享 TransitionLayout（影片背景）
       {
-        element: <AuthLayout />,
+        element: <TransitionLayout />,
         children: [
-          { path: 'login', element: <SuspenseOutlet><LoginPage /></SuspenseOutlet> },
-          { path: 'register', element: <SuspenseOutlet><RegisterPage /></SuspenseOutlet> },
+          { index: true, element: <LandingPage /> },
+          {
+            element: <AuthLayout />,
+            children: [
+              { path: 'login', element: <SuspenseOutlet><LoginPage /></SuspenseOutlet> },
+              { path: 'register', element: <SuspenseOutlet><RegisterPage /></SuspenseOutlet> },
+            ],
+          },
         ],
       },
 

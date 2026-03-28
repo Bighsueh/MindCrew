@@ -162,6 +162,48 @@ html, body, #root {
   animation: fade-up 0.8s var(--ease-out) both;
 }
 
+/* Fade-out (page transition exit) */
+@keyframes fade-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+}
+
+.animate-fade-out {
+  animation: fade-out 0.6s var(--ease-out) both;
+}
+
+/* Fade-in (page transition entrance — slower fade-up variant) */
+.animate-fade-in {
+  animation: fade-up 0.6s var(--ease-out) both;
+}
+
+/* Auth panel entrance (shorter, subtler) */
+@keyframes auth-enter {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-auth-enter {
+  animation: auth-enter 0.4s var(--ease-out) both;
+}
+
+/* Auth panel exit */
+.animate-auth-exit {
+  animation: fade-out 0.4s var(--ease-out) both;
+}
+
 /* Subtle float — for Hero sticky notes */
 @keyframes float {
   0%, 100% { transform: translateY(0) rotate(var(--note-rotate, 0deg)); }
