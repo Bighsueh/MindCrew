@@ -1,12 +1,12 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { ChevronDown } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { useSeatStore } from '../../stores/seatStore'
 import { joinProject } from '../../services/projectService'
 import { useProjectStore } from '../../stores/projectStore'
 import { useLobbyData } from '../../hooks/useLobbyData'
 import { Loading } from '../../components/common/Loading'
-import { ScrollReveal } from '../../components/common/ScrollReveal'
 import { LobbyHeader } from './LobbyHeader'
 import { SeatSelectionGrid } from './SeatSelectionGrid'
 import { ObserverCard } from './ObserverCard'
@@ -62,53 +62,86 @@ export function ProjectLobbyPage() {
     navigate(`/projects/${id}/workspace`)
   }
 
+  const infoTabsRef = useRef<HTMLDivElement>(null)
+  const [showScrollHint, setShowScrollHint] = useState(false)
+
+  useEffect(() => {
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (prefersReduced) return
+
+    const el = infoTabsRef.current
+    if (!el) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setShowScrollHint(false)
+          observer.disconnect()
+        } else {
+          setShowScrollHint(true)
+        }
+      },
+      { threshold: 0.05 },
+    )
+
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [isLoading])
+
+  const scrollToInfoTabs = useCallback(() => {
+    infoTabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
+
   if (isLoading || !currentProject) {
     return <Loading fullScreen text="載入專案資訊…" />
   }
 
   return (
-    <div className="pb-8">
-      {/* Header */}
-      <ScrollReveal delay={0}>
-        <LobbyHeader project={currentProject} />
-      </ScrollReveal>
+    <div className="relative pb-8">
+      <LobbyHeader project={currentProject} />
 
-      {/* Entry point: seats + observer side by side */}
-      <ScrollReveal delay={100}>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <SeatSelectionGrid
-              seats={seats}
-              currentUserId={user?.id}
-              onJoin={handleJoin}
-              joiningRole={joiningRole}
-              joinError={joinError}
-            />
-          </div>
-          <ObserverCard
-            onEnter={handleEnterWorkspace}
-            hasCurrentSeat={!!myCurrentSeat}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <SeatSelectionGrid
+            seats={seats}
+            currentUserId={user?.id}
+            onJoin={handleJoin}
+            joiningRole={joiningRole}
+            joinError={joinError}
           />
         </div>
-      </ScrollReveal>
+        <ObserverCard
+          onEnter={handleEnterWorkspace}
+          hasCurrentSeat={!!myCurrentSeat}
+        />
+      </div>
 
-      {/* Info tabs */}
-      <ScrollReveal delay={200}>
-        <div className="mt-6">
-          <InfoTabs
-            messages={recentMessages}
-            typingUsers={typingUsers}
-            wsStatus={wsStatus}
-            stageInfo={stageInfo}
-            stageHistory={stageHistory}
-            messageCount={messageCount}
-            noteCount={canvasState?.total_notes ?? 0}
-            aiContribution={currentProject.ai_contribution}
-            canvasState={canvasState}
-            projectId={id!}
-          />
-        </div>
-      </ScrollReveal>
+      <div ref={infoTabsRef} className="mt-6">
+        <InfoTabs
+          messages={recentMessages}
+          typingUsers={typingUsers}
+          wsStatus={wsStatus}
+          stageInfo={stageInfo}
+          stageHistory={stageHistory}
+          messageCount={messageCount}
+          noteCount={canvasState?.total_notes ?? 0}
+          aiContribution={currentProject.ai_contribution}
+          canvasState={canvasState}
+          projectId={id!}
+        />
+      </div>
+
+      {showScrollHint && (
+        <button
+          type="button"
+          onClick={scrollToInfoTabs}
+          aria-label="捲動查看更多資訊"
+          className="sticky bottom-0 left-0 right-0 z-10 flex w-full cursor-pointer flex-col items-center gap-1 bg-gradient-to-t from-bg via-bg/60 to-transparent pb-3 pt-10 transition-opacity duration-500"
+        >
+          <span className="text-xs font-medium text-text-muted">更多資訊</span>
+          <ChevronDown size={18} className="animate-bounce-gentle text-text-muted" />
+        </button>
+      )}
     </div>
   )
 }

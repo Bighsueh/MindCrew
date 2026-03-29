@@ -284,6 +284,16 @@ details .faq-answer > div {
 .page-enter > *:nth-child(7) { animation-delay: 420ms; }
 .page-enter > *:nth-child(8) { animation-delay: 460ms; }
 
+/* Gentle bounce — scroll hint chevron */
+@keyframes bounce-gentle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(4px); }
+}
+
+.animate-bounce-gentle {
+  animation: bounce-gentle 1.5s var(--ease-smooth) infinite;
+}
+
 /* Feature card hover lift — only transform+shadow for GPU perf */
 .card-hover {
   transition: transform var(--duration-normal) var(--ease-out),
