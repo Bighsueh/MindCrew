@@ -23,8 +23,6 @@ frontend/dist/
 .vscode/
 .idea/
 
-# Cursor — 專案級 skills 僅本機，不列管（含 ui-ux-pro-max 等）
-.cursor/skills/
 *.swp
 *.swo
 .DS_Store
