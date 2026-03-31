@@ -47,17 +47,10 @@ class _ProjectQueue:
         entry = _QueueEntry(agent_id=agent_id, is_supervisor=is_supervisor)
 
         # Insert supervisor at front, crew at back (spec §3.2)
-        # Supervisor preempts: evict waiting crew to speak sooner
+        # Supervisor has priority but does NOT evict waiting crew —
+        # eviction wastes Crew's already-completed LLM work
         async with self._lock:
             if is_supervisor:
-                evicted = [e for e in self._queue if not e.is_supervisor]
-                if evicted:
-                    self._queue = deque(e for e in self._queue if e.is_supervisor)
-                    logger.debug(
-                        "Supervisor %s preempted %d crew entries",
-                        agent_id,
-                        len(evicted),
-                    )
                 self._queue.appendleft(entry)
             else:
                 self._queue.append(entry)

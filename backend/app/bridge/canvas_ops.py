@@ -111,23 +111,39 @@ class CanvasOps:
         resp.raise_for_status()
         return True
 
-    async def group_notes(
+    async def get_canvas_state_full(self, project_id: UUID) -> list[dict[str, Any]]:
+        """Get full geometry for all shapes from sidecar."""
+        client = _get_client()
+        try:
+            resp = await client.get(f"/api/projects/{project_id}/canvas-state/full")
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            logger.warning("get_canvas_state_full failed: %s", exc)
+            return []
+
+    async def batch_update_coordinates(
         self,
         project_id: UUID,
-        note_ids: list[str],
-        group_name: str,
+        updates: list[dict[str, Any]],
     ) -> bool:
-        """Create a group with the given notes. Returns success."""
+        """Batch-update note coordinates via sidecar (atomic Yjs transaction)."""
+        if not updates:
+            return True
         client = _get_client()
-        resp = await client.post(
-            f"/api/projects/{project_id}/groups",
-            json={"note_ids": note_ids, "group_name": group_name},
-        )
-        if resp.status_code == 404:
-            logger.warning("group_notes: some notes not found")
+        try:
+            resp = await client.post(
+                f"/api/projects/{project_id}/batch-update-coordinates",
+                json={"updates": updates},
+            )
+            if resp.status_code == 404:
+                logger.warning("batch_update_coordinates: notes not found")
+                return False
+            resp.raise_for_status()
+            return True
+        except Exception as exc:
+            logger.warning("batch_update_coordinates failed: %s", exc)
             return False
-        resp.raise_for_status()
-        return True
 
     async def get_canvas_state(self, project_id: UUID) -> dict[str, Any]:
         """Get canvas state from sidecar (spec §2.1 format)."""

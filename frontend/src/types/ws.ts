@@ -1,4 +1,4 @@
-import type { DTStage, SeatRole, OccupantType } from './models'
+import type { DTStage, MicroPhaseId, SeatRole, OccupantType } from './models'
 
 // ── WebSocket message types ───────────────────────────────────────────────
 
@@ -10,6 +10,7 @@ export type WSMessageType =
   | 'system_message'
   | 'ping'
   | 'project_update'
+  | 'micro_phase_changed'
 
 export interface WSChatMessagePayload {
   id?: string
@@ -61,6 +62,14 @@ export interface WSProjectUpdatePayload {
   last_activity: string
 }
 
+export interface WSMicroPhaseChangedPayload {
+  from: MicroPhaseId
+  to: MicroPhaseId
+  transition_type: 'advance' | 'backtrack'
+  triggered_by: string
+  timestamp: string
+}
+
 export type WSPayload =
   | WSChatMessagePayload
   | WSTypingPayload
@@ -68,6 +77,7 @@ export type WSPayload =
   | WSSeatChangedPayload
   | WSSystemMessagePayload
   | WSProjectUpdatePayload
+  | WSMicroPhaseChangedPayload
   | Record<string, never>
 
 export interface WSMessage {

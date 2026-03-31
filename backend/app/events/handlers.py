@@ -37,7 +37,7 @@ async def handle_chat_message(
                     "sender": f"{sender_name or sender_id}({sender_type})",
                     "sender_type": sender_type,
                     "content": content,
-                    "time": datetime.now(timezone.utc).strftime("%H:%M"),
+                    "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
                 }
             )
             await r.rpush(key, event)

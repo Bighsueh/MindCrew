@@ -6,7 +6,7 @@ import { useSeatStore } from '../../stores/seatStore'
 import { useStageStore } from '../../stores/stageStore'
 import { useAuthStore } from '../../stores/authStore'
 import { useWebSocket } from '../../hooks/useWebSocket'
-import { advanceStage, leaveProject } from '../../services/projectService'
+import { advanceStage, leaveProject, getStage } from '../../services/projectService'
 import { DoubleDiamondProgress } from '../../components/progress/DoubleDiamondProgress'
 import { ConnectionBanner } from '../../components/workspace/ConnectionBanner'
 import { SeatBar } from '../../components/workspace/SeatBar'
@@ -17,8 +17,8 @@ import { Modal } from '../../components/common/Modal'
 import { Loading } from '../../components/common/Loading'
 import { MessageCircle } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import type { WSMessage, WSChatMessagePayload, WSTypingPayload, WSStageChangedPayload, WSSeatChangedPayload } from '../../types/ws'
-import type { Message, DTStage } from '../../types/models'
+import type { WSMessage, WSChatMessagePayload, WSTypingPayload, WSStageChangedPayload, WSSeatChangedPayload, WSMicroPhaseChangedPayload } from '../../types/ws'
+import type { Message, DTStage, MicroPhaseId } from '../../types/models'
 
 const NEXT_STAGE: Partial<Record<DTStage, DTStage>> = {
   discover: 'define',
@@ -33,7 +33,7 @@ export function WorkspacePage() {
   const { currentProject, fetchProject } = useProjectStore()
   const { addMessage, unreadCount, incrementUnread, resetUnread } = useChatStore()
   const { seats, setSeats, updateSeat } = useSeatStore()
-  const { currentStage, setCurrentStage } = useStageStore()
+  const { currentStage, currentMicroPhase, setCurrentStage, setCurrentMicroPhase } = useStageStore()
   const { user } = useAuthStore()
 
   const [showAdvanceModal, setShowAdvanceModal] = useState(false)
@@ -76,8 +76,22 @@ export function WorkspacePage() {
     if (currentProject) {
       if (currentProject.seats) setSeats(currentProject.seats)
       setCurrentStage(currentProject.current_stage)
+      if (currentProject.current_micro_phase) {
+        setCurrentMicroPhase(currentProject.current_micro_phase as MicroPhaseId)
+      }
     }
-  }, [currentProject, setSeats, setCurrentStage])
+  }, [currentProject, setSeats, setCurrentStage, setCurrentMicroPhase])
+
+  // Fetch micro phase from /stage API as fallback (project detail may not include it)
+  useEffect(() => {
+    if (id && !currentMicroPhase) {
+      getStage(id).then((stageInfo) => {
+        if (stageInfo.current_micro_phase) {
+          setCurrentMicroPhase(stageInfo.current_micro_phase as MicroPhaseId)
+        }
+      }).catch(() => { /* ignore — old backend may not support this */ })
+    }
+  }, [id, currentMicroPhase, setCurrentMicroPhase])
 
   const handleWSMessage = useCallback(
     (msg: WSMessage) => {
@@ -117,6 +131,11 @@ export function WorkspacePage() {
             agent_id: p.current.agent_id ?? null,
             display_name: p.current.display_name,
           })
+          break
+        }
+        case 'micro_phase_changed': {
+          const p = msg.payload as WSMicroPhaseChangedPayload
+          useStageStore.getState().setCurrentMicroPhase(p.to as MicroPhaseId)
           break
         }
       }
@@ -200,7 +219,7 @@ export function WorkspacePage() {
         <div className="flex items-center gap-4">
           <span className="text-sm text-text-muted whitespace-nowrap">{currentProject.name}</span>
           <div className="flex-1 min-w-0 flex justify-center">
-            <DoubleDiamondProgress currentStage={currentStage} />
+            <DoubleDiamondProgress currentStage={currentStage} currentMicroPhase={currentMicroPhase ?? undefined} />
           </div>
         </div>
       </header>

@@ -99,7 +99,7 @@ async def _event_bus_forwarder(ws: WebSocket, project_id: UUID) -> None:
     try:
         async for event_dict in event_bus.subscribe(project_id):
             event_type = event_dict.get("type")
-            if event_type in ("chat_message", "stage_changed", "seat_changed", "system_message"):
+            if event_type in ("chat_message", "stage_changed", "micro_phase_changed", "seat_changed", "system_message"):
                 try:
                     await ws.send_json(event_dict)
                 except Exception:

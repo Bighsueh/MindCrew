@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -15,6 +16,11 @@ from app.config import settings
 from app.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
+
+# Shared overlap-check cache (project-level, TTL 10s)
+# Avoids 5 agents each polling sidecar independently every tick
+_overlap_cache: dict[str, tuple[float, dict]] = {}
+_OVERLAP_CACHE_TTL = 10.0
 
 # Redis key templates
 _KEY_CANVAS = "project:{project_id}:canvas_events"
@@ -96,7 +102,7 @@ class ContextBuffer:
         """Return the full context dict matching the spec §2.1 JSON format."""
         r = await self._get_redis()
 
-        canvas_state, current_stage, stage_duration, seats, project_name, project_description = await self._load_db_state()
+        canvas_state, current_stage, current_micro_phase, stage_duration, seats, project_name, project_description = await self._load_db_state()
         recent_chat = await self._load_chat(r)
         my_recent_actions = await self._load_my_actions(r)
 
@@ -109,6 +115,15 @@ class ContextBuffer:
             except (IndexError, ValueError):
                 seat_index = 0
 
+        # Compute role_status from micro_phase
+        role_status_value: str = "normal"
+        if current_micro_phase:
+            try:
+                from app.stages.micro_phases import get_role_status
+                role_status_value = get_role_status(current_micro_phase, self._seat_role)
+            except (KeyError, Exception):
+                role_status_value = "normal"
+
         # Load active conversation thread
         tracker = ConversationStateTracker(self._project_id)
         active_thread = await tracker.get_thread_context()
@@ -120,12 +135,26 @@ class ContextBuffer:
         # Load Blackboard data (graceful fallback if unavailable)
         blackboard = await self._load_blackboard()
 
-        return {
+        # Load PhaseStrategy (Phase 13)
+        phase_strategy_dict: dict | None = None
+        if current_micro_phase:
+            from app.agents.phase_strategy import get_phase_strategy
+            strategy = get_phase_strategy(current_micro_phase)
+            if strategy:
+                phase_strategy_dict = {
+                    "comm_strategy": strategy.comm_strategy,
+                    "comm_goal": strategy.comm_goal,
+                    "supervisor_mode": strategy.supervisor_mode,
+                }
+
+        context: dict = {
             "project_name": project_name,
             "project_description": project_description,
             "canvas_state": canvas_state,
             "recent_chat": recent_chat,
             "current_stage": current_stage,
+            "current_micro_phase": current_micro_phase,
+            "my_role_status": role_status_value,
             "stage_duration_minutes": stage_duration,
             "seats": seats,
             "my_seat": self._seat_role,
@@ -136,6 +165,9 @@ class ContextBuffer:
             "_human_typing_timestamp": float(typing_raw) if typing_raw else None,
             "_last_event_time": float(event_raw) if event_raw else None,
         }
+        if phase_strategy_dict:
+            context["phase_strategy"] = phase_strategy_dict
+        return context
 
     # ------------------------------------------------------------------
     # Blackboard integration (§4.2)
@@ -190,7 +222,7 @@ class ContextBuffer:
 
     async def _load_db_state(
         self,
-    ) -> tuple[dict, str, int, list[dict], str, str]:
+    ) -> tuple[dict, str, str | None, int, list[dict], str, str]:
         """Load canvas notes, project stage info, and seat states from DB."""
         async with async_session_factory() as session:
             # Project stage + ai_contribution
@@ -200,38 +232,54 @@ class ContextBuffer:
             )
             project = project_row.scalar_one_or_none()
             current_stage = project.current_stage if project else "discover"
+            current_micro_phase = project.current_micro_phase if project else None
             project_name = project.name if project else ""
             project_description = (project.description or "") if project else ""
 
-            # Stage duration: use the most recent stage_history entry
-            # that transitions TO the current stage, or fall back to project.created_at
+            # Stage duration: prefer micro_phase_history, then stage_history,
+            # then project.created_at as last resort. Capped at 120 min.
             stage_duration = 0
+            _MAX_DURATION_MINUTES = 120
             if project:
-                from app.db.models.stage_history import StageHistory
+                stage_start: datetime | None = None
 
-                sh_row = await session.execute(
-                    select(StageHistory)
-                    .where(
-                        StageHistory.project_id == self._project_id,
-                        StageHistory.to_stage == current_stage,
-                    )
-                    .order_by(StageHistory.created_at.desc())
+                # Priority 1: most recent micro_phase_history entry
+                from app.db.models.micro_phase_history import MicroPhaseHistory
+                mph_row = await session.execute(
+                    select(MicroPhaseHistory)
+                    .where(MicroPhaseHistory.project_id == self._project_id)
+                    .order_by(MicroPhaseHistory.created_at.desc())
                     .limit(1)
                 )
-                sh = sh_row.scalar_one_or_none()
-                if sh and sh.created_at:
-                    started = sh.created_at
-                    if started.tzinfo is None:
-                        started = started.replace(tzinfo=timezone.utc)
-                    delta = datetime.now(timezone.utc) - started
-                    stage_duration = int(delta.total_seconds() / 60)
-                elif project.created_at:
-                    # No stage history yet — use project creation time
-                    created = project.created_at
-                    if created.tzinfo is None:
-                        created = created.replace(tzinfo=timezone.utc)
-                    delta = datetime.now(timezone.utc) - created
-                    stage_duration = int(delta.total_seconds() / 60)
+                mph = mph_row.scalar_one_or_none()
+                if mph and mph.created_at:
+                    stage_start = mph.created_at
+
+                # Priority 2: stage_history transition to current stage
+                if stage_start is None:
+                    from app.db.models.stage_history import StageHistory
+                    sh_row = await session.execute(
+                        select(StageHistory)
+                        .where(
+                            StageHistory.project_id == self._project_id,
+                            StageHistory.to_stage == current_stage,
+                        )
+                        .order_by(StageHistory.created_at.desc())
+                        .limit(1)
+                    )
+                    sh = sh_row.scalar_one_or_none()
+                    if sh and sh.created_at:
+                        stage_start = sh.created_at
+
+                # Priority 3: project creation (last resort)
+                if stage_start is None and project.created_at:
+                    stage_start = project.created_at
+
+                if stage_start:
+                    if stage_start.tzinfo is None:
+                        stage_start = stage_start.replace(tzinfo=timezone.utc)
+                    delta = datetime.now(timezone.utc) - stage_start
+                    stage_duration = min(int(delta.total_seconds() / 60), _MAX_DURATION_MINUTES)
 
             # Seats
             from app.db.models.seat import Seat
@@ -247,6 +295,16 @@ class ContextBuffer:
                 }
                 if s.agent_id:
                     entry["agent_id"] = s.agent_id
+                # Add display name for AI seats
+                if s.occupant_type == "ai" and s.seat_role:
+                    _ROLE_DISPLAY_NAMES = {
+                        "supervisor": "AI 引導者",
+                        "crew_1": "AI 同理心專家",
+                        "crew_2": "AI 結構化專家",
+                        "crew_3": "AI 創意專家",
+                        "crew_4": "AI 可行性專家",
+                    }
+                    entry["display_name"] = _ROLE_DISPLAY_NAMES.get(s.seat_role, f"AI {s.seat_role}")
                 # Fetch user name if human
                 if s.occupant_type == "human" and s.user_id:
                     from app.db.models.user import User
@@ -258,16 +316,25 @@ class ContextBuffer:
                         entry["user_name"] = u.display_name
                 seats.append(entry)
 
-            # Canvas state: load from Yjs sidecar (source of truth)
-            canvas_state = await self._load_canvas_from_sidecar()
+            # Canvas state: try spatial-aware perception (Phase 14), fallback to legacy
+            canvas_state = await self._load_canvas_perception(micro_phase=current_micro_phase)
 
-        return canvas_state, current_stage, stage_duration, seats, project_name, project_description
+        return canvas_state, current_stage, current_micro_phase, stage_duration, seats, project_name, project_description
 
-    async def _load_canvas_from_sidecar(self) -> dict:
-        """Load canvas state from Yjs sidecar (the source of truth)."""
+    async def _load_canvas_perception(self, micro_phase: str | None = None) -> dict:
+        """Load canvas state with spatial-aware perception (Phase 14).
+
+        Falls back to legacy sidecar state if SpatialAnalyzer fails.
+        """
+        try:
+            from app.canvas.tools_perception import get_canvas_summary
+            return await get_canvas_summary(self._project_id, micro_phase=micro_phase)
+        except Exception as exc:
+            logger.debug("Spatial perception failed, falling back to legacy: %s", exc)
+
+        # Legacy fallback
         try:
             from app.bridge.canvas_ops import canvas_ops
-
             return await canvas_ops.get_canvas_state(self._project_id)
         except Exception as exc:
             logger.warning("Failed to load canvas from sidecar: %s", exc)
@@ -301,7 +368,7 @@ class ContextBuffer:
                 "sender": f"{m.sender_name}({'ai' if m.sender_type == 'ai' else 'human'})",
                 "sender_type": m.sender_type,
                 "content": m.content,
-                "time": m.created_at.strftime("%H:%M") if m.created_at else "",
+                "time": m.created_at.strftime("%H:%M:%S") if m.created_at else "",
             }
             for m in reversed(messages)
         ]

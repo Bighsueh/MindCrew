@@ -42,6 +42,9 @@ alembic/versions/__pycache__/
 .playwright-mcp/
 .mcp.json
 
+# Discussion & design drafts (local only)
+_discussion/
+
 # Runtime logs & artifacts
 console-errors.txt
 ws-warnings.txt

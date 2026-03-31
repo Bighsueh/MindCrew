@@ -57,6 +57,8 @@ class ActEngine:
         current_stage: str,
         think_result: Any | None = None,
         assess_result: Any | None = None,
+        micro_phase: str | None = None,
+        role_status: str = "normal",
     ) -> ActResult:
         """Execute a list of actions from the ThinkEngine.
 
@@ -74,7 +76,8 @@ class ActEngine:
         if not legal:
             result.success = len(illegal) == 0
             await self._save_trace(
-                current_stage, assess_result, think_result, result
+                current_stage, assess_result, think_result, result,
+                micro_phase=micro_phase, role_status=role_status,
             )
             return result
 
@@ -100,7 +103,10 @@ class ActEngine:
                 result.errors.append(str(exc))
                 result.success = False
 
-        await self._save_trace(current_stage, assess_result, think_result, result)
+        await self._save_trace(
+            current_stage, assess_result, think_result, result,
+            micro_phase=micro_phase, role_status=role_status,
+        )
         return result
 
     # ------------------------------------------------------------------
@@ -131,6 +137,8 @@ class ActEngine:
 
     async def _execute_single(self, action: dict, current_stage: str) -> None:
         """Dispatch a single action to the appropriate handler."""
+        from app.agents.act_canvas import CANVAS_ACTION_TYPES, execute_canvas_tool
+
         action_type = action.get("type", "")
         content = action.get("content", "")
 
@@ -140,16 +148,14 @@ class ActEngine:
 
         if action_type == "chat_message":
             await self._execute_chat_message(content, current_stage)
-        elif action_type == "add_note":
-            await self._execute_canvas_op("add_note", action)
-        elif action_type == "move_note":
-            await self._execute_canvas_op("move_note", action)
-        elif action_type == "edit_note":
-            await self._execute_canvas_op("edit_note", action)
-        elif action_type == "delete_note":
-            await self._execute_canvas_op("delete_note", action)
-        elif action_type == "group_notes":
-            await self._execute_canvas_op("group_notes", action)
+        elif action_type in CANVAS_ACTION_TYPES:
+            await execute_canvas_tool(
+                op_type=action_type,
+                action=action,
+                project_id=self._project_id,
+                agent_id=self._agent_id,
+                agent_name=self._agent_name,
+            )
         elif action_type == "set_directive":
             await self._execute_set_directive(action)
         elif action_type == "no_action":
@@ -170,6 +176,9 @@ class ActEngine:
             content=content,
         )
         await event_bus.publish(event)
+
+        # Update idle timestamp so Rule 5 detects AI activity in all-AI mode
+        await self._update_last_event_ts()
 
         async with async_session_factory() as session:
             msg = Message(
@@ -201,99 +210,11 @@ class ActEngine:
             self._project_id,
         )
 
-    async def _execute_canvas_op(self, op_type: str, action: dict) -> None:
-        """Execute canvas operations via the CanvasOps bridge."""
-        from app.bridge.canvas_ops import canvas_ops
-
-        content: str = action.get("content", "")
-        if content:
-            content = self._chinese_convert(content)
-
-        if op_type == "add_note":
-            note_id = await canvas_ops.add_note(
-                project_id=self._project_id,
-                content=content,
-                position=action.get("position"),
-                color=action.get("color", "yellow"),
-                author_id=self._agent_id,
-                author_name=self._agent_name,
-                author_type="ai",
-            )
-            logger.info(
-                "Agent %s add_note project=%s note_id=%s",
-                self._agent_id,
-                self._project_id,
-                note_id,
-            )
-
-        elif op_type == "move_note":
-            note_id = action.get("note_id", "")
-            target_group = action.get("target_group")
-            ok = await canvas_ops.move_note(
-                project_id=self._project_id,
-                note_id=note_id,
-                target_group=target_group,
-            )
-            logger.info(
-                "Agent %s move_note project=%s note_id=%s target_group=%s ok=%s",
-                self._agent_id,
-                self._project_id,
-                note_id,
-                target_group,
-                ok,
-            )
-
-        elif op_type == "edit_note":
-            note_id = action.get("note_id", "")
-            ok = await canvas_ops.edit_note(
-                project_id=self._project_id,
-                note_id=note_id,
-                new_content=content,
-            )
-            logger.info(
-                "Agent %s edit_note project=%s note_id=%s ok=%s",
-                self._agent_id,
-                self._project_id,
-                note_id,
-                ok,
-            )
-
-        elif op_type == "delete_note":
-            note_id = action.get("note_id", "")
-            ok = await canvas_ops.delete_note(
-                project_id=self._project_id,
-                note_id=note_id,
-            )
-            logger.info(
-                "Agent %s delete_note project=%s note_id=%s ok=%s",
-                self._agent_id,
-                self._project_id,
-                note_id,
-                ok,
-            )
-
-        elif op_type == "group_notes":
-            note_ids: list[str] = action.get("note_ids", [])
-            group_name: str = action.get("group_name", "")
-            ok = await canvas_ops.group_notes(
-                project_id=self._project_id,
-                note_ids=note_ids,
-                group_name=group_name,
-            )
-            logger.info(
-                "Agent %s group_notes project=%s group=%s count=%d ok=%s",
-                self._agent_id,
-                self._project_id,
-                group_name,
-                len(note_ids),
-                ok,
-            )
-
-        else:
-            logger.warning("Unknown canvas op type: %s", op_type)
-
     async def _execute_set_directive(self, action: dict) -> None:
-        """Execute set_directive: write a CoordinationDirective to Blackboard."""
+        """Execute set_directive: write a CoordinationDirective to Blackboard.
+
+        PhaseStrategy 定義遊戲規則；Directive 是 Supervisor 的即時指令（互補，非替代）。
+        """
         from app.agents.blackboard import BlackboardManager
         from app.agents.blackboard_schemas import CoordinationDirective
 
@@ -332,6 +253,24 @@ class ActEngine:
             invited_speaker,
         )
 
+    async def _update_last_event_ts(self) -> None:
+        """Update the project's last-event timestamp in Redis.
+
+        Ensures Rule 5 (idle detection) works in all-AI mode where
+        only AI agents produce events.
+        """
+        try:
+            import redis.asyncio as aioredis
+            from app.config import settings
+            r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+            await r.set(
+                f"project:{self._project_id}:last_event_ts",
+                str(time.time()),
+            )
+            await r.aclose()
+        except Exception as exc:
+            logger.debug("Failed to update last_event_ts: %s", exc)
+
     def _chinese_convert(self, text: str) -> str:
         """Apply Chinese conversion if text is non-empty."""
         if not text:
@@ -347,6 +286,9 @@ class ActEngine:
         assess_result: Any | None,
         think_result: Any | None,
         act_result: ActResult,
+        *,
+        micro_phase: str | None = None,
+        role_status: str = "normal",
     ) -> None:
         """Persist a DecisionTrace row to agent_decision_trace."""
         try:
@@ -355,6 +297,8 @@ class ActEngine:
                     project_id=self._project_id,
                     agent_id=self._agent_id,
                     stage=current_stage,
+                    micro_phase=micro_phase,
+                    role_status=role_status,
                     assess_result=assess_result.decision if assess_result else "unknown",
                     assess_rule=assess_result.rule if assess_result else None,
                     assess_details=assess_result.details if assess_result else None,

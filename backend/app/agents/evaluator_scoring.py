@@ -4,8 +4,12 @@ Extracted from evaluator.py to keep each file under 500 lines.
 """
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def participant_coverage(canvas: dict, seats: list[dict]) -> float:
@@ -238,17 +242,49 @@ def score_deliver(canvas: dict, chat: list[dict], seats: list[dict]) -> float:
     )
 
 
-def compute_quantitative(
+async def compute_quantitative(
     stage: str,
     canvas: dict,
     recent_chat: list[dict],
     seats: list[dict],
+    *,
+    llm_service: Any = None,
 ) -> float:
-    """Dispatch quantitative scoring to the appropriate stage function."""
+    """Dispatch quantitative scoring with optional LLM calibration.
+
+    # 先用 LLM 處理，未來依實測調整權重或移除 LLM
+    """
     fn = {
         "discover": score_discover,
         "define": score_define,
         "develop": score_develop,
         "deliver": score_deliver,
     }.get(stage, score_discover)
-    return fn(canvas, recent_chat, seats)
+    rule_score = fn(canvas, recent_chat, seats)
+
+    if llm_service is None:
+        return rule_score
+
+    try:
+        response = await llm_service.chat_completion(
+            messages=[
+                {"role": "system", "content": "你是 Design Thinking 工作坊評估專家。"},
+                {"role": "user", "content": (
+                    f"根據以下工作坊狀態，你認為 {stage} 階段的完成度是 0-100？只回答數字。\n\n"
+                    f"便利貼數量：{canvas.get('total_notes', 0)}\n"
+                    f"群組數量：{len(canvas.get('groups', []))}\n"
+                    f"未分組便條紙：{len(canvas.get('ungrouped', []))}\n"
+                    f"聊天訊息數：{len(recent_chat)}\n"
+                    f"參與者數：{len(seats)}\n"
+                    f"規則引擎分數：{rule_score:.0f}"
+                )},
+            ],
+            temperature=0.0,
+            max_tokens=10,
+        )
+        llm_score = float(response.content.strip())
+        llm_score = max(0.0, min(100.0, llm_score))
+        return rule_score * 0.4 + llm_score * 0.6
+    except Exception:
+        logger.debug("compute_quantitative LLM calibration failed, using rule_score")
+        return rule_score

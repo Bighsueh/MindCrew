@@ -12,6 +12,7 @@ import type {
   ProjectListItem,
   StageInfo,
   StageHistoryEntry,
+  MicroPhaseHistoryEntry,
   AgentTrace,
   CanvasStateResponse,
   ProjectSummaryResponse,
@@ -84,6 +85,11 @@ export async function getCanvasState(id: string): Promise<CanvasStateResponse> {
 
 export async function getProjectSummary(id: string): Promise<ProjectSummaryResponse> {
   const response = await api.post<ProjectSummaryResponse>(`/projects/${id}/summary`)
+  return response.data
+}
+
+export async function getMicroPhaseHistory(projectId: string): Promise<MicroPhaseHistoryEntry[]> {
+  const response = await api.get<MicroPhaseHistoryEntry[]>(`/projects/${projectId}/micro-phase-history`)
   return response.data
 }
 

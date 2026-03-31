@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -37,7 +36,6 @@ _THRESHOLDS: dict[str, float] = {
     "medium": 70.0,
     "high": 60.0,
 }
-
 
 
 @dataclass
@@ -80,20 +78,38 @@ class StageEvaluator:
         self._blind_spot_challenge_sent: bool = False
         self._last_guidance_text: str = ""
         self._last_guidance_time: float = 0.0
+        self._crew_responded_since_guidance: bool = True  # Start as True to allow first guidance
         self._blackboard = BlackboardManager(
             project_id=project_id,
             agent_id=agent_id,
             seat_role="supervisor",
         )
+        # Event-driven evaluation (Phase 13): 每累積 N 個新事件才評估
+        self._last_eval_chat_count: int = 0
+        # Stale score fallback (Phase 13): LLM 失敗時沿用上次成功分數
+        self._last_valid_scores: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def should_evaluate(self) -> bool:
-        """Return True if enough time has passed since the last evaluation."""
-        interval = _EVAL_INTERVALS.get(self._contribution, 30.0)
-        return (time.time() - self._last_eval_time) >= interval
+    def should_evaluate(self, context: dict | None = None) -> bool:
+        """Event-driven evaluation gate with time floor and ceiling."""
+        min_interval = _EVAL_INTERVALS.get(self._contribution, 30.0)
+        elapsed = time.time() - self._last_eval_time
+        if elapsed < min_interval:
+            return False
+        # 時間上限：超過 3 倍間隔強制評估（防止停滯）
+        if elapsed > min_interval * 3:
+            return True
+        # Event-driven: 比較聊天數量差異
+        if context is not None:
+            current_chat_count = len(context.get("recent_chat", []))
+            events_since = current_chat_count - self._last_eval_chat_count
+            _EVENT_THRESHOLDS = {"low": 6, "medium": 4, "high": 3}
+            required = _EVENT_THRESHOLDS.get(self._contribution, 4)
+            return events_since >= required
+        return True
 
     async def evaluate(self, context: dict, llm_service: Any) -> EvaluationResult:
         """Run a full evaluation cycle.
@@ -105,18 +121,33 @@ class StageEvaluator:
         5. Log to DB
         """
         self._last_eval_time = time.time()
+        self._last_eval_chat_count = len(context.get("recent_chat", []))
         stage: str = context.get("current_stage", "discover")
+        phase_strategy = context.get("phase_strategy", {})
+        micro_phase: str | None = context.get("current_micro_phase")
         canvas_state: dict = context.get("canvas_state", {})
         recent_chat: list[dict] = context.get("recent_chat", [])
         seats: list[dict] = context.get("seats", [])
         project_name: str = context.get("project_name", "")
         project_description: str = context.get("project_description", "")
 
-        quant_score = self._compute_quantitative(stage, canvas_state, recent_chat, seats)
+        # Track if any Crew responded since last guidance (for dedup)
+        if not self._crew_responded_since_guidance:
+            for msg in recent_chat[-5:]:
+                sender = msg.get("sender", "").lower()
+                if any(r in sender for r in ("crew", "同理心", "結構化", "創意", "可行性")):
+                    self._crew_responded_since_guidance = True
+                    break
 
-        # Stage-specific weighting (Discover: 30:70, others: 40:60)
+        if micro_phase:
+            from app.agents.micro_phase_scoring import compute_micro_phase_quantitative
+            quant_score = await compute_micro_phase_quantitative(micro_phase, canvas_state, recent_chat, seats, llm_service=llm_service)
+        else:
+            quant_score = await self._compute_quantitative(stage, canvas_state, recent_chat, seats, llm_service=llm_service)
+
+        # Stage-specific weighting (Phase 1: 50:50 to ensure notes matter, others: 40:60)
         if stage == "discover":
-            quant_weight, qual_weight = 0.3, 0.7
+            quant_weight, qual_weight = 0.5, 0.5
         else:
             quant_weight, qual_weight = 0.4, 0.6
 
@@ -140,10 +171,21 @@ class StageEvaluator:
                 weak_areas = qual_result.get("weak_areas", [])
                 summary = qual_result.get("summary", "")
                 blind_spot_score = qual_result.get("blind_spot_score")
-                # Fail-safe: if LLM omits blind_spot_score, treat as 0 (fail closed)
+                # If LLM response omits blind_spot_score, skip the veto
+                # (previously treated as 0 which caused permanent stalls)
                 if stage == "discover" and blind_spot_score is None:
-                    logger.warning("LLM response missing blind_spot_score; treating as 0")
-                    blind_spot_score = 0.0
+                    logger.warning("LLM response missing blind_spot_score; skipping veto")
+                # Stale score fallback: 快取成功的分數 (Phase 13)
+                self._last_valid_scores = {
+                    "qual_score": qual_score,
+                    "blind_spot_score": blind_spot_score or 0.0,
+                }
+            elif self._last_valid_scores:
+                # LLM 評估失敗，沿用上次成功分數 (stale-but-valid)
+                qual_score = self._last_valid_scores.get("qual_score")
+                blind_spot_score = self._last_valid_scores.get("blind_spot_score")
+                logger.info("Using stale-but-valid scores: qual=%.1f, blind_spot=%.1f",
+                            qual_score or 0, blind_spot_score or 0)
         else:
             logger.debug(
                 "Pre-screening skipped qualitative (quant=%.1f, threshold=%.1f)",
@@ -156,7 +198,9 @@ class StageEvaluator:
         if qual_score is not None:
             total = quant_score * quant_weight + qual_score * qual_weight
         else:
-            total = quant_score * quant_weight  # Only quantitative component
+            # LLM unavailable — use quantitative score as sole indicator
+            # Scale it to full range (not half) so advancement isn't blocked
+            total = quant_score * 1.0
 
         # Effective threshold: adjust for All-AI mode and time pressure
         has_humans = any(s.get("type") == "human" for s in seats)
@@ -164,22 +208,32 @@ class StageEvaluator:
         if not has_humans:
             effective_threshold -= 10.0  # All-AI 模式降低門檻
         duration_minutes = context.get("stage_duration_minutes", 0.0)
-        effective_threshold -= self._time_pressure_adjustment(stage, duration_minutes)
+        effective_threshold -= self._time_pressure_adjustment(stage, duration_minutes, micro_phase=micro_phase)
 
         passed = total >= effective_threshold
 
-        # Blind spot veto (Discover only): block if blind_spot_score < 30
-        if stage == "discover" and blind_spot_score is not None and blind_spot_score < 30:
+        # Blind spot veto: debate 模式下 < 50 否決，其他 < 30 (Phase 13)
+        comm_goal = phase_strategy.get("comm_goal", "")
+        blind_spot_veto_threshold = 50.0 if comm_goal in ("debate", "mild_competition") else 30.0
+        if stage == "discover" and blind_spot_score is not None and blind_spot_score < blind_spot_veto_threshold:
             passed = False
             if not any("盲區分數不足" in w for w in weak_areas):
                 weak_areas.insert(0, "盲區分數不足——團隊可能遺漏了重要面向")
             logger.info(
-                "Blind spot veto triggered: blind_spot_score=%.1f < 30",
-                blind_spot_score,
+                "Blind spot veto triggered: blind_spot_score=%.1f < %.1f (comm_goal=%s)",
+                blind_spot_score, blind_spot_veto_threshold, comm_goal,
             )
 
         if passed:
             self._consecutive_pass_count += 1
+        elif qual_score is None and pre_screen_pass:
+            # LLM infrastructure failure (not content quality failure)
+            # Preserve pass count to avoid penalising transient outages
+            logger.info(
+                "Evaluation failed due to LLM unavailability; "
+                "pass count preserved at %d",
+                self._consecutive_pass_count,
+            )
         else:
             self._consecutive_pass_count = 0
 
@@ -195,12 +249,27 @@ class StageEvaluator:
             action_taken = "guided_weak_areas"
             await self._publish_weak_area_guidance(weak_areas)
         elif passed and self._consecutive_pass_count >= required_passes:
-            # Discover: blind spot challenge gate (two-pass)
-            if stage == "discover" and not self._blind_spot_challenge_sent:
+            # Discover: blind spot challenge gate (two-pass) — only in macro stage mode
+            if stage == "discover" and not micro_phase and not self._blind_spot_challenge_sent:
                 await self._publish_blind_spot_challenge()
                 self._blind_spot_challenge_sent = True
                 self._consecutive_pass_count = required_passes - 1
                 action_taken = "blind_spot_challenge"
+            elif micro_phase:
+                # Micro-phase aware advancement
+                from app.stages.micro_phases import get_next_micro_phase, is_macro_boundary
+                next_mp = get_next_micro_phase(micro_phase)
+                if next_mp is None:
+                    action_taken = "terminal_micro_phase"  # 4.3 is terminal
+                elif is_macro_boundary(micro_phase, next_mp):
+                    # Cross macro phase boundary — use existing propose/advance flow
+                    if has_humans:
+                        action_taken = await self._propose_advance(stage, total)
+                    else:
+                        action_taken = await self._advance_stage(stage)
+                else:
+                    # Same macro phase — advance micro phase directly
+                    action_taken = await self._advance_micro_phase(micro_phase, next_mp)
             else:
                 if stage == "discover":
                     self._blind_spot_challenge_sent = False
@@ -222,7 +291,7 @@ class StageEvaluator:
             blind_spot_score=blind_spot_score,
         )
 
-        await self._log_to_db(stage, result)
+        await self._log_to_db(stage, result, micro_phase=micro_phase)
 
         # Compute and write Topic Saturation to Blackboard (Summarizer role)
         await self._compute_topic_saturation(stage, canvas_state, recent_chat, llm_service)
@@ -234,28 +303,42 @@ class StageEvaluator:
         self._proposal_agreed = agreed
         self._proposal_event.set()
 
-    def _compute_quantitative(
+    async def _compute_quantitative(
         self, stage: str, canvas: dict, recent_chat: list[dict], seats: list[dict],
+        llm_service: Any = None,
     ) -> float:
-        return compute_quantitative(stage, canvas, recent_chat, seats)
+        return await compute_quantitative(stage, canvas, recent_chat, seats, llm_service=llm_service)
 
     @staticmethod
-    def _time_pressure_adjustment(stage: str, duration_minutes: float) -> float:
+    def _time_pressure_adjustment(
+        stage: str,
+        duration_minutes: float,
+        micro_phase: str | None = None,
+    ) -> float:
         """Gradually lower threshold as time exceeds target for the stage."""
+        _MICRO_PHASE_TARGET_MINUTES: dict[str, float] = {
+            "1.1": 8, "1.2": 10, "1.3": 5,
+            "2.1": 7, "2.2": 7, "2.3": 5,
+            "3.1": 10, "3.2": 5, "3.3": 5,
+            "4.1": 7, "4.2": 5, "4.3": 7,
+        }
         _STAGE_TARGET_MINUTES: dict[str, float] = {
             "discover": 15.0,
             "define": 10.0,
             "develop": 15.0,
             "deliver": 10.0,
         }
-        target = _STAGE_TARGET_MINUTES.get(stage, 15.0)
+        if micro_phase and micro_phase in _MICRO_PHASE_TARGET_MINUTES:
+            target = _MICRO_PHASE_TARGET_MINUTES[micro_phase]
+        else:
+            target = _STAGE_TARGET_MINUTES.get(stage, 15.0)
         if duration_minutes <= target:
             return 0.0
         overtime = duration_minutes - target
-        reduction = min(20.0, (overtime / 5.0) * 5.0)
+        reduction = min(10.0, (overtime / 5.0) * 3.0)
         logger.info(
-            "Time pressure: stage=%s, duration=%.1f min, target=%.1f min, reduction=%.1f",
-            stage, duration_minutes, target, reduction,
+            "Time pressure: stage=%s, micro_phase=%s, duration=%.1f min, target=%.1f min, reduction=%.1f",
+            stage, micro_phase, duration_minutes, target, reduction,
         )
         return reduction
 
@@ -273,61 +356,15 @@ class StageEvaluator:
         project_name: str = "",
         project_description: str = "",
     ) -> dict | None:
-        stage_names = {
-            "discover": "Discover（發現）",
-            "define": "Define（定義）",
-            "develop": "Develop（發展）",
-            "deliver": "Deliver（交付）",
-        }
-        stage_display = stage_names.get(stage, stage)
-
-        canvas_summary = json.dumps(canvas, ensure_ascii=False, indent=2)
-        chat_summary = "\n".join(
-            f"[{m.get('time', '')}] {m.get('sender', '')}: {m.get('content', '')}"
-            for m in chat[-20:]
+        from app.agents.evaluator_qualitative import run_qualitative
+        return await run_qualitative(
+            stage=stage,
+            canvas=canvas,
+            chat=chat,
+            llm_service=llm_service,
+            project_name=project_name,
+            project_description=project_description,
         )
-
-        project_info = ""
-        if project_name:
-            project_info = f"專案名稱：{project_name}\n"
-            if project_description:
-                project_info += f"專案說明：{project_description}\n"
-            project_info += "\n"
-
-        prompt = (
-            f"{project_info}"
-            f"請分析以下 Design Thinking {stage_display} 階段的團隊產出：\n\n"
-            f"白板內容：{canvas_summary}\n"
-            f"聊天紀錄摘要：{chat_summary}\n\n"
-            "請從以下四個面向評分（0-100）：\n"
-            "1. 內容多樣性：觀點是否涵蓋多個不同面向？\n"
-            "2. 討論深度：每個面向是否有足夠的延伸和探討？\n"
-            "3. 收斂程度：團隊是否開始形成共識或重複觀點？\n"
-            "4. 盲區檢查：是否有明顯遺漏的重要面向？\n\n"
-            "回應格式（只回應 JSON，不要包含其他文字）：\n"
-            '{"diversity_score": 0-100, "depth_score": 0-100, '
-            '"convergence_score": 0-100, "blind_spot_score": 0-100, '
-            '"overall_score": 0-100, "weak_areas": ["面向1", "面向2"], '
-            '"summary": "整體評估摘要"}'
-        )
-
-        messages = [
-            {"role": "system", "content": "你是一位 Design Thinking 工作坊品質評估專家。"},
-            {"role": "user", "content": prompt},
-        ]
-
-        try:
-            response = await llm_service.chat_completion(
-                messages=messages, temperature=0.3, max_tokens=512
-            )
-            raw = response.content.strip()
-            if raw.startswith("```"):
-                lines = raw.splitlines()
-                raw = "\n".join(l for l in lines if not l.startswith("```")).strip()
-            return json.loads(raw)
-        except Exception as exc:
-            logger.warning("Qualitative evaluation LLM call failed: %s", exc)
-            return None
 
     # ------------------------------------------------------------------
     # Stage advancement
@@ -357,6 +394,23 @@ class StageEvaluator:
             self._blind_spot_challenge_sent = False
         return result
 
+    async def _advance_micro_phase(self, from_phase: str, to_phase: str) -> str:
+        """Advance micro phase within the same macro stage (no human proposal needed)."""
+        try:
+            from app.agents.stage_advancement import advance_micro_phase
+            result = await advance_micro_phase(
+                project_id=self._project_id,
+                agent_id=self._agent_id,
+                from_phase=from_phase,
+                to_phase=to_phase,
+            )
+        except Exception as exc:
+            logger.error("Micro phase advance failed: %s", exc)
+            return "micro_advance_failed"
+        if result.startswith("micro_advanced_to_"):
+            self._consecutive_pass_count = 0
+        return result
+
     async def _advance_stage(self, current_stage: str) -> str:
         """Directly advance the project to the next stage."""
         result = await advance_stage(
@@ -371,76 +425,31 @@ class StageEvaluator:
         return result
 
     # ------------------------------------------------------------------
-    # Chat guidance helpers
+    # Chat guidance helpers (delegated to evaluator_guidance.py)
     # ------------------------------------------------------------------
 
     async def _publish_supervisor_message(self, content_raw: str) -> None:
-        """Publish a Supervisor chat message (with Chinese conversion)."""
-        from app.events.types import ChatMessageEvent
-        from app.events.bus import event_bus
-        from app.chinese.converter import chinese_converter
-
-        event = ChatMessageEvent(
-            project_id=self._project_id,
-            sender_id=self._agent_id,
-            sender_type="ai",
-            sender_name="Supervisor",
-            content=chinese_converter.convert(content_raw),
-        )
-        await event_bus.publish(event)
+        from app.agents.evaluator_guidance import publish_supervisor_message
+        await publish_supervisor_message(self._project_id, self._agent_id, content_raw)
 
     async def _publish_blind_spot_challenge(self) -> None:
-        """Send a 'final call' asking team to identify missed perspectives."""
-        try:
-            await self._publish_supervisor_message(
-                "在我們準備往下走之前，讓我確認一下——"
-                "我們是不是還漏了什麼重要的面向？"
-                "還有沒有我們沒想到的？"
-            )
-            logger.info("Published blind spot challenge for project %s", self._project_id)
-        except Exception as exc:
-            logger.error("Failed to publish blind spot challenge: %s", exc)
+        from app.agents.evaluator_guidance import publish_blind_spot_challenge
+        await publish_blind_spot_challenge(self._project_id, self._agent_id)
 
     async def _publish_weak_area_guidance(self, weak_areas: list[str]) -> None:
-        """Publish a chat message guiding the team to improve weak areas (spec §4.4).
-
-        Dedup: skip if the same guidance text was sent within the last 5 minutes.
-        """
-        if not weak_areas:
-            return
-        try:
-            primary_area = weak_areas[0]
-
-            # Skip internal-only messages (not actionable by the team)
-            if "尚未達到質性分析門檻" in primary_area:
-                logger.debug(
-                    "Skipping pre-screening weak area (not actionable): %s",
-                    primary_area,
-                )
-                return
-
-            # Cooldown: don't repeat the same guidance within 5 minutes
-            now = time.time()
-            if (
-                primary_area == self._last_guidance_text
-                and (now - self._last_guidance_time) < 300
-            ):
-                logger.debug(
-                    "Skipping duplicate weak-area guidance (cooldown): %s",
-                    primary_area,
-                )
-                return
-
-            self._last_guidance_text = primary_area
-            self._last_guidance_time = now
-
-            await self._publish_supervisor_message(
-                f"我覺得我們在「{primary_area}」方面可以再深入探討一些，"
-                f"這樣能讓這個階段的產出更紮實。大家有什麼想法嗎？"
-            )
-            logger.info("Published weak-area guidance for project %s: %s", self._project_id, primary_area)
-        except Exception as exc:
-            logger.error("Failed to publish weak-area guidance: %s", exc)
+        from app.agents.evaluator_guidance import publish_weak_area_guidance
+        text, t, responded = await publish_weak_area_guidance(
+            weak_areas=weak_areas,
+            project_id=self._project_id,
+            agent_id=self._agent_id,
+            blackboard=self._blackboard,
+            last_guidance_text=self._last_guidance_text,
+            last_guidance_time=self._last_guidance_time,
+            crew_responded_since_guidance=self._crew_responded_since_guidance,
+        )
+        self._last_guidance_text = text
+        self._last_guidance_time = t
+        self._crew_responded_since_guidance = responded
 
     async def _compute_topic_saturation(
         self,
@@ -462,7 +471,9 @@ class StageEvaluator:
     # DB logging
     # ------------------------------------------------------------------
 
-    async def _log_to_db(self, stage: str, result: EvaluationResult) -> None:
+    async def _log_to_db(
+        self, stage: str, result: EvaluationResult, *, micro_phase: str | None = None
+    ) -> None:
         try:
             async with async_session_factory() as session:
                 log = StageEvaluationLog(
@@ -479,6 +490,7 @@ class StageEvaluator:
                         "weak_areas": result.weak_areas,
                         "summary": result.summary,
                         "blind_spot_score": result.blind_spot_score,
+                        "micro_phase": micro_phase,
                     },
                 )
                 session.add(log)

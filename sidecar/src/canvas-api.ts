@@ -5,7 +5,13 @@ import {
   deleteNote,
   moveNote,
   groupNotes,
+  arrangeGroups,
+  tidyNotes,
+  autoLayout,
+  checkOverlap,
   getCanvasState,
+  getCanvasStateFull,
+  batchUpdateCoordinates,
 } from './yjs-utils.js'
 
 export const canvasRouter = Router()
@@ -71,8 +77,9 @@ canvasRouter.post('/projects/:id/notes/:noteId/move', (req: Request, res: Respon
   res.json({ message: 'Moved' })
 })
 
-// POST /api/projects/:id/groups — group notes
+// POST /api/projects/:id/groups — group notes [DEPRECATED: use Python arrange_notes]
 canvasRouter.post('/projects/:id/groups', (req: Request, res: Response) => {
+  console.warn('[DEPRECATED] POST /groups called — use Python Layout Engine instead')
   const { id } = req.params
   const { note_ids, group_name } = req.body
 
@@ -89,9 +96,87 @@ canvasRouter.post('/projects/:id/groups', (req: Request, res: Response) => {
   res.status(201).json(group)
 })
 
+// POST /api/projects/:id/arrange-groups [DEPRECATED: use Python arrange_notes]
+canvasRouter.post('/projects/:id/arrange-groups', (req: Request, res: Response) => {
+  console.warn('[DEPRECATED] POST /arrange-groups called — use Python Layout Engine instead')
+  const { id } = req.params
+  const { arrangement } = req.body
+  const ok = arrangeGroups(id, arrangement || 'grid')
+  if (!ok) {
+    res.status(404).json({ detail: 'Project not found' })
+    return
+  }
+  res.json({ message: 'Groups arranged', arrangement: arrangement || 'grid' })
+})
+
+// POST /api/projects/:id/tidy [DEPRECATED: use Python tidy_area]
+canvasRouter.post('/projects/:id/tidy', (req: Request, res: Response) => {
+  console.warn('[DEPRECATED] POST /tidy called — use Python Layout Engine instead')
+  const { id } = req.params
+  const { scope, strategy } = req.body
+  const ok = tidyNotes(id, scope || 'ungrouped', strategy || 'spread')
+  if (!ok) {
+    res.status(404).json({ detail: 'Project not found' })
+    return
+  }
+  res.json({ message: 'Notes tidied', scope: scope || 'ungrouped', strategy: strategy || 'spread' })
+})
+
+// POST /api/projects/:id/auto-layout [DEPRECATED: use Python tidy_area]
+canvasRouter.post('/projects/:id/auto-layout', (req: Request, res: Response) => {
+  console.warn('[DEPRECATED] POST /auto-layout called — use Python Layout Engine instead')
+  const { id } = req.params
+  const { strategy } = req.body
+  const ok = autoLayout(id, strategy || 'grid')
+  if (!ok) {
+    res.status(404).json({ detail: 'Project not found' })
+    return
+  }
+  res.json({ message: 'Layout applied', strategy: strategy || 'grid' })
+})
+
+// GET /api/projects/:id/overlap-check — check for overlapping notes
+canvasRouter.get('/projects/:id/overlap-check', (req: Request, res: Response) => {
+  const { id } = req.params
+  const result = checkOverlap(id)
+  res.json(result)
+})
+
 // GET /api/projects/:id/state — get canvas state
 canvasRouter.get('/projects/:id/state', (req: Request, res: Response) => {
   const { id } = req.params
   const state = getCanvasState(id)
   res.json(state)
+})
+
+// GET /api/projects/:id/canvas-state/full — full geometry for all shapes
+canvasRouter.get('/projects/:id/canvas-state/full', (req: Request, res: Response) => {
+  const { id } = req.params
+  const shapes = getCanvasStateFull(id)
+  res.json(shapes)
+})
+
+// POST /api/projects/:id/batch-update-coordinates — atomic batch coordinate update
+canvasRouter.post('/projects/:id/batch-update-coordinates', (req: Request, res: Response) => {
+  const { id } = req.params
+  const { updates } = req.body
+
+  if (!Array.isArray(updates) || updates.length === 0) {
+    res.status(400).json({ detail: 'updates array is required and must not be empty' })
+    return
+  }
+
+  for (const u of updates) {
+    if (!u.id || typeof u.x !== 'number' || typeof u.y !== 'number') {
+      res.status(400).json({ detail: 'Each update must have id (string), x (number), y (number)' })
+      return
+    }
+  }
+
+  const ok = batchUpdateCoordinates(id, updates)
+  if (!ok) {
+    res.status(404).json({ detail: 'Project or one or more notes not found' })
+    return
+  }
+  res.json({ message: 'Coordinates updated', count: updates.length })
 })

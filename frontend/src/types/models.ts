@@ -3,6 +3,31 @@
 export type UserRole = 'teacher' | 'student'
 export type AIContribution = 'low' | 'medium' | 'high'
 export type DTStage = 'discover' | 'define' | 'develop' | 'deliver' | 'completed'
+
+export type MicroPhaseId =
+  | "1.1" | "1.2" | "1.3"
+  | "2.1" | "2.2" | "2.3"
+  | "3.1" | "3.2" | "3.3"
+  | "4.1" | "4.2" | "4.3"
+
+export interface MicroPhaseInfo {
+  current_micro_phase: MicroPhaseId
+  micro_phase_name: string
+  protagonist: string | null
+  suppressed: string[]
+}
+
+export interface MicroPhaseHistoryEntry {
+  id: string
+  project_id: string
+  from_micro_phase: MicroPhaseId
+  to_micro_phase: MicroPhaseId
+  transition_type: 'advance' | 'backtrack'
+  triggered_by: string
+  reason?: string
+  duration_seconds?: number
+  created_at: string
+}
 export type ProjectStatus = 'active' | 'completed' | 'archived'
 export type SeatRole = 'supervisor' | 'crew_1' | 'crew_2' | 'crew_3' | 'crew_4'
 export type OccupantType = 'human' | 'ai'
@@ -41,6 +66,7 @@ export interface Project {
   description?: string
   creator_id: string
   current_stage: DTStage
+  current_micro_phase?: MicroPhaseId
   ai_contribution: AIContribution
   status: ProjectStatus
   seats?: Seat[]
@@ -74,6 +100,7 @@ export interface Message {
 
 export interface StageInfo {
   current_stage: DTStage
+  current_micro_phase?: MicroPhaseId
   started_at: string
   duration_seconds: number
 }

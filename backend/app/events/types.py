@@ -92,6 +92,35 @@ class StageChangedEvent:
 
 
 @dataclass
+class MicroPhaseChangedEvent:
+    project_id: UUID
+    from_phase: str
+    to_phase: str
+    transition_type: str
+    triggered_by: str
+    timestamp: str = field(default_factory=_now_iso)
+
+    @property
+    def type(self) -> str:
+        return "micro_phase_changed"
+
+    def to_dict(self) -> dict:
+        return {
+            "type": self.type,
+            "payload": {
+                "from_phase": self.from_phase,
+                "to_phase": self.to_phase,
+                "transition_type": self.transition_type,
+                "triggered_by": self.triggered_by,
+                "timestamp": self.timestamp,
+            },
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict())
+
+
+@dataclass
 class SeatChangedEvent:
     project_id: UUID
     seat_role: str
@@ -185,6 +214,7 @@ AnyEvent = (
     ChatMessageEvent
     | TypingEvent
     | StageChangedEvent
+    | MicroPhaseChangedEvent
     | SeatChangedEvent
     | SystemMessageEvent
     | ProjectUpdateEvent

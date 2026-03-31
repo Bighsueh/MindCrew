@@ -45,14 +45,19 @@ class TestTopicFocusGate:
             "current_stage": "discover",
         }
 
-    def test_non_participant_mostly_yields(self) -> None:
-        """Non-participant should yield ~80% of the time (Rule 6.5)."""
+    @pytest.mark.asyncio
+    async def test_non_participant_mostly_yields(self) -> None:
+        """Non-participant yield rate depends on comm_strategy (Phase 13).
+
+        Without phase_strategy (fallback): 50%.
+        With ST/SS: 20%. With OO: 70%.
+        """
         engine = AssessEngine()
         ctx = self._base_context(my_seat="crew_3")
 
         results = []
         for _ in range(200):
-            r = engine.evaluate(
+            r = await engine.evaluate(
                 context=ctx,
                 agent_id="agent_3",
                 ai_contribution="medium",
@@ -64,18 +69,19 @@ class TestTopicFocusGate:
             results.append(r)
 
         topic_focus_waits = sum(1 for r in results if r.rule == "rule_6_5_topic_focus")
-        # Should be roughly 80% (allow 60-95% range for randomness)
+        # Fallback (no phase_strategy): 50% yield (allow 30-70% range for randomness)
         ratio = topic_focus_waits / len(results)
-        assert 0.55 < ratio < 0.95, f"Expected ~80% yield, got {ratio:.1%}"
+        assert 0.30 < ratio < 0.70, f"Expected ~50% yield (fallback), got {ratio:.1%}"
 
-    def test_participant_not_blocked(self) -> None:
+    @pytest.mark.asyncio
+    async def test_participant_not_blocked(self) -> None:
         """Agent who is already a participant should NOT be blocked by Rule 6.5."""
         engine = AssessEngine()
         ctx = self._base_context(my_seat="crew_1")
 
         results = []
         for _ in range(50):
-            r = engine.evaluate(
+            r = await engine.evaluate(
                 context=ctx,
                 agent_id="agent_1",
                 ai_contribution="medium",
@@ -89,7 +95,8 @@ class TestTopicFocusGate:
         topic_focus_waits = sum(1 for r in results if r.rule == "rule_6_5_topic_focus")
         assert topic_focus_waits == 0, "Participant should never be blocked by Rule 6.5"
 
-    def test_addressed_agent_not_blocked(self) -> None:
+    @pytest.mark.asyncio
+    async def test_addressed_agent_not_blocked(self) -> None:
         """Agent with pending_addressee matching should NOT be blocked."""
         engine = AssessEngine()
         ctx = self._base_context(my_seat="crew_3")
@@ -97,7 +104,7 @@ class TestTopicFocusGate:
 
         results = []
         for _ in range(50):
-            r = engine.evaluate(
+            r = await engine.evaluate(
                 context=ctx,
                 agent_id="agent_3",
                 ai_contribution="medium",
@@ -111,13 +118,14 @@ class TestTopicFocusGate:
         topic_focus_waits = sum(1 for r in results if r.rule == "rule_6_5_topic_focus")
         assert topic_focus_waits == 0, "Addressed agent should not be blocked by Rule 6.5"
 
-    def test_no_active_thread_no_blocking(self) -> None:
+    @pytest.mark.asyncio
+    async def test_no_active_thread_no_blocking(self) -> None:
         """Without an active thread, Rule 6.5 should not fire."""
         engine = AssessEngine()
         ctx = self._base_context()
         ctx["active_thread"] = None
 
-        r = engine.evaluate(
+        r = await engine.evaluate(
             context=ctx,
             agent_id="agent_3",
             ai_contribution="medium",
@@ -162,10 +170,11 @@ class TestPersistentAddressee:
             "current_stage": "discover",
         }
 
-    def test_addressed_agent_intervenes(self) -> None:
+    @pytest.mark.asyncio
+    async def test_addressed_agent_intervenes(self) -> None:
         engine = AssessEngine()
         ctx = self._base_context(my_seat="crew_2", pending="crew_2")
-        r = engine.evaluate(
+        r = await engine.evaluate(
             context=ctx,
             agent_id="agent_2",
             ai_contribution="medium",
@@ -177,10 +186,11 @@ class TestPersistentAddressee:
         assert r.decision == "intervene"
         assert r.rule == "rule_7_addressed"
 
-    def test_non_addressed_agent_yields(self) -> None:
+    @pytest.mark.asyncio
+    async def test_non_addressed_agent_yields(self) -> None:
         engine = AssessEngine()
         ctx = self._base_context(my_seat="crew_3", pending="crew_2")
-        r = engine.evaluate(
+        r = await engine.evaluate(
             context=ctx,
             agent_id="agent_3",
             ai_contribution="medium",
@@ -199,7 +209,8 @@ class TestPersistentAddressee:
 
 
 class TestHumanTypingRule:
-    def test_recent_typing_causes_wait(self) -> None:
+    @pytest.mark.asyncio
+    async def test_recent_typing_causes_wait(self) -> None:
         engine = AssessEngine()
         ctx = {
             "recent_chat": [{"content": "測試", "sender": "human(human)"}],
@@ -209,7 +220,7 @@ class TestHumanTypingRule:
             "my_recent_actions": [],
             "_human_typing_timestamp": time.time() - 1.0,  # 1 second ago
         }
-        r = engine.evaluate(
+        r = await engine.evaluate(
             context=ctx,
             agent_id="agent_1",
             ai_contribution="medium",
@@ -220,7 +231,8 @@ class TestHumanTypingRule:
         assert r.rule == "rule_2_human_typing"
         assert r.decision == "wait"
 
-    def test_old_typing_ignored(self) -> None:
+    @pytest.mark.asyncio
+    async def test_old_typing_ignored(self) -> None:
         engine = AssessEngine()
         ctx = {
             "recent_chat": [{"content": "測試", "sender": "human(human)"}],
@@ -230,7 +242,7 @@ class TestHumanTypingRule:
             "my_recent_actions": [],
             "_human_typing_timestamp": time.time() - 10.0,  # 10 seconds ago
         }
-        r = engine.evaluate(
+        r = await engine.evaluate(
             context=ctx,
             agent_id="agent_1",
             ai_contribution="medium",
@@ -240,7 +252,8 @@ class TestHumanTypingRule:
         )
         assert r.rule != "rule_2_human_typing"
 
-    def test_no_typing_timestamp(self) -> None:
+    @pytest.mark.asyncio
+    async def test_no_typing_timestamp(self) -> None:
         engine = AssessEngine()
         ctx = {
             "recent_chat": [{"content": "測試", "sender": "human(human)"}],
@@ -250,7 +263,7 @@ class TestHumanTypingRule:
             "my_recent_actions": [],
             "_human_typing_timestamp": None,
         }
-        r = engine.evaluate(
+        r = await engine.evaluate(
             context=ctx,
             agent_id="agent_1",
             ai_contribution="medium",
@@ -267,7 +280,8 @@ class TestHumanTypingRule:
 
 
 class TestIdleDetectionRule:
-    def test_idle_triggers_intervention(self) -> None:
+    @pytest.mark.asyncio
+    async def test_idle_triggers_intervention(self) -> None:
         engine = AssessEngine()
         ctx = {
             "recent_chat": [{"content": "測試", "sender": "human(human)"}],
@@ -276,7 +290,7 @@ class TestIdleDetectionRule:
             "active_thread": None,
             "my_recent_actions": [],
         }
-        r = engine.evaluate(
+        r = await engine.evaluate(
             context=ctx,
             agent_id="agent_1",
             ai_contribution="medium",
@@ -288,7 +302,8 @@ class TestIdleDetectionRule:
         assert r.rule == "rule_5_idle"
         assert r.decision == "intervene"
 
-    def test_recent_activity_no_idle(self) -> None:
+    @pytest.mark.asyncio
+    async def test_recent_activity_no_idle(self) -> None:
         engine = AssessEngine()
         ctx = {
             "recent_chat": [{"content": "測試", "sender": "human(human)"}],
@@ -297,7 +312,7 @@ class TestIdleDetectionRule:
             "active_thread": None,
             "my_recent_actions": [],
         }
-        r = engine.evaluate(
+        r = await engine.evaluate(
             context=ctx,
             agent_id="agent_1",
             ai_contribution="medium",

@@ -62,6 +62,16 @@ export interface AdvanceStageResponse {
   previous_snapshot_id: string
 }
 
+export interface AdvanceMicroPhaseRequest {
+  from_phase: string
+  to_phase: string
+}
+
+export interface AdvanceMicroPhaseResponse {
+  current_micro_phase: string
+  is_backtrack: boolean
+}
+
 // ── Messages ──────────────────────────────────────────────────────────────
 
 export interface MessagesResponse {

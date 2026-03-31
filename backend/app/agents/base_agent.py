@@ -9,11 +9,13 @@ from uuid import UUID
 
 from app.agents.assess import AssessEngine, AssessResult
 from app.agents.blackboard import BlackboardManager
-from app.agents.blackboard_schemas import AgentIntention
+from app.agents.blackboard_writer import write_intention_from_think_result
 from app.agents.context_buffer import ContextBuffer
 from app.agents.conversation_health import ConversationHealthAnalyzer
 from app.agents.coordinator import agent_coordinator
 from app.agents.evaluator import StageEvaluator
+from app.agents.phase_strategy import PHASE_STRATEGIES
+from app.agents.summarizer import do_summarize, should_summarize
 from app.agents.throttle import ThrottleGate
 from app.llm.factory import LLMProviderFactory
 from app.ws.presence_tracker import presence_tracker
@@ -25,10 +27,10 @@ logger = logging.getLogger(__name__)
 # the previous agents' output before acting.  (論文 §4.1.3)
 _ENTRY_DELAYS: dict[str, float] = {
     "supervisor": 0.0,
-    "crew_1": 8.0,
-    "crew_2": 12.0,
-    "crew_3": 16.0,
-    "crew_4": 20.0,
+    "crew_1": 10.0,
+    "crew_2": 10.0,
+    "crew_3": 10.0,
+    "crew_4": 10.0,
 }
 
 
@@ -96,6 +98,9 @@ class BaseAgent:
         # Lazy-import ThinkEngine and ActEngine to avoid circular imports
         self._think_engine: Any = None
         self._act_engine: Any = None
+
+        # Summarizer cooldown (Phase 13): prevent rapid-fire summaries
+        self._last_summary_time: float = 0.0
 
         # Proactive initiation budget (spec §5.2)
         self._last_proactive_time: float | None = None
@@ -191,13 +196,13 @@ class BaseAgent:
     # ------------------------------------------------------------------
 
     def _compute_proactive_cooldown(self, context: dict) -> float:
-        """Dynamic cooldown based on conversation state.
+        """Dynamic cooldown based on conversation state."""
+        base = 30.0 if self._is_supervisor else 40.0
 
-        Active conversation → shorter cooldown (more to respond to).
-        Silent conversation → shorter cooldown (break the silence).
-        Normal flow where I'm not needed → longer cooldown.
-        """
-        base = 45.0 if self._is_supervisor else 60.0
+        # All-AI mode: no humans to protect, reduce cooldown significantly
+        is_all_ai = all(s.get("type") == "ai" for s in context.get("seats", []))
+        if is_all_ai:
+            base *= 0.4
 
         # New thread starting → halve cooldown
         active_thread = context.get("active_thread")
@@ -227,6 +232,33 @@ class BaseAgent:
         # Step 1: Observe
         context = await self._context_buffer.get_current_context()
 
+        # Load PhaseStrategy and inject into context (Phase 13)
+        micro_phase = context.get("current_micro_phase", "1.1")
+        strategy = PHASE_STRATEGIES.get(micro_phase)
+        if strategy:
+            context["phase_strategy"] = {
+                "comm_strategy": strategy.comm_strategy,
+                "comm_goal": strategy.comm_goal,
+                "supervisor_mode": strategy.supervisor_mode,
+            }
+
+        # Supervisor Summarizer: SS 策略下定期做摘要
+        if self._is_supervisor and strategy:
+            if strategy.comm_strategy == "simultaneous_summarizer":
+                # 摘要冷卻：至少間隔 30 秒避免連續觸發
+                summary_cooldown = time.time() - self._last_summary_time > 30.0
+                if summary_cooldown and should_summarize(context, strategy.summarize_interval):
+                    self._last_summary_time = time.time()
+                    llm_service = LLMProviderFactory.get_service()
+                    summary = await do_summarize(context, llm_service)
+                    if summary:
+                        act_engine = self._get_act_engine()
+                        await act_engine.execute(
+                            actions=[{"type": "chat_message", "content": f"【摘要】{summary}"}],
+                            current_stage=context.get("current_stage", "discover"),
+                        )
+                    return
+
         # Check if another agent is currently acting
         another_acting = agent_coordinator.is_agent_acting(self._project_id)
         is_all_ai = all(s.get("type") == "ai" for s in context.get("seats", []))
@@ -235,7 +267,7 @@ class BaseAgent:
         self._throttle.update_contribution(self._contribution, is_all_ai=is_all_ai)
 
         # Step 2: Assess
-        assess_result: AssessResult = self._assess_engine.evaluate(
+        assess_result: AssessResult = await self._assess_engine.evaluate(
             context=context,
             agent_id=self._agent_id,
             ai_contribution=self._contribution,
@@ -245,27 +277,46 @@ class BaseAgent:
             throttle_min_interval=self._throttle.params.min_interval,
         )
 
-        logger.debug(
-            "Agent %s assess → %s (rule=%s)",
-            self._agent_id,
-            assess_result.decision,
-            assess_result.rule,
-        )
+        if assess_result.decision == "observe":
+            logger.debug(
+                "Agent %s assess → observe (rule=%s)",
+                self._agent_id,
+                assess_result.rule,
+            )
+        else:
+            logger.info(
+                "Agent %s assess → %s (rule=%s, details=%s)",
+                self._agent_id,
+                assess_result.decision,
+                assess_result.rule,
+                assess_result.details,
+            )
 
         # Supervisor: run StageEvaluator on its own schedule (one at a time)
         if self._is_supervisor and self._evaluator is not None:
-            if self._evaluator.should_evaluate() and not self._evaluation_in_progress:
+            should_eval = self._evaluator.should_evaluate(context)
+            if should_eval and not self._evaluation_in_progress:
+                logger.info("Triggering stage evaluation for %s", self._project_id)
                 self._evaluation_in_progress = True
                 asyncio.create_task(self._run_evaluation(context))
 
         if assess_result.decision in ("wait", "observe"):
             return
 
+        # Round gate: supervisor 首次 INTERVENE 即開門，不需等 action 完成
+        if self._is_supervisor and not self._first_action_done:
+            self._first_action_done = True
+            await agent_coordinator.mark_supervisor_done(
+                self._project_id, self._agent_id
+            )
+
         # Proactive initiation budget (dynamic cooldown — Solution C)
         _REACTIVE_RULES = frozenset((
-            "rule_0_invited", "rule_1_mention", "rule_5_idle",
-            "rule_5_5_reengagement", "rule_6_relevant_event",
-            "rule_7_addressed",
+            "rule_0_1_fresh_project",
+            "rule_1_mention", "rule_5_idle",
+            "rule_5_5_reengagement", "rule_5_5_peer_relevance",
+            "rule_0_5_debate_stance",
+            "rule_6_relevant_event", "rule_7_addressed",
         ))
         is_reactive = assess_result.rule in _REACTIVE_RULES
         if not is_reactive:
@@ -360,12 +411,6 @@ class BaseAgent:
             )
         finally:
             await agent_coordinator.release(self._project_id, self._agent_id)
-            # Round gate: supervisor marks first action done so crew can proceed
-            if self._is_supervisor and not self._first_action_done:
-                self._first_action_done = True
-                await agent_coordinator.mark_supervisor_done(
-                    self._project_id, self._agent_id
-                )
 
     # ------------------------------------------------------------------
     # Supervisor evaluation task
@@ -395,48 +440,14 @@ class BaseAgent:
     # ------------------------------------------------------------------
 
     async def _write_blackboard(self, think_result: Any, context: dict) -> None:
-        """Extract reasoning + intent from ThinkResult and write to Blackboard."""
-        try:
-            # Determine focus_topic and viewpoint from LLM response
-            # The LLM may include these in reasoning or we extract from actions
-            focus_topic: str | None = None
-            viewpoint: str | None = None
-            next_intent = "no_action"
-
-            for action in think_result.actions:
-                atype = action.get("type", "no_action")
-                if atype != "no_action":
-                    next_intent = atype
-                    if atype == "add_note":
-                        focus_topic = action.get("content", "")[:50]
-                    elif atype == "chat_message":
-                        focus_topic = action.get("content", "")[:50]
-                    break
-
-            # Try to extract focus_topic/viewpoint from raw JSON response
-            try:
-                import json as _json
-                raw_data = _json.loads(think_result.raw_response.strip().strip("`").strip())
-                focus_topic = raw_data.get("focus_topic", focus_topic)
-                viewpoint = raw_data.get("viewpoint", viewpoint)
-            except Exception:
-                pass
-
-            intention = AgentIntention(
-                agent_id=self._agent_id,
-                seat_role=self._seat_role,
-                reasoning_summary=think_result.reasoning[:200] if think_result.reasoning else "",
-                next_intent=next_intent,
-                focus_topic=focus_topic,
-                viewpoint=viewpoint,
-                confidence=0.7,
-                stage=context.get("current_stage", "discover"),
-            )
-            await self._blackboard.write_intention(intention)
-        except Exception:
-            logger.warning(
-                "Failed to write blackboard for %s", self._agent_id, exc_info=True
-            )
+        """Delegate to blackboard_writer module."""
+        await write_intention_from_think_result(
+            blackboard=self._blackboard,
+            think_result=think_result,
+            context=context,
+            agent_id=self._agent_id,
+            seat_role=self._seat_role,
+        )
 
     # ------------------------------------------------------------------
     # Lazy component getters
@@ -497,4 +508,4 @@ async def _wait_for_any(*events: asyncio.Event) -> None:
 
 def _now_time_str() -> str:
     from datetime import datetime, timezone
-    return datetime.now(timezone.utc).strftime("%H:%M")
+    return datetime.now(timezone.utc).strftime("%H:%M:%S")

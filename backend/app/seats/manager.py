@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -292,6 +293,9 @@ class SeatManager:
         )
         key = (project_id, seat_role)
         self._agents[key] = agent
+        # Seed last_event_ts for fresh projects so ASSESS Rule 5 can fire
+        await self._seed_last_event_ts(project_id)
+
         task = asyncio.create_task(agent.start(), name=f"agent_{project_id}_{seat_role}")
         self._agent_tasks[key] = task
         task.add_done_callback(
@@ -300,6 +304,21 @@ class SeatManager:
             )
         )
         logger.info("Started agent %s on seat %s project %s", agent_id, seat_role, project_id)
+
+    async def _seed_last_event_ts(self, project_id: UUID) -> None:
+        """Seed last_event_ts for fresh projects so ASSESS Rule 5 can fire.
+
+        Uses NX (SET-if-Not-exists) to avoid overwriting active projects.
+        """
+        try:
+            r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+            try:
+                key = f"project:{project_id}:last_event_ts"
+                await r.set(key, str(time.time()), nx=True)
+            finally:
+                await r.aclose()
+        except Exception as exc:
+            logger.warning("Failed to seed last_event_ts: %s", exc)
 
     def _schedule_recovery(
         self,

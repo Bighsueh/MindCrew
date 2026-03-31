@@ -60,6 +60,10 @@ class CoordinationDirective(BaseModel):
 
     This is the Supervisor's 'command channel' — Crew agents MUST check
     this before deciding what to do.  (論文 §3.1.2, §4.2.3)
+
+    Note: PhaseStrategy 定義「遊戲規則」（溝通策略、目標、模式），
+    CoordinationDirective 是「遊戲中的即時指令」（點名發言、聚焦話題）。
+    兩者互補，非替代關係。
     """
 
     round_type: Literal[

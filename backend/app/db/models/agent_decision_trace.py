@@ -19,6 +19,8 @@ class AgentDecisionTrace(Base):
     )
     agent_id: Mapped[str] = mapped_column(String(50), nullable=False)
     stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    micro_phase: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    role_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # ASSESS phase
     assess_result: Mapped[str] = mapped_column(String(20), nullable=False)

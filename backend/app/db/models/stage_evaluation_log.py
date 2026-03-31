@@ -18,6 +18,7 @@ class StageEvaluationLog(Base):
         UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
     )
     stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    micro_phase: Mapped[str | None] = mapped_column(String(10), nullable=True)
     quantitative_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     qualitative_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_score: Mapped[float | None] = mapped_column(Float, nullable=True)

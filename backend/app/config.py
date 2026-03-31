@@ -28,7 +28,12 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS_PER_CALL: int = 2048
     LLM_PROJECT_RPM_LIMIT: int = 30
     LLM_GLOBAL_RPM_LIMIT: int = 300
-    LLM_CALL_TIMEOUT_SECONDS: int = 10
+    LLM_CALL_TIMEOUT_SECONDS: int = 25
+
+    # Embedding (Qwen3-Embedding-8B)
+    EMBEDDING_BASE_URL: str = "https://embedding.example.com/v1"
+    EMBEDDING_MODEL: str = "Qwen/Qwen3-Embedding-8B"
+    EMBEDDING_API_KEY: str = "REDACTED"
 
     # Yjs Sidecar
     SIDECAR_URL: str = "http://localhost:4000"

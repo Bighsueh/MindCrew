@@ -12,6 +12,7 @@ from uuid import UUID
 
 from app.agents.blackboard import BlackboardManager
 from app.agents.blackboard_schemas import TopicSaturation
+from app.llm.json_utils import parse_llm_json
 
 logger = logging.getLogger(__name__)
 
@@ -78,14 +79,12 @@ async def compute_and_write_topic_saturation(
         ]
 
         response = await llm_service.chat_completion(
-            messages=messages, temperature=0.3, max_tokens=1024
+            messages=messages, temperature=0.3, max_tokens=1536
         )
-        raw = response.content.strip()
-        if raw.startswith("```"):
-            lines = raw.splitlines()
-            raw = "\n".join(l for l in lines if not l.startswith("```")).strip()
-
-        data = json.loads(raw)
+        data = parse_llm_json(response.content)
+        if data is None:
+            logger.warning("Topic saturation JSON parse failed; skipping this cycle")
+            return
 
         from app.chinese.converter import chinese_converter
 

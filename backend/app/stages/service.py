@@ -14,9 +14,24 @@ from app.db.models.project import Project
 from app.db.models.seat import Seat
 from app.db.models.stage_history import StageHistory
 from app.events.bus import event_bus
-from app.events.types import StageChangedEvent
+from app.events.types import MicroPhaseChangedEvent, StageChangedEvent
+from app.stages.micro_phase_repository import MicroPhaseHistoryRepository
+from app.stages.micro_phases import (
+    get_first_micro_phase_for_stage,
+    get_macro_stage,
+    is_backtrack,
+    is_macro_boundary,
+    validate_advance,
+    validate_backtrack,
+)
 from app.stages.repository import StageHistoryRepository
-from app.stages.schemas import AdvanceStageResponse, StageHistoryResponse, StageResponse
+from app.stages.schemas import (
+    AdvanceMicroPhaseResponse,
+    AdvanceStageResponse,
+    MicroPhaseHistoryResponse,
+    StageHistoryResponse,
+    StageResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +48,14 @@ class StageService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
         self.repo = StageHistoryRepository(session)
+        self.micro_repo = MicroPhaseHistoryRepository(session)
 
     async def get_stage(self, project_id: UUID) -> StageResponse:
         project = await self._get_project_or_404(project_id)
         return StageResponse(
             project_id=project.id,
             current_stage=project.current_stage,
+            current_micro_phase=project.current_micro_phase,
             ai_contribution=project.ai_contribution,
         )
 
@@ -95,12 +112,29 @@ class StageService:
             duration_seconds=duration_seconds,
         )
 
-        # Update project.current_stage
+        # Update project.current_stage + reset micro_phase (P0-5)
         project.current_stage = to_stage
+        old_micro_phase = project.current_micro_phase or "1.1"
+        first_micro = get_first_micro_phase_for_stage(to_stage)
+        if first_micro:
+            project.current_micro_phase = first_micro
         project.updated_at = datetime.now(timezone.utc)
+
+        # Write MicroPhaseHistory for correct duration tracking (P0-6)
+        if first_micro and old_micro_phase != first_micro:
+            from app.db.models.micro_phase_history import MicroPhaseHistory
+            mph = MicroPhaseHistory(
+                project_id=project_id,
+                from_micro_phase=old_micro_phase,
+                to_micro_phase=first_micro,
+                transition_type="stage_advance",
+                triggered_by=str(triggered_by),
+            )
+            self.session.add(mph)
+
         await self.session.commit()
 
-        # Broadcast
+        # Broadcast stage change
         event = StageChangedEvent(
             project_id=project_id,
             from_stage=current,
@@ -109,11 +143,23 @@ class StageService:
         )
         await event_bus.publish(event)
 
+        # Broadcast micro_phase change (P0-7)
+        if first_micro and old_micro_phase != first_micro:
+            await event_bus.publish(MicroPhaseChangedEvent(
+                project_id=project_id,
+                from_micro_phase=old_micro_phase,
+                to_micro_phase=first_micro,
+                transition_type="stage_advance",
+                triggered_by=str(triggered_by),
+            ))
+
         logger.info(
-            "Project %s advanced stage %s → %s by %s",
+            "Project %s advanced stage %s → %s (micro_phase %s → %s) by %s",
             project_id,
             current,
             to_stage,
+            old_micro_phase,
+            first_micro,
             triggered_by,
         )
         return AdvanceStageResponse(
@@ -132,6 +178,114 @@ class StageService:
                 to_stage=r.to_stage,
                 triggered_by=r.triggered_by,
                 canvas_snapshot=r.canvas_snapshot,
+                duration_seconds=r.duration_seconds,
+                created_at=r.created_at,
+            )
+            for r in records
+        ]
+
+    async def advance_micro_phase(
+        self,
+        project_id: UUID,
+        from_phase: str,
+        to_phase: str,
+        triggered_by: str,
+        reason: str | None = None,
+    ) -> AdvanceMicroPhaseResponse:
+        """Advance or backtrack the micro phase; supervisor only."""
+        project = await self._get_project_or_404(project_id)
+
+        if project.current_micro_phase != from_phase:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"from_phase '{from_phase}' does not match "
+                    f"current micro phase '{project.current_micro_phase}'"
+                ),
+            )
+
+        backtrack = is_backtrack(from_phase, to_phase)
+
+        if backtrack:
+            valid = validate_backtrack(from_phase, to_phase)
+        else:
+            valid = validate_advance(from_phase, to_phase)
+
+        if not valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid micro phase transition: '{from_phase}' → '{to_phase}'",
+            )
+
+        transition_type = "backtrack" if backtrack else "advance"
+
+        duration_seconds = await self._compute_micro_phase_duration(project_id, project.created_at)
+
+        project.current_micro_phase = to_phase
+        project.updated_at = datetime.now(timezone.utc)
+
+        macro_boundary = is_macro_boundary(from_phase, to_phase)
+        old_macro_stage = project.current_stage
+        if macro_boundary:
+            project.current_stage = get_macro_stage(to_phase)
+
+        await self.micro_repo.create(
+            project_id=project_id,
+            from_micro_phase=from_phase,
+            to_micro_phase=to_phase,
+            transition_type=transition_type,
+            triggered_by=triggered_by,
+            reason=reason,
+            duration_seconds=duration_seconds,
+        )
+
+        await self.session.commit()
+
+        micro_event = MicroPhaseChangedEvent(
+            project_id=project_id,
+            from_phase=from_phase,
+            to_phase=to_phase,
+            transition_type=transition_type,
+            triggered_by=triggered_by,
+        )
+        await event_bus.publish(micro_event)
+
+        if macro_boundary:
+            stage_event = StageChangedEvent(
+                project_id=project_id,
+                from_stage=old_macro_stage,
+                to=project.current_stage,
+                triggered_by=triggered_by,
+            )
+            await event_bus.publish(stage_event)
+
+        logger.info(
+            "Project %s micro phase %s → %s (%s) by %s",
+            project_id,
+            from_phase,
+            to_phase,
+            transition_type,
+            triggered_by,
+        )
+        return AdvanceMicroPhaseResponse(
+            current_micro_phase=to_phase,
+            is_backtrack=backtrack,
+        )
+
+    async def list_micro_phase_history(
+        self, project_id: UUID
+    ) -> list[MicroPhaseHistoryResponse]:
+        await self._get_project_or_404(project_id)
+        records = await self.micro_repo.list_by_project(project_id)
+        return [
+            MicroPhaseHistoryResponse(
+                id=r.id,
+                project_id=r.project_id,
+                from_micro_phase=r.from_micro_phase,
+                to_micro_phase=r.to_micro_phase,
+                transition_type=r.transition_type,
+                triggered_by=r.triggered_by,
+                reason=r.reason,
                 duration_seconds=r.duration_seconds,
                 created_at=r.created_at,
             )
@@ -189,4 +343,27 @@ class StageService:
             return int(delta.total_seconds())
         except Exception as exc:
             logger.warning("Could not compute stage duration: %s", exc)
+            return None
+
+    async def _compute_micro_phase_duration(
+        self, project_id: UUID, project_created_at: datetime
+    ) -> int | None:
+        """Compute seconds spent in current micro phase."""
+        from app.db.models.micro_phase_history import MicroPhaseHistory
+
+        try:
+            result = await self.session.execute(
+                select(MicroPhaseHistory)
+                .where(MicroPhaseHistory.project_id == project_id)
+                .order_by(MicroPhaseHistory.created_at.desc())
+                .limit(1)
+            )
+            last_entry = result.scalar_one_or_none()
+            reference = last_entry.created_at if last_entry else project_created_at
+            if reference.tzinfo is None:
+                reference = reference.replace(tzinfo=timezone.utc)
+            delta = datetime.now(timezone.utc) - reference
+            return int(delta.total_seconds())
+        except Exception as exc:
+            logger.warning("Could not compute micro phase duration: %s", exc)
             return None

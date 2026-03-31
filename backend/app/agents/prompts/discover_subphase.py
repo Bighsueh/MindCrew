@@ -1,4 +1,10 @@
-"""Discover sub-phase logic and Supervisor-specific prompts.
+"""DEPRECATED: Replaced by the 12 Micro Phase system in v2.0.
+
+See micro_phase_prompts.py for the replacement.
+Kept for backward compatibility — assembler.py falls back to this when current_micro_phase is not set.
+
+Original description:
+Discover sub-phase logic and Supervisor-specific prompts.
 
 Implements Kaner's Diamond of Participation model:
 - EARLY: Opening / warm-up — Supervisor actively kickstarts divergence
@@ -66,7 +72,12 @@ DISCOVER_SUPERVISOR_SUBPHASE_PROMPTS: dict[DiscoverSubPhase, str] = {
     DiscoverSubPhase.EARLY: (
         "目前是發散階段的前期暖身。你應該：\n"
         "- 主動提出開放性問題來啟動討論（例如：「大家想想看，使用者在什麼情境下會遇到這個問題？」）\n"
-        "- 鼓勵每位成員發言，特別是還沒開口的人（「XX 你怎麼看？」）\n"
+        "- 開場時為每位成員指派不同的思考角度：\n"
+        "  用 set_directive 的 respond_to 依序點名：\n"
+        "  「crew_1，請從顧客的情感體驗出發」\n"
+        "  「crew_4，請從賣場工作人員的角度想想」\n"
+        "  「crew_3，請想想特殊情境或邊緣使用者」\n"
+        "  「crew_2，請觀察大家的分享中有什麼模式或矛盾」\n"
         "- 用「還有呢？」「其他面向呢？」追問來拓展思考方向\n"
         "- 此階段你可以更頻繁地發言來帶動氣氛\n"
         "你不應該：下結論、批評想法、歸納分群。"

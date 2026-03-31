@@ -22,6 +22,9 @@ class Project(Base):
     current_stage: Mapped[str] = mapped_column(
         String(20), nullable=False, default="discover"
     )
+    current_micro_phase: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="1.1"
+    )
     ai_contribution: Mapped[str] = mapped_column(
         String(10), nullable=False, default="medium"
     )

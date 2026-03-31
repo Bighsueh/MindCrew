@@ -1,4 +1,4 @@
-import type { DTStage } from '../../types/models'
+import type { DTStage, MicroPhaseId } from '../../types/models'
 import { cn } from '../../lib/utils'
 
 const PHASES: { key: Exclude<DTStage, 'completed'>; label: string; type: 'diverge' | 'converge' }[] = [
@@ -12,12 +12,27 @@ const PHASE_ORDER: Record<string, number> = {
   discover: 0, define: 1, develop: 2, deliver: 3, completed: 4,
 }
 
+const MICRO_PHASE_ORDER: MicroPhaseId[] = [
+  "1.1", "1.2", "1.3",
+  "2.1", "2.2", "2.3",
+  "3.1", "3.2", "3.3",
+  "4.1", "4.2", "4.3",
+]
+
+const MACRO_TO_MICRO: Record<string, [MicroPhaseId, MicroPhaseId, MicroPhaseId]> = {
+  discover: ["1.1", "1.2", "1.3"],
+  define:   ["2.1", "2.2", "2.3"],
+  develop:  ["3.1", "3.2", "3.3"],
+  deliver:  ["4.1", "4.2", "4.3"],
+}
+
 interface DoubleDiamondProgressProps {
   currentStage: DTStage
+  currentMicroPhase?: MicroPhaseId
   onPhaseClick?: (stage: DTStage) => void
 }
 
-export function DoubleDiamondProgress({ currentStage, onPhaseClick }: DoubleDiamondProgressProps) {
+export function DoubleDiamondProgress({ currentStage, currentMicroPhase, onPhaseClick }: DoubleDiamondProgressProps) {
   const currentIdx = PHASE_ORDER[currentStage] ?? 0
   const isAllCompleted = currentStage === 'completed'
 
@@ -53,6 +68,27 @@ export function DoubleDiamondProgress({ currentStage, onPhaseClick }: DoubleDiam
             <span className="hidden text-xs opacity-60 lg:inline">
               {phase.type === 'diverge' ? '◇' : '◆'}
             </span>
+            {currentMicroPhase && (
+              <div className="flex gap-1 mt-1">
+                {MACRO_TO_MICRO[phase.key]?.map((mp) => {
+                  const microIdx = MICRO_PHASE_ORDER.indexOf(mp)
+                  const currentIdx = MICRO_PHASE_ORDER.indexOf(currentMicroPhase)
+                  const isMicroCompleted = microIdx < currentIdx
+                  const isMicroCurrent = mp === currentMicroPhase
+                  return (
+                    <div
+                      key={mp}
+                      className={cn(
+                        "w-1.5 h-1.5 rounded-full transition-all",
+                        isMicroCompleted && "bg-accent",
+                        isMicroCurrent && "bg-accent animate-pulse",
+                        !isMicroCompleted && !isMicroCurrent && "bg-secondary/40",
+                      )}
+                    />
+                  )
+                })}
+              </div>
+            )}
           </button>
         )
       })}

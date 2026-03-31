@@ -9,22 +9,28 @@ from app.agents.prompts.assembler import PromptAssembler
 from app.chinese.converter import chinese_converter
 from app.config import settings
 from app.llm.factory import LLMProviderFactory
+from app.llm.json_utils import parse_llm_json
 
 logger = logging.getLogger(__name__)
 
 _VALID_ACTION_TYPES = {
     "chat_message",
-    "add_note",
+    "create_note",
     "move_note",
     "edit_note",
     "delete_note",
-    "group_notes",
+    "arrange_notes",
+    "swap_notes",
+    "tidy_area",
     "set_directive",
     "no_action",
 }
 
 # Text fields that must be converted to Traditional Chinese
-_TEXT_FIELDS = {"content", "new_content", "group_name", "reason", "instruction", "focus_topic"}
+_TEXT_FIELDS = {
+    "content", "new_content", "group_name", "reason",
+    "instruction", "focus_topic", "text", "label",
+}
 
 
 @dataclass
@@ -53,19 +59,12 @@ def _parse_llm_response(raw: str) -> tuple[str, list[dict], bool]:
     """Parse the LLM JSON response.
 
     Returns (reasoning, actions, parse_failed).
+    Uses robust JSON parsing with regex fallback and truncation repair.
     On any failure, returns a no_action fallback.
     """
-    raw = raw.strip()
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        lines = raw.splitlines()
-        inner = [l for l in lines if not l.startswith("```")]
-        raw = "\n".join(inner).strip()
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        logger.warning("LLM response JSON parse failed: %s | raw=%r", exc, raw[:200])
+    data = parse_llm_json(raw)
+    if data is None:
+        logger.warning("LLM response JSON parse failed | raw=%r", raw[:300])
         return "", [{"type": "no_action", "reason": "JSON 解析失敗"}], True
 
     reasoning = data.get("reasoning", "")

@@ -103,26 +103,24 @@ async def advance_stage(
 
             now = datetime.now(timezone.utc)
 
-            await session.execute(
-                update(StageHistory)
-                .where(
-                    StageHistory.project_id == project_id,
-                    StageHistory.stage == current_stage,
-                    StageHistory.ended_at.is_(None),
-                )
-                .values(ended_at=now)
-            )
+            # 同步更新 current_micro_phase（修復 macro boundary crossing bug — Phase 13）
+            from app.stages.micro_phases import get_first_micro_phase_for_stage
+            first_micro = get_first_micro_phase_for_stage(next_stage)
+            update_values: dict = {"current_stage": next_stage, "updated_at": now}
+            if first_micro:
+                update_values["current_micro_phase"] = first_micro
 
             await session.execute(
                 update(Project)
                 .where(Project.id == project_id)
-                .values(current_stage=next_stage, updated_at=now)
+                .values(**update_values)
             )
 
             sh = StageHistory(
                 project_id=project_id,
-                stage=next_stage,
-                started_at=now,
+                from_stage=current_stage,
+                to_stage=next_stage,
+                triggered_by="ai_evaluator",
             )
             session.add(sh)
             await session.commit()
@@ -151,3 +149,100 @@ async def advance_stage(
     except Exception as exc:
         logger.error("Failed to advance stage: %s", exc)
         return "advance_failed"
+
+
+async def advance_micro_phase(
+    project_id: UUID,
+    agent_id: str,
+    from_phase: str,
+    to_phase: str,
+) -> str:
+    """Advance micro phase via direct DB update (within same macro stage).
+
+    Returns the new micro phase ID prefixed with 'micro_advanced_to_'.
+    """
+    try:
+        async with async_session_factory() as session:
+            from sqlalchemy import update
+            from app.db.models.project import Project
+            from app.db.models.micro_phase_history import MicroPhaseHistory  # type: ignore[attr-defined]
+
+            now = datetime.now(timezone.utc)
+
+            await session.execute(
+                update(Project)
+                .where(Project.id == project_id)
+                .values(current_micro_phase=to_phase, updated_at=now)
+            )
+
+            mp_hist = MicroPhaseHistory(
+                project_id=project_id,
+                from_micro_phase=from_phase,
+                to_micro_phase=to_phase,
+                transition_type="advance",
+                triggered_by=agent_id,
+            )
+            session.add(mp_hist)
+            await session.commit()
+
+            # Publish event INSIDE the try block right after commit
+            # to prevent split-transaction (DB committed but event not sent)
+            from app.events.types import MicroPhaseChangedEvent
+            from app.events.bus import event_bus
+
+            event = MicroPhaseChangedEvent(
+                project_id=project_id,
+                from_phase=from_phase,
+                to_phase=to_phase,
+                transition_type="advance",
+                triggered_by=agent_id,
+            )
+            await event_bus.publish(event)
+
+        # Announce transition via chat (best-effort, outside DB session)
+        try:
+            from app.stages.micro_phases import get_micro_phase
+            from app.events.types import ChatMessageEvent
+            from app.events.bus import event_bus as _eb
+            from app.chinese.converter import chinese_converter
+
+            try:
+                mp = get_micro_phase(to_phase)
+                phase_name = mp.name_zh
+            except KeyError:
+                phase_name = to_phase
+
+            announcement = chinese_converter.convert(
+                f"我們已完成上一步驟，現在進入「{phase_name}」（{to_phase}）階段。"
+            )
+            chat_event = ChatMessageEvent(
+                project_id=project_id,
+                sender_id=agent_id,
+                sender_type="ai",
+                sender_name="Supervisor",
+                content=announcement,
+            )
+            await _eb.publish(chat_event)
+        except Exception as exc:
+            logger.warning("Failed to announce micro phase transition: %s", exc)
+
+        # Auto-tidy on convergence phase transitions (Phase 14: uses tidy_area)
+        _AUTO_TIDY_PHASES: set[str] = {"1.3", "3.2"}
+        if to_phase in _AUTO_TIDY_PHASES:
+            try:
+                from app.canvas.tools_manipulation import tool_tidy_area
+                await tool_tidy_area(project_id, scope="all", strategy="align_grid")
+                logger.info("Auto-tidy applied for phase %s", to_phase)
+            except Exception as exc:
+                logger.warning("Auto-tidy failed for phase %s: %s", to_phase, exc)
+
+        logger.info(
+            "Project %s micro phase advanced: %s → %s",
+            project_id,
+            from_phase,
+            to_phase,
+        )
+        return f"micro_advanced_to_{to_phase}"
+    except Exception as exc:
+        logger.error("Failed to advance micro phase: %s", exc)
+        return "micro_advance_failed"
