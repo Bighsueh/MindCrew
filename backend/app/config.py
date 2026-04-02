@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # Embedding (Qwen3-Embedding-8B)
     EMBEDDING_BASE_URL: str = "https://embedding.example.com/v1"
     EMBEDDING_MODEL: str = "Qwen/Qwen3-Embedding-8B"
-    EMBEDDING_API_KEY: str = "REDACTED"
+    EMBEDDING_API_KEY: str = "dummy"
 
     # Yjs Sidecar
     SIDECAR_URL: str = "http://localhost:4000"
