@@ -100,6 +100,7 @@ async def get_canvas_snapshot(project_id: UUID) -> dict[str, Any]:
             "text_length": len(n.text),
             "color": n.color,
             "author_type": n.author_type,
+            "author_name": n.author_name,
             "region": assign_region(n.cx, n.cy),
             "grid_position": list(grid_pos),
             "cluster_id": cluster_map.get(n.id),

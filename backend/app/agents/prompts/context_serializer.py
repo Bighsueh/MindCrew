@@ -193,7 +193,8 @@ def _append_canvas_state(parts: list[str], context: dict) -> None:
             parts.append("未分群便條紙：\n" + "\n".join(ug_lines))
 
         # Full notes list (only in snapshot mode)
-        full_notes = canvas.get("notes", [])
+        # Prefer spatial_notes (Phase 14 format) over notes (legacy format)
+        full_notes = canvas.get("spatial_notes", canvas.get("notes", []))
         if full_notes:
             note_lines = [
                 f"  - [{n.get('id', '?')}] {n.get('text', '')}"

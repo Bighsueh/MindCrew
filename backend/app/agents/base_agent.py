@@ -197,12 +197,18 @@ class BaseAgent:
 
     def _compute_proactive_cooldown(self, context: dict) -> float:
         """Dynamic cooldown based on conversation state."""
-        base = 30.0 if self._is_supervisor else 40.0
-
-        # All-AI mode: no humans to protect, reduce cooldown significantly
-        is_all_ai = all(s.get("type") == "ai" for s in context.get("seats", []))
-        if is_all_ai:
-            base *= 0.4
+        seats = context.get("seats", [])
+        is_all_ai = all(s.get("type") == "ai" for s in seats)
+        # Check if humans are actively chatting (not just occupying a seat)
+        recent_chat = context.get("recent_chat", [])
+        human_active = any(m.get("sender_type") == "human" for m in recent_chat[-10:])
+        if is_all_ai or not human_active:
+            # All-AI mode OR human present but silent: equal footing, short cooldown
+            base = 25.0
+            base *= 0.3
+        else:
+            # Human actively participating: longer cooldown to give them space
+            base = 30.0 if self._is_supervisor else 40.0
 
         # New thread starting → halve cooldown
         active_thread = context.get("active_thread")
@@ -302,6 +308,10 @@ class BaseAgent:
 
         if assess_result.decision in ("wait", "observe"):
             return
+
+        # Rule X: inject force-organize flag so LLM prioritizes canvas tools
+        if assess_result.rule == "rule_x_canvas_untidy":
+            context["_force_canvas_organize"] = True
 
         # Round gate: supervisor 首次 INTERVENE 即開門，不需等 action 完成
         if self._is_supervisor and not self._first_action_done:

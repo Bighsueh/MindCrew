@@ -35,6 +35,135 @@ _CHAT_LIMIT = 30
 _SEAT_LIMIT = 5
 
 
+def _normalize_canvas(snapshot: dict, micro_phase: str | None = None) -> dict:
+    """Convert Phase 14 spatial-aware snapshot to a unified dict.
+
+    Produces a superset containing BOTH Phase 14 keys (summary, clusters,
+    ungrouped_notes, organization_hint) AND legacy keys (total_notes,
+    notes, groups, ungrouped) for backward compatibility with scoring functions.
+    """
+    summary = snapshot.get("summary")
+    if not summary:
+        return snapshot  # Already legacy format
+
+    result = dict(snapshot)
+
+    # Legacy: total_notes at top level
+    result["total_notes"] = summary.get("total_notes", 0)
+
+    # Legacy: notes[] with id/content/author/color/created_at
+    spatial_notes = snapshot.get("notes", [])
+    result["spatial_notes"] = spatial_notes  # Preserve Phase 14 format
+    legacy_notes = []
+    for n in spatial_notes:
+        legacy_notes.append({
+            "id": n.get("id", ""),
+            "content": n.get("text", ""),
+            "author": n.get("author_name", ""),
+            "color": n.get("color", ""),
+            "created_at": n.get("created_at", ""),
+        })
+    result["notes"] = legacy_notes
+
+    # Legacy: groups[] from clusters (semantic clusters as group proxy)
+    clusters = snapshot.get("clusters", [])
+    cluster_note_map: dict[str, list[str]] = {}
+    for n in spatial_notes:
+        cid = n.get("cluster_id")
+        if cid:
+            cluster_note_map.setdefault(cid, []).append(n.get("id", ""))
+    legacy_groups = []
+    for c in clusters:
+        cid = c.get("cluster_id", "")
+        legacy_groups.append({
+            "name": c.get("suggested_label", cid),
+            "notes": cluster_note_map.get(cid, []),
+        })
+    result["groups"] = legacy_groups
+
+    # Legacy: ungrouped as flat ID list
+    ungrouped_notes = snapshot.get("ungrouped_notes", [])
+    result["ungrouped"] = [
+        u.get("id", "") if isinstance(u, dict) else u
+        for u in ungrouped_notes
+    ]
+
+    # Inject organization_hint from summary if not already present
+    if "organization_hint" not in result:
+        from app.canvas.tools_perception import _generate_organization_hint
+        from app.canvas.analyzer import CanvasAnalysis
+        # Hint is already in snapshot from get_canvas_snapshot → get_canvas_summary
+        pass
+
+    return result
+
+
+async def get_evaluator_canvas(project_id: UUID, micro_phase: str | None = None) -> dict:
+    """Lean canvas state for evaluator -- summary + legacy notes.
+
+    Uses get_canvas_summary (~400 tokens) for Phase 14 keys (summary, clusters),
+    plus legacy sidecar for full notes list (notes, groups, ungrouped).
+    Much lighter than get_canvas_snapshot (~3600 tokens).
+    """
+    result: dict = {}
+
+    # Phase 14 summary (lightweight)
+    try:
+        from app.canvas.tools_perception import get_canvas_summary
+        summary_data = await get_canvas_summary(project_id, micro_phase=micro_phase)
+        result.update(summary_data)
+    except Exception:
+        pass
+
+    # Legacy sidecar for notes/groups/ungrouped
+    try:
+        from app.bridge.canvas_ops import canvas_ops
+        legacy = await canvas_ops.get_canvas_state(project_id)
+        result["total_notes"] = legacy.get("total_notes", 0)
+        result["notes"] = legacy.get("notes", [])
+        result["ungrouped"] = legacy.get("ungrouped", [])
+
+        # Groups: use tldraw groups if available, otherwise use semantic clusters
+        tldraw_groups = legacy.get("groups", [])
+        if tldraw_groups:
+            result["groups"] = tldraw_groups
+        else:
+            # All-AI mode: agents don't create tldraw groups.
+            # Use semantic clusters as group proxy for scoring functions.
+            clusters = result.get("clusters", [])
+            notes_list = legacy.get("notes", [])
+            result["groups"] = _clusters_to_groups(clusters, notes_list)
+    except Exception:
+        result.setdefault("total_notes", result.get("summary", {}).get("total_notes", 0))
+        result.setdefault("notes", [])
+        result.setdefault("groups", [])
+        result.setdefault("ungrouped", [])
+
+    return result
+
+
+def _clusters_to_groups(clusters: list[dict], notes: list[dict]) -> list[dict]:
+    """Convert Phase 14 semantic clusters to legacy group format for scoring."""
+    if not clusters:
+        return []
+    # Build note_id → note mapping for cluster membership
+    notes_by_id = {n.get("id", ""): n for n in notes if isinstance(n, dict)}
+    groups = []
+    for c in clusters:
+        cid = c.get("cluster_id", "")
+        label = c.get("suggested_label", cid)
+        # Get note_ids from notes that belong to this cluster
+        # (cluster summary doesn't have note_ids, but notes have cluster_id in spatial format)
+        # Fallback: use note_count to estimate
+        note_ids = c.get("note_ids", [])
+        groups.append({
+            "name": label,
+            "notes": note_ids,
+            "note_count": c.get("note_count", len(note_ids)),
+        })
+    return groups
+
+
 class ContextBuffer:
     """Collect and serve recent events for a single agent in a project.
 
@@ -324,11 +453,16 @@ class ContextBuffer:
     async def _load_canvas_perception(self, micro_phase: str | None = None) -> dict:
         """Load canvas state with spatial-aware perception (Phase 14).
 
+        Returns a unified dict containing BOTH Phase 14 keys (summary, clusters,
+        organization_hint) AND legacy keys (total_notes, notes, groups, ungrouped)
+        so all downstream consumers work without modification.
+
         Falls back to legacy sidecar state if SpatialAnalyzer fails.
         """
         try:
-            from app.canvas.tools_perception import get_canvas_summary
-            return await get_canvas_summary(self._project_id, micro_phase=micro_phase)
+            from app.canvas.tools_perception import get_canvas_snapshot
+            snapshot = await get_canvas_snapshot(self._project_id)
+            return _normalize_canvas(snapshot, micro_phase)
         except Exception as exc:
             logger.debug("Spatial perception failed, falling back to legacy: %s", exc)
 
@@ -359,13 +493,14 @@ class ContextBuffer:
             rows = await session.execute(
                 select(Message)
                 .where(Message.project_id == self._project_id)
-                .order_by(Message.created_at.desc())
+                .order_by(Message.created_at.desc(), Message.id.desc())
                 .limit(_CHAT_LIMIT)
             )
             messages = rows.scalars().all()
         return [
             {
                 "sender": f"{m.sender_name}({'ai' if m.sender_type == 'ai' else 'human'})",
+                "sender_id": m.sender_id or "",
                 "sender_type": m.sender_type,
                 "content": m.content,
                 "time": m.created_at.strftime("%H:%M:%S") if m.created_at else "",

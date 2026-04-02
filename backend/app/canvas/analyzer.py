@@ -34,10 +34,13 @@ logger = logging.getLogger(__name__)
 
 # Cache TTL for semantic layer (embeddings + clusters + labels)
 SEMANTIC_CACHE_TTL = 60  # seconds
+# Cache TTL for spatial layer (sidecar canvas-state/full)
+_FULL_STATE_CACHE_TTL = 3  # seconds
 
 # Redis key patterns
 _SEMANTIC_KEY = "canvas:{project_id}:semantic"
 _PREV_CLUSTER_KEY = "canvas:{project_id}:prev_clusters"
+_FULL_STATE_KEY = "canvas:{project_id}:full_state"
 
 
 @dataclass
@@ -62,9 +65,23 @@ class SpatialAnalyzer:
         self._embedding_client = get_embedding_client()
 
     async def get_full_state(self, project_id: UUID) -> list[SpatialNote]:
-        """Fetch full geometry from sidecar canvas-state/full endpoint."""
-        import httpx
+        """Fetch full geometry with 3s Redis cache to reduce sidecar load."""
+        cache_key = _FULL_STATE_KEY.format(project_id=project_id)
 
+        # Try cache first
+        try:
+            r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+            try:
+                cached = await r.get(cache_key)
+                if cached:
+                    return self._deserialize_notes(json.loads(cached))
+            finally:
+                await r.aclose()
+        except Exception:
+            pass  # Cache miss or Redis down — fetch from sidecar
+
+        # Fetch from sidecar
+        import httpx
         url = f"{settings.SIDECAR_URL}/api/projects/{project_id}/canvas-state/full"
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -77,6 +94,21 @@ class SpatialAnalyzer:
             logger.exception("Failed to fetch canvas-state/full from sidecar")
             return []
 
+        # Write to cache (best-effort)
+        try:
+            r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+            try:
+                await r.setex(cache_key, _FULL_STATE_CACHE_TTL, json.dumps(shapes))
+            finally:
+                await r.aclose()
+        except Exception:
+            pass
+
+        return self._deserialize_notes(shapes)
+
+    @staticmethod
+    def _deserialize_notes(shapes: list[dict]) -> list[SpatialNote]:
+        """Convert raw sidecar shapes to SpatialNote objects."""
         return [
             SpatialNote(
                 id=s["id"],
@@ -87,11 +119,23 @@ class SpatialAnalyzer:
                 height=s.get("height", 150),
                 color=s.get("color", "yellow"),
                 author_type="human" if "human" in s.get("author", "") else "ai",
+                author_name=s.get("author", ""),
                 created_at=s.get("createdAt", ""),
                 group_id=s.get("groupId"),
             )
             for s in shapes
         ]
+
+    async def invalidate_full_state_cache(self, project_id: UUID) -> None:
+        """Delete spatial cache so next get_full_state fetches fresh data."""
+        try:
+            r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+            try:
+                await r.delete(_FULL_STATE_KEY.format(project_id=project_id))
+            finally:
+                await r.aclose()
+        except Exception:
+            pass
 
     async def analyze(self, project_id: UUID) -> CanvasAnalysis:
         """Main analysis entry point. Uses Redis cache for semantic layer."""

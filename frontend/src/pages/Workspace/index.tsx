@@ -160,6 +160,7 @@ export function WorkspacePage() {
   const myCurrentSeat = seats.find(
     (s) => s.occupant_type === 'human' && s.user_id === user?.id,
   )
+  const isObserver = !myCurrentSeat
   const isSupervisor = myCurrentSeat?.seat_role === 'supervisor'
   const nextStage = NEXT_STAGE[currentStage]
 
@@ -281,7 +282,7 @@ export function WorkspacePage() {
               className="absolute left-0 top-0 bottom-0 z-10 w-1.5 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors"
               onMouseDown={handleResizeStart}
             />
-            <ChatPanel projectId={id!} sendWS={sendWS} onClose={() => setChatOpen(false)} />
+            <ChatPanel projectId={id!} sendWS={sendWS} disabled={isObserver} onClose={() => setChatOpen(false)} />
           </div>
 
           {/* Toggle button: visible when chat is collapsed */}

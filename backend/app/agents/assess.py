@@ -73,8 +73,15 @@ class AssessEngine:
         if comm_strategy == "one_by_one" and not is_supervisor:
             last_sender_is_supervisor = False
             if recent_chat:
-                last_sender = recent_chat[-1].get("sender", "")
-                last_sender_is_supervisor = "supervisor" in last_sender.lower()
+                last_msg = recent_chat[-1]
+                # Check sender_id (e.g. "agent_supervisor") or sender field
+                sender_id = last_msg.get("sender_id", "")
+                sender_field = last_msg.get("sender", "")
+                last_sender_is_supervisor = (
+                    "supervisor" in sender_id.lower()
+                    or "supervisor" in sender_field.lower()
+                    or "引導者" in sender_field
+                )
             am_mentioned = self._is_mentioned(recent_chat, agent_id, my_seat)
             if not last_sender_is_supervisor and not am_mentioned:
                 return AssessResult(
@@ -142,9 +149,14 @@ class AssessEngine:
 
         # Rule 4.5: Consecutive AI message limit (spec §5.2, §6)
         seats: list[dict] = context.get("seats", [])
-        has_humans = any(s.get("type") == "human" for s in seats)
+        has_human_seat = any(s.get("type") == "human" for s in seats)
+        # Check if humans are actively chatting (not just sitting)
+        human_chatted = any(
+            m.get("sender_type") == "human" for m in recent_chat[-10:]
+        ) if recent_chat else False
         consecutive_ai = self._count_trailing_ai_messages(recent_chat)
-        if has_humans:
+        if has_human_seat and human_chatted:
+            # Humans are actively participating — respect strict limits
             ai_limit = 5 if is_supervisor else 3
             if consecutive_ai >= ai_limit:
                 return AssessResult(
@@ -156,18 +168,15 @@ class AssessEngine:
                     },
                 )
         else:
+            # All-AI mode (or human seated but not chatting, or observer-only)
+            # Only limit per-agent spam — do NOT permanently block all agents.
+            # The proactive cooldown budget (Solution C) already rate-limits overall.
             same_agent_consecutive = self._count_trailing_same_agent(recent_chat, my_seat)
             if same_agent_consecutive >= 4:
                 return AssessResult(
                     decision="wait",
                     rule="rule_4_5_same_agent_limit",
                     details={"reason": "同一 agent 連續 4 則，讓其他成員發言"},
-                )
-            if consecutive_ai >= 15:
-                return AssessResult(
-                    decision="wait",
-                    rule="rule_4_5_all_ai_limit",
-                    details={"reason": "全 AI 模式連續 15 則，暫停一輪"},
                 )
 
         # Rule X: Canvas orderliness trigger (Phase 14, enhanced Phase 15)
@@ -354,7 +363,11 @@ class AssessEngine:
             elif role_status == "protagonist":
                 prob = min(1.0, prob * 1.4)
             elif turn_count >= 6:
-                prob *= 0.5
+                # Softer decay when human is silent or absent, to keep crew active
+                human_chatting_r7 = any(
+                    m.get("sender_type") == "human" for m in recent_chat[-10:]
+                )
+                prob *= 0.5 if human_chatting_r7 else 0.7
             else:
                 prob *= 0.7
         else:
@@ -382,6 +395,15 @@ class AssessEngine:
     # Private helpers
     # ------------------------------------------------------------------
 
+    # Display name mapping for mention detection
+    _DISPLAY_NAMES: dict[str, str] = {
+        "supervisor": "ai 引導者",
+        "crew_1": "ai 同理心專家",
+        "crew_2": "ai 結構化專家",
+        "crew_3": "ai 創意專家",
+        "crew_4": "ai 可行性專家",
+    }
+
     def _is_mentioned(
         self, recent_chat: list[dict], agent_id: str, seat_role: str,
     ) -> bool:
@@ -390,7 +412,15 @@ class AssessEngine:
             return False
         last_msg = recent_chat[-1]
         content: str = last_msg.get("content", "").lower()
-        targets = [f"@{agent_id.lower()}", f"@{seat_role.lower()}", seat_role.lower()]
+        targets = [
+            f"@{agent_id.lower()}",
+            f"@{seat_role.lower()}",
+            seat_role.lower(),
+        ]
+        # Also match display name (e.g. "AI 同理心專家")
+        display_name = self._DISPLAY_NAMES.get(seat_role, "")
+        if display_name:
+            targets.append(display_name)
         return any(t in content for t in targets if t.strip("@"))
 
     def _human_typing_recently(self, context: dict) -> bool:

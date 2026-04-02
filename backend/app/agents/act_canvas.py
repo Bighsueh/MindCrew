@@ -47,6 +47,10 @@ async def execute_canvas_tool(
     # Update idle timestamp for Rule 5
     await _update_last_event_ts(project_id)
 
+    # Invalidate spatial cache so next perception cycle sees fresh data
+    from app.canvas.analyzer import get_spatial_analyzer
+    await get_spatial_analyzer().invalidate_full_state_cache(project_id)
+
     if op_type == "create_note":
         text = _cn(action.get("text", action.get("content", "")))
         color = action.get("color", "yellow")

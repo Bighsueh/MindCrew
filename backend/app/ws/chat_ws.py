@@ -169,7 +169,10 @@ async def chat_websocket(ws: WebSocket, project_id: UUID) -> None:
                         continue
                     msg = await _save_message(session, project, user, content)
                     await session.commit()
-                    timestamp = msg.created_at.isoformat()
+                    created_at = msg.created_at
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                    timestamp = created_at.isoformat()
 
                 event = ChatMessageEvent(
                     project_id=project_id,

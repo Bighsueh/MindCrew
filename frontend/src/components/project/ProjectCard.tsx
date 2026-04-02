@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Users, Bot, MoreVertical, Trash2, Clock } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { formatRelativeTime } from '../../utils/formatters'
 import type { ProjectListItem, DTStage } from '../../types/models'
 
 interface ProjectCardProps {
@@ -44,21 +45,6 @@ const STAGE_TAG_COLORS: Record<DTStage, string> = {
   completed: 'bg-success/10 text-success',
 }
 
-function formatRelativeTime(dateStr: string): string {
-  const now = Date.now()
-  const then = new Date(dateStr).getTime()
-  const diffMs = now - then
-  const diffMin = Math.floor(diffMs / 60_000)
-
-  if (diffMin < 1) return '剛剛'
-  if (diffMin < 60) return `${diffMin} 分鐘前`
-  const diffHr = Math.floor(diffMin / 60)
-  if (diffHr < 24) return `${diffHr} 小時前`
-  const diffDay = Math.floor(diffHr / 24)
-  if (diffDay < 30) return `${diffDay} 天前`
-  const diffMonth = Math.floor(diffDay / 30)
-  return `${diffMonth} 個月前`
-}
 
 function StageProgressBar({ currentStage }: { currentStage: DTStage }) {
   const currentIdx = currentStage === 'completed'

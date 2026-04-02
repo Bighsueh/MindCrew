@@ -7,6 +7,7 @@ engine = create_async_engine(
     pool_size=20,
     max_overflow=30,
     pool_pre_ping=True,
+    connect_args={"server_settings": {"timezone": "UTC"}},
 )
 
 async_session_factory = async_sessionmaker(

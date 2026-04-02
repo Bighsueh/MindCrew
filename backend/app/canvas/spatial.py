@@ -58,6 +58,7 @@ class SpatialNote:
     author_type: str  # "human" | "ai"
     created_at: str
     group_id: str | None = None
+    author_name: str = ""
 
     @property
     def cx(self) -> float:

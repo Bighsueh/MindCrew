@@ -239,12 +239,29 @@ class PromptAssembler:
 
         system_message = "\n\n".join(system_parts)
 
+        # Interpolate crew name placeholders with actual display names
+        from app.agents.prompts.interpolation import interpolate_crew_names
+        seats = context.get("seats", [])
+        system_message = interpolate_crew_names(system_message, seats)
+
         # Layer 4 — context buffer as user message
         context_description = build_context_description(context)
         user_message = (
             f"以下是目前的工作坊狀態，請根據這些資訊決定你的下一步行動：\n\n"
             f"{context_description}"
         )
+
+        # Force canvas organization when Rule X triggers (Phase 15)
+        if context.get("_force_canvas_organize"):
+            user_message = (
+                "⚠️ 系統偵測到白板凌亂度過高，你必須優先執行白板整理。\n"
+                "請依照以下步驟行動：\n"
+                "1. 先發一條 chat_message 告知團隊你要整理白板\n"
+                "2. 執行 tidy_area(scope=\"all\", strategy=\"align_grid\") 消除重疊\n"
+                "3. 如果有未分群的便條紙，執行 arrange_notes 分群\n"
+                "禁止只發 chat_message 而不執行整理工具。\n\n"
+                + user_message
+            )
 
         return [
             {"role": "system", "content": system_message},

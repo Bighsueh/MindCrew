@@ -8,8 +8,15 @@ interface ChatMessageProps {
   seatRole?: SeatRole
 }
 
+function parseUTCDate(iso: string): Date {
+  if (!iso.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(iso)) {
+    return new Date(iso + 'Z')
+  }
+  return new Date(iso)
+}
+
 function formatTime(iso: string): string {
-  const d = new Date(iso)
+  const d = parseUTCDate(iso)
   return d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
 }
 

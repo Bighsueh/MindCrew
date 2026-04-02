@@ -3,16 +3,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
 from app.agents.blackboard import BlackboardManager
 from app.db.models.stage_evaluation_log import StageEvaluationLog
 from app.db.session import async_session_factory
+from app.agents.context_buffer import get_evaluator_canvas
 from app.agents.evaluator_scoring import compute_quantitative
 from app.agents.topic_saturation import compute_and_write_topic_saturation
 from app.agents.stage_advancement import advance_stage, propose_advance
+from app.stages.micro_phases import get_next_micro_phase, is_macro_boundary
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +127,10 @@ class StageEvaluator:
         stage: str = context.get("current_stage", "discover")
         phase_strategy = context.get("phase_strategy", {})
         micro_phase: str | None = context.get("current_micro_phase")
-        canvas_state: dict = context.get("canvas_state", {})
+        canvas_state = await get_evaluator_canvas(
+            context.get("project_id", self._project_id),
+            micro_phase=micro_phase,
+        )
         recent_chat: list[dict] = context.get("recent_chat", [])
         seats: list[dict] = context.get("seats", [])
         project_name: str = context.get("project_name", "")
@@ -159,8 +164,10 @@ class StageEvaluator:
         blind_spot_score: float | None = None
 
         # Pre-screening: skip qualitative if quantitative alone can't plausibly reach threshold.
-        # Use raw quant_score (not weighted) to avoid the gate being unreachable at low weights.
-        pre_screen_pass = quant_score >= self._threshold * 0.5
+        # All-AI mode uses a lower gate to allow faster advancement.
+        has_humans = any(s.get("type") == "human" for s in seats)
+        pre_screen_multiplier = 0.3 if not has_humans else 0.5
+        pre_screen_pass = quant_score >= self._threshold * pre_screen_multiplier
         if pre_screen_pass:
             qual_result = await self._run_qualitative(
                 stage, canvas_state, recent_chat, llm_service,
@@ -183,9 +190,9 @@ class StageEvaluator:
             elif self._last_valid_scores:
                 # LLM 評估失敗，沿用上次成功分數 (stale-but-valid)
                 qual_score = self._last_valid_scores.get("qual_score")
-                blind_spot_score = self._last_valid_scores.get("blind_spot_score")
-                logger.info("Using stale-but-valid scores: qual=%.1f, blind_spot=%.1f",
-                            qual_score or 0, blind_spot_score or 0)
+                blind_spot_score = None  # Do NOT reuse stale blind_spot for veto
+                logger.info("Using stale qual_score=%.1f; blind_spot disabled (stale)",
+                            qual_score or 0)
         else:
             logger.debug(
                 "Pre-screening skipped qualitative (quant=%.1f, threshold=%.1f)",
@@ -212,10 +219,16 @@ class StageEvaluator:
 
         passed = total >= effective_threshold
 
-        # Blind spot veto: debate 模式下 < 50 否決，其他 < 30 (Phase 13)
+        # Blind spot veto: only at macro boundary (e.g. 1.3→2.1), not intra-Discover
         comm_goal = phase_strategy.get("comm_goal", "")
         blind_spot_veto_threshold = 50.0 if comm_goal in ("debate", "mild_competition") else 30.0
-        if stage == "discover" and blind_spot_score is not None and blind_spot_score < blind_spot_veto_threshold:
+        next_mp = get_next_micro_phase(micro_phase) if micro_phase else None
+        at_macro_boundary = (
+            micro_phase is not None
+            and next_mp is not None
+            and is_macro_boundary(micro_phase, next_mp)
+        )
+        if stage == "discover" and at_macro_boundary and blind_spot_score is not None and blind_spot_score < blind_spot_veto_threshold:
             passed = False
             if not any("盲區分數不足" in w for w in weak_areas):
                 weak_areas.insert(0, "盲區分數不足——團隊可能遺漏了重要面向")
@@ -238,7 +251,10 @@ class StageEvaluator:
             self._consecutive_pass_count = 0
 
         # Discover requires at least 2 consecutive passes (lowered from 3)
-        if stage == "discover":
+        # All-AI mode: 1 pass is sufficient for faster iteration
+        if not has_humans:
+            required_passes = 1
+        elif stage == "discover":
             required_passes = max(2, _COOLING_COUNTS.get(self._contribution, 2))
         else:
             required_passes = _COOLING_COUNTS.get(self._contribution, 2)
@@ -249,15 +265,14 @@ class StageEvaluator:
             action_taken = "guided_weak_areas"
             await self._publish_weak_area_guidance(weak_areas)
         elif passed and self._consecutive_pass_count >= required_passes:
-            # Discover: blind spot challenge gate (two-pass) — only in macro stage mode
-            if stage == "discover" and not micro_phase and not self._blind_spot_challenge_sent:
+            # Discover: blind spot challenge gate (two-pass) — only with humans, macro stage mode
+            if stage == "discover" and not micro_phase and not self._blind_spot_challenge_sent and has_humans:
                 await self._publish_blind_spot_challenge()
                 self._blind_spot_challenge_sent = True
                 self._consecutive_pass_count = required_passes - 1
                 action_taken = "blind_spot_challenge"
             elif micro_phase:
                 # Micro-phase aware advancement
-                from app.stages.micro_phases import get_next_micro_phase, is_macro_boundary
                 next_mp = get_next_micro_phase(micro_phase)
                 if next_mp is None:
                     action_taken = "terminal_micro_phase"  # 4.3 is terminal
@@ -335,7 +350,7 @@ class StageEvaluator:
         if duration_minutes <= target:
             return 0.0
         overtime = duration_minutes - target
-        reduction = min(10.0, (overtime / 5.0) * 3.0)
+        reduction = min(20.0, (overtime / 3.0) * 5.0)
         logger.info(
             "Time pressure: stage=%s, micro_phase=%s, duration=%.1f min, target=%.1f min, reduction=%.1f",
             stage, micro_phase, duration_minutes, target, reduction,

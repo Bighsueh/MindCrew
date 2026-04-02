@@ -4,7 +4,6 @@ Extracted from evaluator.py to keep files under 500 lines.
 """
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -20,6 +19,33 @@ _STAGE_NAMES = {
 }
 
 
+def _build_compact_canvas_text(canvas: dict) -> str:
+    """Build a compact canvas description for LLM evaluation (~300 tokens)."""
+    total = canvas.get("total_notes", 0)
+    groups = canvas.get("groups", [])
+    ungrouped = canvas.get("ungrouped", [])
+    notes = canvas.get("notes", [])
+
+    parts = [f"便利貼總數：{total}"]
+    if groups:
+        group_lines = [
+            f"  - {g.get('name', '?')}（{len(g.get('notes', []))} 張）"
+            for g in groups[:8]
+        ]
+        parts.append(f"群組（{len(groups)} 個）：\n" + "\n".join(group_lines))
+    parts.append(f"未分群：{len(ungrouped)} 張")
+
+    if notes:
+        recent = notes[-10:]  # Last 10 notes only
+        note_lines = [
+            f"  - {n.get('content', n.get('text', ''))[:40]}"
+            for n in recent
+        ]
+        parts.append("最近便利貼：\n" + "\n".join(note_lines))
+
+    return "\n".join(parts)
+
+
 async def run_qualitative(
     stage: str,
     canvas: dict,
@@ -32,7 +58,7 @@ async def run_qualitative(
     """Run qualitative LLM stage evaluation. Returns a dict or None on failure."""
     stage_display = _STAGE_NAMES.get(stage, stage)
 
-    canvas_summary = json.dumps(canvas, ensure_ascii=False, indent=2)
+    canvas_text = _build_compact_canvas_text(canvas)
     chat_summary = "\n".join(
         f"[{m.get('time', '')}] {m.get('sender', '')}: {m.get('content', '')}"
         for m in chat[-20:]
@@ -48,7 +74,7 @@ async def run_qualitative(
     prompt = (
         f"{project_info}"
         f"請分析以下 Design Thinking {stage_display} 階段的團隊產出：\n\n"
-        f"白板內容：{canvas_summary}\n"
+        f"白板內容：\n{canvas_text}\n\n"
         f"聊天紀錄摘要：{chat_summary}\n\n"
         "請從以下四個面向評分（0-100）：\n"
         "1. 內容多樣性：觀點是否涵蓋多個不同面向？\n"
@@ -62,14 +88,23 @@ async def run_qualitative(
         '"summary": "整體評估摘要"}'
     )
 
+    system_content = "你是一位 Design Thinking 工作坊品質評估專家。"
     messages = [
-        {"role": "system", "content": "你是一位 Design Thinking 工作坊品質評估專家。"},
+        {"role": "system", "content": system_content},
         {"role": "user", "content": prompt},
     ]
 
+    # Token budget safety
+    prompt_text = system_content + prompt
+    est_tokens = len(prompt_text) // 2  # Rough estimate for CJK-heavy text
+    safe_max = max(256, 4096 - est_tokens - 100)
+    if safe_max < 256:
+        logger.warning("Prompt too large (%d chars), skipping qualitative eval", len(prompt_text))
+        return None
+
     try:
         response = await llm_service.chat_completion(
-            messages=messages, temperature=0.3, max_tokens=1024
+            messages=messages, temperature=0.3, max_tokens=safe_max
         )
         data = parse_llm_json(response.content)
         if data is None:

@@ -147,6 +147,9 @@ class ActEngine:
             content = chinese_converter.convert(content)
 
         if action_type == "chat_message":
+            # Safety-net: replace any remaining @{crew_N} template patterns
+            from app.agents.prompts.interpolation import interpolate_crew_names
+            content = interpolate_crew_names(content)
             await self._execute_chat_message(content, current_stage)
         elif action_type in CANVAS_ACTION_TYPES:
             await execute_canvas_tool(

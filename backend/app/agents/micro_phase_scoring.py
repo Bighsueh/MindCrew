@@ -399,8 +399,22 @@ async def compute_micro_phase_quantitative(
     if scorer is None:
         return 50.0  # fallback
     score = scorer(canvas, chat, seats)  # type: ignore[operator]
-    # Apply hard minimum cap
-    if not _check_hard_minimums(micro_phase, canvas):
+    is_all_ai = all(s.get("type") == "ai" for s in seats)
+
+    # All-AI fallback: when no tldraw groups exist (AI agents never create them),
+    # group-dependent scoring produces 0. Use note+chat activity as floor.
+    if is_all_ai and score < 10.0:
+        total_notes = canvas.get("total_notes", 0)
+        chat_count = len(chat)
+        fallback = (
+            min(100.0, total_notes / 20 * 100) * 0.40
+            + min(100.0, chat_count / 15 * 100) * 0.40
+            + (100.0 if total_notes > 0 and chat_count > 0 else 0.0) * 0.20
+        )
+        score = max(score, fallback)
+
+    # Apply hard minimum cap (skip in all-AI mode)
+    if not is_all_ai and not _check_hard_minimums(micro_phase, canvas):
         score = min(score, 30.0)
 
     rule_score = score

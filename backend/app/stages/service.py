@@ -147,8 +147,8 @@ class StageService:
         if first_micro and old_micro_phase != first_micro:
             await event_bus.publish(MicroPhaseChangedEvent(
                 project_id=project_id,
-                from_micro_phase=old_micro_phase,
-                to_micro_phase=first_micro,
+                from_phase=old_micro_phase,
+                to_phase=first_micro,
                 transition_type="stage_advance",
                 triggered_by=str(triggered_by),
             ))
