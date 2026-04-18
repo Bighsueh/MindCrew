@@ -230,6 +230,58 @@ html, body, #root {
   animation: float-note 5s var(--ease-smooth) infinite;
 }
 
+/* AI note movement — smooth CSS transition on tldraw shapes */
+.ai-animating .tl-shape[data-shape-type="note"] {
+  transition: transform 500ms cubic-bezier(0.33, 1, 0.68, 1) !important;
+}
+
+/* Note author badge — hover fade-in */
+.note-author-badge {
+  animation: note-badge-in 200ms ease-out forwards;
+}
+
+@keyframes note-badge-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Note move glow — pulse effect */
+.note-move-glow {
+  animation: note-glow-pulse 600ms ease-in-out infinite alternate;
+}
+
+@keyframes note-glow-pulse {
+  from {
+    box-shadow: 0 0 8px rgba(189, 108, 72, 0.2);
+  }
+  to {
+    box-shadow: 0 0 16px rgba(189, 108, 72, 0.35);
+  }
+}
+
+/* Note move badge */
+.note-move-badge {
+  animation: note-badge-in 200ms ease-out forwards;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .ai-animating .tl-shape[data-shape-type="note"] {
+    transition: none !important;
+  }
+  .note-move-glow,
+  .note-author-badge,
+  .note-move-badge {
+    animation: none;
+  }
+}
+
 /* Navbar scroll state */
 .nav-scrolled {
   --tw-bg-opacity: 0.95;

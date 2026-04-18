@@ -96,8 +96,12 @@ class StageService:
                 detail=f"Invalid transition: '{current}' → '{to_stage}'. Expected '{expected_next}'",
             )
 
-        # Canvas snapshot
-        canvas_snapshot = await canvas_ops.get_canvas_state(project_id)
+        # Canvas snapshot (Phase 16: use get_canvas_snapshot for full data)
+        try:
+            from app.canvas.tools_perception import get_canvas_snapshot
+            canvas_snapshot = await get_canvas_snapshot(project_id)
+        except Exception:
+            canvas_snapshot = await canvas_ops.get_canvas_state(project_id)
 
         # Duration: time since last stage_history entry or project creation
         duration_seconds = await self._compute_duration(project_id, project.created_at)

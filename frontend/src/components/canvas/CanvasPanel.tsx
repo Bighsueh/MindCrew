@@ -1,39 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Tldraw, TLRecord, TLComponents, createTLStore, defaultShapeUtils } from '@tldraw/tldraw'
+import { Tldraw, TLComponents, createTLStore, defaultShapeUtils } from '@tldraw/tldraw'
 import '@tldraw/tldraw/tldraw.css'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 import type { DTStage } from '../../types/models'
 import { MiniToolbar } from './MiniToolbar'
 import { ZoomControls } from './ZoomControls'
-import { NoteAuthorLabels } from './NoteAuthorLabels'
+import { NoteAuthorOverlay } from './NoteAuthorOverlay'
+import { AnimatedYjsBridge } from './AnimatedYjsBridge'
 
 interface CanvasPanelProps {
   projectId: string
   currentStage?: DTStage
-}
-
-// Map sidecar color names to tldraw's TLDefaultColorStyle values
-const COLOR_MAP: Record<string, string> = {
-  yellow: 'yellow',
-  blue: 'blue',
-  green: 'green',
-  red: 'red',
-  orange: 'orange',
-  violet: 'violet',
-  pink: 'light-red',
-  purple: 'light-violet',
-}
-
-function toTldrawColor(color: unknown): string {
-  if (typeof color !== 'string') return 'yellow'
-  return COLOR_MAP[color] ?? 'yellow'
-}
-
-// Generate tldraw-compatible fractional index keys (base-62: 0-9A-Za-z)
-const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-function toIndexKey(n: number): string {
-  return `a${BASE62[n % BASE62.length]}`
 }
 
 function getYjsWsUrl(): string {
@@ -66,10 +44,13 @@ const STAGE_BG: Record<string, string> = {
 export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
   const [connected, setConnected] = useState(false)
   const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), [])
+  const docRef = useRef<Y.Doc | null>(null)
   const providerRef = useRef<WebsocketProvider | null>(null)
+  const [shapesMap, setShapesMap] = useState<Y.Map<unknown> | null>(null)
 
   useEffect(() => {
     const doc = new Y.Doc()
+    docRef.current = doc
     const wsUrl = getYjsWsUrl()
     const provider = new WebsocketProvider(wsUrl, projectId, doc)
     providerRef.current = provider
@@ -79,69 +60,18 @@ export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
     }
     provider.on('status', onStatus)
 
-    // Sync Yjs shapes map → tldraw store
-    const shapesMap = doc.getMap('shapes')
-
-    const syncToStore = () => {
-      try {
-        const records: TLRecord[] = []
-        let idx = 0
-        shapesMap.forEach((value: unknown, key: string) => {
-          const shape = value as Record<string, unknown>
-          if (!shape || typeof shape !== 'object') return
-
-          const id = key.startsWith('shape:') ? key : `shape:${key}`
-
-          records.push({
-            id: id as TLRecord['id'],
-            typeName: 'shape',
-            type: 'note',
-            x: (shape.x as number) || 100 + idx * 30,
-            y: (shape.y as number) || 100 + idx * 30,
-            rotation: 0,
-            parentId: 'page:page' as TLRecord['id'],
-            index: toIndexKey(idx),
-            isLocked: false,
-            opacity: 1,
-            meta: { author: (shape.author as string) || '' },
-            props: {
-              text: (shape.content as string) || '',
-              color: toTldrawColor(shape.color),
-              size: 'm' as const,
-              font: 'sans' as const,
-              align: 'middle' as const,
-              verticalAlign: 'middle' as const,
-              growY: 0,
-              fontSizeAdjustment: 0,
-              url: '',
-              scale: 1,
-            },
-          } as unknown as TLRecord)
-          idx++
-        })
-
-        if (records.length > 0) {
-          store.mergeRemoteChanges(() => {
-            store.put(records)
-          })
-        }
-      } catch (err) {
-        console.warn('Failed to sync Yjs shapes to tldraw:', err)
-      }
-    }
-
-    shapesMap.observe(syncToStore)
-    syncToStore()
+    setShapesMap(doc.getMap('shapes'))
 
     return () => {
-      shapesMap.unobserve(syncToStore)
+      setShapesMap(null)
       provider.off('status', onStatus)
       provider.disconnect()
       provider.destroy()
       doc.destroy()
+      docRef.current = null
       providerRef.current = null
     }
-  }, [projectId, store])
+  }, [projectId])
 
   const stageBg = currentStage ? STAGE_BG[currentStage] ?? '' : ''
 
@@ -157,9 +87,10 @@ export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
         inferDarkMode={false}
         components={TLDRAW_COMPONENTS}
       >
+        <AnimatedYjsBridge shapesMap={shapesMap} store={store} />
         <MiniToolbar />
         <ZoomControls />
-        <NoteAuthorLabels />
+        <NoteAuthorOverlay />
       </Tldraw>
     </div>
   )

@@ -116,11 +116,20 @@ async def advance_stage(
                 .values(**update_values)
             )
 
+            # Capture canvas snapshot (Phase 16: fix NULL snapshot for AI-triggered transitions)
+            canvas_snapshot = None
+            try:
+                from app.canvas.tools_perception import get_canvas_snapshot
+                canvas_snapshot = await get_canvas_snapshot(project_id)
+            except Exception:
+                pass
+
             sh = StageHistory(
                 project_id=project_id,
                 from_stage=current_stage,
                 to_stage=next_stage,
                 triggered_by="ai_evaluator",
+                canvas_snapshot=canvas_snapshot,
             )
             session.add(sh)
             await session.commit()
@@ -138,6 +147,29 @@ async def advance_stage(
 
         if blackboard:
             await blackboard.clear_stage(next_stage)
+
+        # Organization Turn at macro stage boundary (Phase 16)
+        try:
+            from app.agents.organization_turn import (
+                should_run_organization_turn,
+                run_organization_turn,
+            )
+            from app.stages.micro_phases import get_first_micro_phase_for_stage as _get_first
+
+            first_micro = _get_first(next_stage)
+            if first_micro and await should_run_organization_turn(project_id, first_micro):
+                org_result = await run_organization_turn(
+                    project_id=project_id,
+                    agent_id=agent_id,
+                    from_phase=current_stage,
+                    to_phase=first_micro,
+                )
+                logger.info(
+                    "Organization Turn at stage boundary %s→%s: status=%s",
+                    current_stage, next_stage, org_result.status,
+                )
+        except Exception as exc:
+            logger.warning("Organization Turn at stage boundary failed: %s", exc)
 
         logger.info(
             "Project %s advanced: %s → %s",
@@ -226,15 +258,27 @@ async def advance_micro_phase(
         except Exception as exc:
             logger.warning("Failed to announce micro phase transition: %s", exc)
 
-        # Auto-tidy on convergence phase transitions (Phase 14: uses tidy_area)
-        _AUTO_TIDY_PHASES: set[str] = {"1.3", "3.2"}
-        if to_phase in _AUTO_TIDY_PHASES:
-            try:
-                from app.canvas.tools_manipulation import tool_tidy_area
-                await tool_tidy_area(project_id, scope="all", strategy="align_grid")
-                logger.info("Auto-tidy applied for phase %s", to_phase)
-            except Exception as exc:
-                logger.warning("Auto-tidy failed for phase %s: %s", to_phase, exc)
+        # Organization Turn: Supervisor-driven canvas cleanup (Phase 16)
+        try:
+            from app.agents.organization_turn import (
+                should_run_organization_turn,
+                run_organization_turn,
+            )
+
+            if await should_run_organization_turn(project_id, to_phase):
+                org_result = await run_organization_turn(
+                    project_id=project_id,
+                    agent_id=agent_id,
+                    from_phase=from_phase,
+                    to_phase=to_phase,
+                )
+                logger.info(
+                    "Organization Turn for %s→%s: status=%s executed=%d fallback=%s",
+                    from_phase, to_phase, org_result.status,
+                    org_result.executed_count, org_result.used_fallback,
+                )
+        except Exception as exc:
+            logger.warning("Organization Turn failed for %s→%s: %s", from_phase, to_phase, exc)
 
         logger.info(
             "Project %s micro phase advanced: %s → %s",

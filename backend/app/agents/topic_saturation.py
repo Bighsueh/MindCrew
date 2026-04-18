@@ -79,7 +79,7 @@ async def compute_and_write_topic_saturation(
         ]
 
         response = await llm_service.chat_completion(
-            messages=messages, temperature=0.3, max_tokens=1536
+            messages=messages, temperature=0.3, max_tokens=512
         )
         data = parse_llm_json(response.content)
         if data is None:

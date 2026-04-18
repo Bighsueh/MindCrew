@@ -52,7 +52,13 @@ def _normalize_canvas(snapshot: dict, micro_phase: str | None = None) -> dict:
     result["total_notes"] = summary.get("total_notes", 0)
 
     # Legacy: notes[] with id/content/author/color/created_at
-    spatial_notes = snapshot.get("notes", [])
+    # Phase 16: filter out archived notes (grid row >= 21 ≈ y >= 4500)
+    _ARCHIVE_ROW_THRESHOLD = 21
+    all_spatial_notes = snapshot.get("notes", [])
+    spatial_notes = [
+        n for n in all_spatial_notes
+        if n.get("grid_position", [0, 0])[1] < _ARCHIVE_ROW_THRESHOLD
+    ]
     result["spatial_notes"] = spatial_notes  # Preserve Phase 14 format
     legacy_notes = []
     for n in spatial_notes:
