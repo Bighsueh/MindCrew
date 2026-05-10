@@ -82,7 +82,9 @@ class AssessEngine:
                     or "supervisor" in sender_field.lower()
                     or "引導者" in sender_field
                 )
-            am_mentioned = self._is_mentioned(recent_chat, agent_id, my_seat)
+            am_mentioned = self._is_mentioned(
+                recent_chat, agent_id, my_seat, context.get("seats")
+            )
             if not last_sender_is_supervisor and not am_mentioned:
                 return AssessResult(
                     decision="wait",
@@ -111,7 +113,9 @@ class AssessEngine:
             )
 
         # Rule 1: @mention or direct question to this agent
-        if self._is_mentioned(recent_chat, agent_id, my_seat):
+        if self._is_mentioned(
+            recent_chat, agent_id, my_seat, context.get("seats")
+        ):
             return AssessResult(
                 decision="intervene",
                 rule="rule_1_mention",
@@ -395,7 +399,8 @@ class AssessEngine:
     # Private helpers
     # ------------------------------------------------------------------
 
-    # Display name mapping for mention detection
+    # Legacy display name mapping kept for backward compatibility.
+    # Phase 19: persona-based name is preferred via ``context["seats"]``.
     _DISPLAY_NAMES: dict[str, str] = {
         "supervisor": "ai 引導者",
         "crew_1": "ai 同理心專家",
@@ -405,7 +410,11 @@ class AssessEngine:
     }
 
     def _is_mentioned(
-        self, recent_chat: list[dict], agent_id: str, seat_role: str,
+        self,
+        recent_chat: list[dict],
+        agent_id: str,
+        seat_role: str,
+        seats: list[dict] | None = None,
     ) -> bool:
         """Return True if the most recent chat message mentions this agent."""
         if not recent_chat:
@@ -417,10 +426,26 @@ class AssessEngine:
             f"@{seat_role.lower()}",
             seat_role.lower(),
         ]
-        # Also match display name (e.g. "AI 同理心專家")
-        display_name = self._DISPLAY_NAMES.get(seat_role, "")
-        if display_name:
-            targets.append(display_name)
+        # Phase 19: prefer persona.name from seats
+        persona_name = ""
+        if seats:
+            for s in seats:
+                role = s.get("role") or s.get("seat_role")
+                if role == seat_role:
+                    persona = s.get("persona") if isinstance(s, dict) else None
+                    if isinstance(persona, dict):
+                        persona_name = str(persona.get("name", "")).strip().lower()
+                    if not persona_name:
+                        dn = s.get("display_name", "")
+                        if dn:
+                            persona_name = str(dn).lower()
+                    break
+        if persona_name:
+            targets.append(persona_name)
+        # Legacy display name fallback
+        legacy = self._DISPLAY_NAMES.get(seat_role, "")
+        if legacy:
+            targets.append(legacy)
         return any(t in content for t in targets if t.strip("@"))
 
     def _human_typing_recently(self, context: dict) -> bool:

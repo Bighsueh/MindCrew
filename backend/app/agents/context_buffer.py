@@ -250,12 +250,15 @@ class ContextBuffer:
             except (IndexError, ValueError):
                 seat_index = 0
 
-        # Compute role_status from micro_phase
+        # Compute role_status from micro_phase (Phase 19: pass seats so lens
+        # resolution uses the project's actual personas).
         role_status_value: str = "normal"
         if current_micro_phase:
             try:
                 from app.stages.micro_phases import get_role_status
-                role_status_value = get_role_status(current_micro_phase, self._seat_role)
+                role_status_value = get_role_status(
+                    current_micro_phase, self._seat_role, seats=seats
+                )
             except (KeyError, Exception):
                 role_status_value = "normal"
 
@@ -282,6 +285,15 @@ class ContextBuffer:
                     "supervisor_mode": strategy.supervisor_mode,
                 }
 
+        # Find this agent's persona snapshot (Phase 19)
+        my_persona: dict | None = None
+        for seat_entry in seats:
+            if seat_entry.get("role") == self._seat_role or seat_entry.get(
+                "seat_role"
+            ) == self._seat_role:
+                my_persona = seat_entry.get("persona")
+                break
+
         context: dict = {
             "project_name": project_name,
             "project_description": project_description,
@@ -293,6 +305,7 @@ class ContextBuffer:
             "stage_duration_minutes": stage_duration,
             "seats": seats,
             "my_seat": self._seat_role,
+            "my_persona": my_persona,
             "seat_index": seat_index,
             "my_recent_actions": my_recent_actions,
             "active_thread": active_thread,
@@ -426,20 +439,22 @@ class ContextBuffer:
             for s in seats_raw:
                 entry: dict[str, Any] = {
                     "role": s.seat_role,
+                    "seat_role": s.seat_role,
                     "type": s.occupant_type,
+                    "occupant_type": s.occupant_type,
                 }
                 if s.agent_id:
                     entry["agent_id"] = s.agent_id
-                # Add display name for AI seats
+                # Persona snapshot (Phase 19)
+                persona_payload = getattr(s, "persona", None)
+                if persona_payload:
+                    entry["persona"] = persona_payload
+                # Add display name for AI seats — prefer persona name, then legacy
                 if s.occupant_type == "ai" and s.seat_role:
-                    _ROLE_DISPLAY_NAMES = {
-                        "supervisor": "AI 引導者",
-                        "crew_1": "AI 同理心專家",
-                        "crew_2": "AI 結構化專家",
-                        "crew_3": "AI 創意專家",
-                        "crew_4": "AI 可行性專家",
-                    }
-                    entry["display_name"] = _ROLE_DISPLAY_NAMES.get(s.seat_role, f"AI {s.seat_role}")
+                    from app.agents.personas.display import resolve_display_name
+                    entry["display_name"] = resolve_display_name(
+                        s.seat_role, persona_payload
+                    )
                 # Fetch user name if human
                 if s.occupant_type == "human" and s.user_id:
                     from app.db.models.user import User

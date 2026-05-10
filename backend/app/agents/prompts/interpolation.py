@@ -8,13 +8,7 @@ from __future__ import annotations
 
 import re
 
-_ROLE_DISPLAY_NAMES: dict[str, str] = {
-    "supervisor": "AI 引導者",
-    "crew_1": "AI 同理心專家",
-    "crew_2": "AI 結構化專家",
-    "crew_3": "AI 創意專家",
-    "crew_4": "AI 可行性專家",
-}
+from app.agents.personas.display import LEGACY_DISPLAY_NAMES as _ROLE_DISPLAY_NAMES
 
 # Matches: @{crew_1}, @{crew_2_name}, {crew_3}, {crew_4_name}
 _INDEXED_PATTERN = re.compile(r"@?\{crew_(\d+)(?:_name)?\}")
@@ -46,12 +40,17 @@ def interpolate_crew_names(
     if not text:
         return text
 
-    # Build role → display_name mapping from seats
+    # Build role → display_name mapping from seats.
+    # Phase 19: persona.name in seat takes precedence over legacy defaults.
     name_map: dict[str, str] = dict(_ROLE_DISPLAY_NAMES)
     if seats:
         for s in seats:
-            role = s.get("role", "")
-            dn = s.get("display_name") or s.get("agent_name", "")
+            role = s.get("role") or s.get("seat_role", "")
+            persona = s.get("persona")
+            persona_name = ""
+            if isinstance(persona, dict):
+                persona_name = str(persona.get("name", "")).strip()
+            dn = persona_name or s.get("display_name") or s.get("agent_name", "")
             if role and dn:
                 name_map[role] = dn
 

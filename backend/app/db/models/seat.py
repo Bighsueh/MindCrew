@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import String, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
+from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB
 
 from app.db.base import Base
 
@@ -28,6 +28,7 @@ class Seat(Base):
     state: Mapped[str] = mapped_column(
         String(20), nullable=False, default="ai_running"
     )
+    persona: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     joined_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )

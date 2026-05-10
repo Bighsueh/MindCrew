@@ -21,7 +21,9 @@ from app.agents.prompts.roles import (
     SUPERVISOR_FACILITATOR_RULES,
     SUPERVISOR_ROLE_PROMPT,
     SUPERVISOR_SILENT_RULES,
+    render_persona_prompt,
 )
+from app.agents.personas.models import persona_from_dict
 from app.agents.prompts.stages import STAGE_PROMPTS
 
 logger = logging.getLogger(__name__)
@@ -148,15 +150,22 @@ class PromptAssembler:
         else:
             seat_role = str(role).lower()
             system_parts.append(CREW_ROLE_BASE_PROMPT)
-            capability_prompt = CREW_CAPABILITY_PROMPTS.get(seat_role)
-            if capability_prompt:
-                system_parts.append(capability_prompt)
+            # Phase 19: prefer per-project persona prompt over legacy capability
+            my_persona_payload = context.get("my_persona")
+            persona_prompt = render_persona_prompt(my_persona_payload)
+            if persona_prompt:
+                system_parts.append(persona_prompt)
+            else:
+                capability_prompt = CREW_CAPABILITY_PROMPTS.get(seat_role)
+                if capability_prompt:
+                    system_parts.append(capability_prompt)
 
         # Layer 3 — stage strategy (micro-phase aware v2.0)
         micro_phase = context.get("current_micro_phase")
         if micro_phase:
             from app.agents.prompts.micro_phase_prompts import (
                 MICRO_PHASE_SUPERVISOR_PROMPTS,
+                MICRO_PHASE_LENS_OVERRIDES,
                 MICRO_PHASE_CREW_OVERRIDES,
                 ARTIFACT_CONSTRUCTION_GUIDES,
                 PROTAGONIST_BOOST,
@@ -164,9 +173,24 @@ class PromptAssembler:
             )
             # Base direction (same for supervisor and crew)
             stage_prompt = MICRO_PHASE_SUPERVISOR_PROMPTS.get(micro_phase, "")
-            # Crew-specific override
+            # Lens-specific override (Phase 19): resolved via persona dominant lens
             seat_role = context.get("my_seat", "")
-            crew_override = MICRO_PHASE_CREW_OVERRIDES.get(micro_phase, {}).get(seat_role, "")
+            crew_override = ""
+            my_persona = (
+                persona_from_dict(context.get("my_persona"))
+                if not is_supervisor
+                else None
+            )
+            if my_persona is not None:
+                lens_value = my_persona.dominant_lens().value
+                crew_override = MICRO_PHASE_LENS_OVERRIDES.get(
+                    micro_phase, {}
+                ).get(lens_value, "")
+            if not crew_override:
+                # Legacy fallback: look up by crew_X seat_role
+                crew_override = MICRO_PHASE_CREW_OVERRIDES.get(
+                    micro_phase, {}
+                ).get(seat_role, "")
             if crew_override:
                 stage_prompt += f"\n\n你的本步驟職責：{crew_override}"
             # Artifact guide

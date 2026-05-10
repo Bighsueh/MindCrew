@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # LLM
     LLM_PROVIDER: str = "vllm"
-    VLLM_BASE_URL: str = "http://140.115.126.193:8000/v1"
+    VLLM_BASE_URL: str = "https://vllm.example.com/v1"
     VLLM_MODEL_NAME: str = "/models/gemma-4-26B-A4B-it"
     VLLM_API_KEY: str = "dummy"
 

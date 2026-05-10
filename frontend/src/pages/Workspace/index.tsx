@@ -12,10 +12,11 @@ import { ConnectionBanner } from '../../components/workspace/ConnectionBanner'
 import { SeatBar } from '../../components/workspace/SeatBar'
 import { ChatPanel } from '../../components/chat/ChatPanel'
 import { CanvasPanel } from '../../components/canvas/CanvasPanel'
+import { ProjectPersonasPanel } from '../../components/persona/ProjectPersonasPanel'
 import { Button } from '../../components/common/Button'
 import { Modal } from '../../components/common/Modal'
 import { Loading } from '../../components/common/Loading'
-import { MessageCircle } from 'lucide-react'
+import { MessageCircle, Users } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { WSMessage, WSChatMessagePayload, WSTypingPayload, WSStageChangedPayload, WSSeatChangedPayload, WSMicroPhaseChangedPayload } from '../../types/ws'
 import type { Message, DTStage, MicroPhaseId } from '../../types/models'
@@ -37,6 +38,7 @@ export function WorkspacePage() {
   const { user } = useAuthStore()
 
   const [showAdvanceModal, setShowAdvanceModal] = useState(false)
+  const [showPersonasPanel, setShowPersonasPanel] = useState(false)
   const [isAdvancing, setIsAdvancing] = useState(false)
   const [wsError, setWsError] = useState(false)
   const [activeTab, setActiveTab] = useState<'canvas' | 'chat'>('canvas')
@@ -318,6 +320,16 @@ export function WorkspacePage() {
           <SeatBar seats={seats} currentUserId={user?.id} />
 
           <div className="ml-auto flex items-center gap-2">
+            {currentProject?.creator_id === user?.id && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowPersonasPanel(true)}
+              >
+                <Users size={14} />
+                AI 隊友
+              </Button>
+            )}
             {isSupervisor && nextStage && (
               <Button
                 size="sm"
@@ -363,6 +375,17 @@ export function WorkspacePage() {
           </div>
         </div>
       </Modal>
+
+      {/* AI persona management (creator only) */}
+      {showPersonasPanel && currentProject && (
+        <ProjectPersonasPanel
+          isOpen={showPersonasPanel}
+          projectId={currentProject.id}
+          seats={seats}
+          onClose={() => setShowPersonasPanel(false)}
+          onUpdated={(updatedSeat) => updateSeat(updatedSeat.seat_role, updatedSeat)}
+        />
+      )}
     </div>
   )
 }
