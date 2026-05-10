@@ -134,3 +134,42 @@ async def leave_project(
 ) -> dict:
     service = ProjectService(session)
     return await service.leave_project(project_id, current_user)
+
+
+# ---------------------------------------------------------------------------
+# Spec 13 — 人類強制送出便條（force_publish）
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel, Field
+
+
+class HumanNoteRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    color: str = Field("yellow", pattern="^(yellow|pink|blue|green)$")
+    x: float
+    y: float
+    sub_phase_id: str = Field(..., max_length=8)
+    force_publish: bool = False
+
+
+@router.post("/{project_id}/canvas/notes")
+async def human_create_note(
+    project_id: UUID,
+    payload: HumanNoteRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Human-facing create_note endpoint with Spec 13 gates + force_publish support."""
+    from app.canvas.tools_manipulation import tool_create_note
+
+    result = await tool_create_note(
+        project_id=project_id,
+        text=payload.text,
+        color=payload.color,
+        position=f"absolute:{payload.x},{payload.y}",
+        author_id=str(current_user.id),
+        author_name=current_user.display_name,
+        author_type="human",
+        sub_phase_id=payload.sub_phase_id,
+        force_publish=payload.force_publish,
+    )
+    return result

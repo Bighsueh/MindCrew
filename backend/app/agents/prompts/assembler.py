@@ -152,8 +152,18 @@ class PromptAssembler:
             if capability_prompt:
                 system_parts.append(capability_prompt)
 
-        # Layer 3 — stage strategy (micro-phase aware v2.0)
-        micro_phase = context.get("current_micro_phase")
+        # Layer 3 — stage strategy
+        # Spec 13: sub_phase 優先；無 sub_phase 時 fallback 到 micro_phase
+        sub_phase = context.get("current_sub_phase")
+        _stage_prompt_already_appended = False
+        if sub_phase:
+            from app.agents.prompts.sub_phase_prompts import build_sub_phase_prompt
+            stage_prompt = build_sub_phase_prompt(sub_phase)
+            system_parts.append(stage_prompt)
+            _stage_prompt_already_appended = True
+            micro_phase = None
+        else:
+            micro_phase = context.get("current_micro_phase")
         if micro_phase:
             from app.agents.prompts.micro_phase_prompts import (
                 MICRO_PHASE_SUPERVISOR_PROMPTS,
@@ -203,7 +213,8 @@ class PromptAssembler:
                 stage_prompt = DISCOVER_SUPERVISOR_SUBPHASE_PROMPTS[subphase]
             else:
                 stage_prompt = _STAGE_PROMPTS_FALLBACK.get(stage, _STAGE_PROMPTS_FALLBACK["discover"])
-        system_parts.append(stage_prompt)
+        if not _stage_prompt_already_appended:
+            system_parts.append(stage_prompt)
 
         # Communication goal prompt (Phase 13)
         if phase_strategy:

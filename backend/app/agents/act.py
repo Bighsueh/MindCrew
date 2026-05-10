@@ -59,6 +59,7 @@ class ActEngine:
         assess_result: Any | None = None,
         micro_phase: str | None = None,
         role_status: str = "normal",
+        sub_phase: str | None = None,
     ) -> ActResult:
         """Execute a list of actions from the ThinkEngine.
 
@@ -92,7 +93,7 @@ class ActEngine:
                 await asyncio.sleep(delay)
 
             try:
-                await self._execute_single(action, current_stage)
+                await self._execute_single(action, current_stage, sub_phase=sub_phase)
                 result.executed_actions.append(action)
             except Exception as exc:
                 logger.error(
@@ -135,7 +136,12 @@ class ActEngine:
                 legal.append(action)
         return legal, illegal
 
-    async def _execute_single(self, action: dict, current_stage: str) -> None:
+    async def _execute_single(
+        self,
+        action: dict,
+        current_stage: str,
+        sub_phase: str | None = None,
+    ) -> None:
         """Dispatch a single action to the appropriate handler."""
         from app.agents.act_canvas import CANVAS_ACTION_TYPES, execute_canvas_tool
 
@@ -158,6 +164,8 @@ class ActEngine:
                 project_id=self._project_id,
                 agent_id=self._agent_id,
                 agent_name=self._agent_name,
+                sub_phase_id=sub_phase,
+                seat_role=self._seat_role,
             )
         elif action_type == "set_directive":
             await self._execute_set_directive(action)

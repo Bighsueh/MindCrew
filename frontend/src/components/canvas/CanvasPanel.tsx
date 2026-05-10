@@ -8,10 +8,20 @@ import { MiniToolbar } from './MiniToolbar'
 import { ZoomControls } from './ZoomControls'
 import { NoteAuthorOverlay } from './NoteAuthorOverlay'
 import { AnimatedYjsBridge } from './AnimatedYjsBridge'
+// Spec 13 — Sticky-Only Strategy overlays
+import { ZoneOverlay } from './ZoneOverlay'
+import { ParkSidebar } from './ParkSidebar'
+import { HmwTabBar } from './HmwTabBar'
+import { CommModeIndicator } from './CommModeIndicator'
 
 interface CanvasPanelProps {
   projectId: string
   currentStage?: DTStage
+  // Spec 13: 由父層注入當前 sub_phase 與 comm_mode
+  subPhase?: string | null
+  commMode?: 'silent_write' | 'reveal_round' | 'silent_rearrange' | 'discussion'
+  subPhaseName?: string
+  nextRevealSeat?: string | null
 }
 
 function getYjsWsUrl(): string {
@@ -41,7 +51,14 @@ const STAGE_BG: Record<string, string> = {
   deliver: 'bg-[#faf0e6]',
 }
 
-export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
+export function CanvasPanel({
+  projectId,
+  currentStage,
+  subPhase = null,
+  commMode = 'discussion',
+  subPhaseName,
+  nextRevealSeat = null,
+}: CanvasPanelProps) {
   const [connected, setConnected] = useState(false)
   const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), [])
   const docRef = useRef<Y.Doc | null>(null)
@@ -91,7 +108,17 @@ export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
         <MiniToolbar />
         <ZoomControls />
         <NoteAuthorOverlay />
+        {/* Spec 13: zone 視覺框 — 相機座標傳 0/0/1，前端 store 內部再對齊 */}
+        <ZoneOverlay cameraX={0} cameraY={0} cameraZ={1} />
       </Tldraw>
+      <HmwTabBar />
+      <CommModeIndicator
+        subPhase={subPhase}
+        commMode={commMode}
+        subPhaseName={subPhaseName}
+        nextRevealSeat={nextRevealSeat}
+      />
+      <ParkSidebar notes={[]} />
     </div>
   )
 }

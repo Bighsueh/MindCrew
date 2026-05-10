@@ -69,6 +69,43 @@ class AssessEngine:
         supervisor_mode = phase_strategy.get("supervisor_mode", "")
         is_supervisor = "supervisor" in my_seat.lower()
 
+        # Spec 13 — Sticky-Only Strategy: comm_mode gate (highest priority)
+        # comm_mode 由 context 直接帶入（context_buffer 從 sub_phase 解析）
+        comm_mode = context.get("comm_mode", "discussion")
+        intended_action = context.get("intended_action_type", "")
+        last_revealed_seat = context.get("last_revealed_seat", "")
+
+        if comm_mode == "silent_write":
+            # 只允許 create_note；其他全 yield
+            if intended_action and intended_action != "create_note":
+                return AssessResult(
+                    decision="wait",
+                    rule="rule_0_2_comm_mode_silent_write",
+                    details={"reason": "沉默寫階段：禁止 chat / 移動，只允許 create_note"},
+                )
+        elif comm_mode == "silent_rearrange":
+            # 只允許 move_note / swap_notes；其他全 yield
+            if intended_action and intended_action not in {"move_note", "swap_notes"}:
+                return AssessResult(
+                    decision="wait",
+                    rule="rule_0_2_comm_mode_silent_rearrange",
+                    details={"reason": "沉默重排：只能移動，禁止 chat / create"},
+                )
+        elif comm_mode == "reveal_round":
+            # 強制輪流：若不是本 seat 的回合 → yield
+            reveal_queue = context.get("reveal_queue", [])
+            if reveal_queue:
+                next_seat = reveal_queue[0]
+                if my_seat != next_seat:
+                    return AssessResult(
+                        decision="wait",
+                        rule="rule_0_2_comm_mode_reveal_round",
+                        details={
+                            "reason": f"揭示輪：等待 {next_seat} 唸出，目前不是你的回合",
+                            "next_seat": next_seat,
+                        },
+                    )
+
         # Rule 0: Strategy Gate — OO 策略下只有被 @mention 的人可行動
         if comm_strategy == "one_by_one" and not is_supervisor:
             last_sender_is_supervisor = False

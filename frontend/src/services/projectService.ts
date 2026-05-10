@@ -23,6 +23,37 @@ export async function createProject(data: CreateProjectRequest): Promise<Project
   return response.data
 }
 
+// Spec 13: 強制送出便條（人類限定）
+export interface CreateNoteForceResponse {
+  success: boolean
+  note_id?: string
+  zone_id?: string
+  gate_violation?: Record<string, unknown>
+  rejection?: {
+    reason_zh: string
+    rule_module: string
+    rule_name: string
+    matched_text?: string
+  }
+}
+
+export async function createNoteForcePublish(
+  projectId: string,
+  payload: {
+    text: string
+    color: string
+    x: number
+    y: number
+    sub_phase_id: string
+  },
+): Promise<CreateNoteForceResponse> {
+  const response = await api.post<CreateNoteForceResponse>(
+    `/projects/${projectId}/canvas/notes`,
+    { ...payload, force_publish: true },
+  )
+  return response.data
+}
+
 export async function listProjects(): Promise<ProjectListItem[]> {
   const response = await api.get<ProjectListItem[]>('/projects')
   return response.data

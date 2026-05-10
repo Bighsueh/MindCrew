@@ -148,28 +148,7 @@ async def advance_stage(
         if blackboard:
             await blackboard.clear_stage(next_stage)
 
-        # Organization Turn at macro stage boundary (Phase 16)
-        try:
-            from app.agents.organization_turn import (
-                should_run_organization_turn,
-                run_organization_turn,
-            )
-            from app.stages.micro_phases import get_first_micro_phase_for_stage as _get_first
-
-            first_micro = _get_first(next_stage)
-            if first_micro and await should_run_organization_turn(project_id, first_micro):
-                org_result = await run_organization_turn(
-                    project_id=project_id,
-                    agent_id=agent_id,
-                    from_phase=current_stage,
-                    to_phase=first_micro,
-                )
-                logger.info(
-                    "Organization Turn at stage boundary %s→%s: status=%s",
-                    current_stage, next_stage, org_result.status,
-                )
-        except Exception as exc:
-            logger.warning("Organization Turn at stage boundary failed: %s", exc)
+        # Spec 13: Organization Turn 已廢除。Canvas 整理改由 silent_rearrange 模式自然完成。
 
         logger.info(
             "Project %s advanced: %s → %s",
@@ -258,27 +237,7 @@ async def advance_micro_phase(
         except Exception as exc:
             logger.warning("Failed to announce micro phase transition: %s", exc)
 
-        # Organization Turn: Supervisor-driven canvas cleanup (Phase 16)
-        try:
-            from app.agents.organization_turn import (
-                should_run_organization_turn,
-                run_organization_turn,
-            )
-
-            if await should_run_organization_turn(project_id, to_phase):
-                org_result = await run_organization_turn(
-                    project_id=project_id,
-                    agent_id=agent_id,
-                    from_phase=from_phase,
-                    to_phase=to_phase,
-                )
-                logger.info(
-                    "Organization Turn for %s→%s: status=%s executed=%d fallback=%s",
-                    from_phase, to_phase, org_result.status,
-                    org_result.executed_count, org_result.used_fallback,
-                )
-        except Exception as exc:
-            logger.warning("Organization Turn failed for %s→%s: %s", from_phase, to_phase, exc)
+        # Spec 13: Organization Turn 已廢除。Canvas 整理改由 silent_rearrange 模式自然完成。
 
         logger.info(
             "Project %s micro phase advanced: %s → %s",
@@ -290,3 +249,91 @@ async def advance_micro_phase(
     except Exception as exc:
         logger.error("Failed to advance micro phase: %s", exc)
         return "micro_advance_failed"
+
+
+# ---------------------------------------------------------------------------
+# Spec 13 — Sub-phase advancement
+# ---------------------------------------------------------------------------
+
+async def advance_sub_phase(
+    project_id: UUID,
+    agent_id: str,
+    from_sub_phase: str | None,
+    to_sub_phase: str,
+) -> str:
+    """Update project.current_sub_phase and broadcast.
+
+    Also clears reveal queue + resets stability timer when entering a new sub-phase.
+    """
+    try:
+        async with async_session_factory() as session:
+            from sqlalchemy import update
+            from app.db.models.project import Project
+
+            now = datetime.now(timezone.utc)
+            await session.execute(
+                update(Project)
+                .where(Project.id == project_id)
+                .values(current_sub_phase=to_sub_phase, updated_at=now)
+            )
+            await session.commit()
+
+        # Reset reveal queue / stability timer
+        try:
+            from app.agents.reveal_queue import reset as reset_reveal
+            from app.canvas.stability_detector import reset as reset_stability
+            await reset_reveal(project_id)
+            await reset_stability(project_id)
+        except Exception as exc:
+            logger.debug("Reset reveal/stability failed: %s", exc)
+
+        # Broadcast SubPhaseChangedEvent if available
+        try:
+            from app.events.types import SubPhaseChangedEvent  # type: ignore[attr-defined]
+            from app.events.bus import event_bus
+            event = SubPhaseChangedEvent(  # type: ignore[call-arg]
+                project_id=project_id,
+                from_sub_phase=from_sub_phase,
+                to_sub_phase=to_sub_phase,
+                triggered_by=agent_id,
+            )
+            await event_bus.publish(event)
+        except (ImportError, AttributeError):
+            # Event type not yet defined; OK
+            pass
+
+        # Announce in chat
+        try:
+            from app.stages.sub_phases import get_sub_phase
+            from app.events.types import ChatMessageEvent
+            from app.events.bus import event_bus as _eb
+            from app.chinese.converter import chinese_converter
+
+            try:
+                sp = get_sub_phase(to_sub_phase)
+                name = sp.name_zh
+            except KeyError:
+                name = to_sub_phase
+
+            announcement = chinese_converter.convert(
+                f"進入 sub-phase「{name}」（{to_sub_phase}）。"
+            )
+            chat_event = ChatMessageEvent(
+                project_id=project_id,
+                sender_id=agent_id,
+                sender_type="ai",
+                sender_name="Supervisor",
+                content=announcement,
+            )
+            await _eb.publish(chat_event)
+        except Exception as exc:
+            logger.debug("Sub-phase announcement failed: %s", exc)
+
+        logger.info(
+            "Sub-phase advanced project=%s %s → %s",
+            project_id, from_sub_phase, to_sub_phase,
+        )
+        return f"sub_advanced_to_{to_sub_phase}"
+    except Exception as exc:
+        logger.error("Failed to advance sub_phase: %s", exc)
+        return "sub_advance_failed"

@@ -1,0 +1,112 @@
+/* Zone overlay & animations — Spec 13 §2.2, §2.5 */
+
+.zone-overlay {
+  position: absolute;
+  pointer-events: none; /* clicks pass through to tldraw */
+  border: 2px dashed #94a3b8;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.05);
+  transition: opacity 400ms ease-out;
+  will-change: opacity;
+}
+
+.zone-overlay--inactive {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.zone-overlay--quadrant {
+  border-style: dashed;
+}
+
+.zone-overlay--sidebar {
+  border-radius: 12px;
+  background: rgba(156, 163, 175, 0.08);
+}
+
+.zone-overlay--swimlane {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+}
+
+.zone-overlay__title {
+  position: absolute;
+  top: -28px;
+  left: 8px;
+  padding: 4px 10px;
+  background: #fce7f3;
+  color: #9d174d;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* Draw-zone animation: dashed border trace */
+@keyframes zone-frame-draw {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1.0); }
+}
+.zone-overlay--drawing {
+  animation: zone-frame-draw 300ms ease-out;
+}
+
+/* Pink title sticky drop */
+@keyframes title-drop {
+  from { transform: translateY(-12px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.zone-title-sticky--drawing {
+  animation: title-drop 200ms ease-out;
+}
+
+/* Note create */
+@keyframes note-create {
+  from { transform: scale(0.95); opacity: 0; }
+  to   { transform: scale(1.0); opacity: 1; }
+}
+.note-shape--creating {
+  animation: note-create 150ms ease-out;
+}
+
+/* Reject shake */
+@keyframes reject-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+.note-shape--rejected {
+  animation: reject-shake 200ms ease-out;
+}
+
+/* HMW tab fade */
+.hmw-tab {
+  transition: opacity 150ms ease-out, background-color 150ms ease-out;
+}
+.hmw-tab[data-active="false"] {
+  opacity: 0.55;
+}
+
+/* Vote dot land */
+@keyframes vote-land {
+  from { transform: scale(1.4); opacity: 0; }
+  to   { transform: scale(1.0); opacity: 1; }
+}
+.vote-dot--landing {
+  animation: vote-land 200ms ease-out;
+}
+
+/* Animation level data attribute — global override */
+[data-anim="off"] * {
+  animation: none !important;
+  transition: none !important;
+}
+
+[data-anim="reduced"] .zone-overlay--drawing,
+[data-anim="reduced"] .zone-title-sticky--drawing,
+[data-anim="reduced"] .note-shape--creating,
+[data-anim="reduced"] .vote-dot--landing,
+[data-anim="reduced"] .note-shape--rejected {
+  animation-duration: 100ms;
+}

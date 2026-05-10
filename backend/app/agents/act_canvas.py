@@ -24,7 +24,15 @@ CANVAS_ACTION_TYPES = frozenset({
     "arrange_notes",
     "swap_notes",
     "tidy_area",
+    "draw_zone",
+    "draw_template",
 })
+
+# Spec 13: only supervisor can draw zones/templates
+SUPERVISOR_ONLY_ACTIONS = frozenset({"draw_zone", "draw_template"})
+
+# Maximum content-gate retries for AI before giving up
+AI_GATE_RETRY_LIMIT = 2
 
 
 async def execute_canvas_tool(
@@ -33,19 +41,40 @@ async def execute_canvas_tool(
     project_id: UUID,
     agent_id: str,
     agent_name: str,
-) -> None:
-    """Dispatch a canvas action to the appropriate tool handler."""
+    sub_phase_id: str | None = None,
+    seat_role: str | None = None,
+) -> dict[str, Any]:
+    """Dispatch a canvas action to the appropriate tool handler.
+
+    Returns a result dict so the calling Act layer can detect AI gate rejections
+    and trigger retry.
+    """
     from app.canvas.tools_manipulation import (
         tool_arrange_notes,
         tool_create_note,
+        tool_draw_template,
+        tool_draw_zone,
         tool_move_note,
         tool_swap_notes,
         tool_tidy_area,
     )
     from app.bridge.canvas_ops import canvas_ops
 
+    # Spec 13: supervisor-only actions
+    if op_type in SUPERVISOR_ONLY_ACTIONS:
+        is_sup = seat_role and "supervisor" in seat_role.lower()
+        if not is_sup:
+            logger.warning(
+                "Non-supervisor %s attempted %s; rejected", agent_id, op_type,
+            )
+            return {"success": False, "error": "supervisor_only"}
+
     # Update idle timestamp for Rule 5
     await _update_last_event_ts(project_id)
+
+    # Spec 13: record canvas action for stability detector
+    from app.canvas.stability_detector import record_canvas_action
+    await record_canvas_action(project_id)
 
     # Invalidate spatial cache so next perception cycle sees fresh data
     from app.canvas.analyzer import get_spatial_analyzer
@@ -63,11 +92,21 @@ async def execute_canvas_tool(
             author_id=agent_id,
             author_name=agent_name,
             author_type="ai",
+            sub_phase_id=sub_phase_id,
+            force_publish=False,
         )
+        if not result.get("success"):
+            logger.info(
+                "Agent %s create_note REJECTED project=%s reason=%s",
+                agent_id, project_id, result.get("rejection"),
+            )
+            return result
         logger.info(
-            "Agent %s create_note project=%s note_id=%s",
-            agent_id, project_id, result.get("note_id"),
+            "Agent %s create_note project=%s note_id=%s zone=%s",
+            agent_id, project_id,
+            result.get("note_id"), result.get("zone_id"),
         )
+        return result
 
     elif op_type == "move_note":
         note_id = action.get("note_id", "")
@@ -174,8 +213,43 @@ async def execute_canvas_tool(
             agent_id, project_id, scope, strategy, result.get("success"),
         )
 
+    elif op_type == "draw_zone":
+        zone_id = action.get("zone_id", "")
+        bounds = action.get("bounds")  # optional dict
+        result = await tool_draw_zone(
+            project_id=project_id,
+            zone_id=zone_id,
+            bounds=bounds,
+            author_id=agent_id,
+            author_name=agent_name,
+        )
+        logger.info(
+            "Supervisor %s draw_zone project=%s zone=%s ok=%s",
+            agent_id, project_id, zone_id, result.get("success"),
+        )
+        return result
+
+    elif op_type == "draw_template":
+        template = action.get("template", "")
+        origin = action.get("origin")
+        result = await tool_draw_template(
+            project_id=project_id,
+            template=template,
+            origin=tuple(origin) if origin else None,
+            author_id=agent_id,
+            author_name=agent_name,
+        )
+        logger.info(
+            "Supervisor %s draw_template project=%s template=%s ok=%s",
+            agent_id, project_id, template, result.get("success"),
+        )
+        return result
+
     else:
         logger.warning("Unknown canvas op type: %s", op_type)
+        return {"success": False, "error": f"unknown_op:{op_type}"}
+
+    return {"success": True}
 
 
 def _cn(text: str) -> str:

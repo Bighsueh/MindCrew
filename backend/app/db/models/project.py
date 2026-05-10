@@ -25,6 +25,10 @@ class Project(Base):
     current_micro_phase: Mapped[str] = mapped_column(
         String(10), nullable=False, default="1.1"
     )
+    # Spec 13: Sticky-Only Strategy sub-phase（向下相容：None 表示沿用 micro_phase 邏輯）
+    current_sub_phase: Mapped[str | None] = mapped_column(
+        String(8), nullable=True, default=None
+    )
     ai_contribution: Mapped[str] = mapped_column(
         String(10), nullable=False, default="medium"
     )

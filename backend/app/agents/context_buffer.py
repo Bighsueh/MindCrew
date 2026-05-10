@@ -237,7 +237,7 @@ class ContextBuffer:
         """Return the full context dict matching the spec §2.1 JSON format."""
         r = await self._get_redis()
 
-        canvas_state, current_stage, current_micro_phase, stage_duration, seats, project_name, project_description = await self._load_db_state()
+        canvas_state, current_stage, current_micro_phase, stage_duration, seats, project_name, project_description, current_sub_phase = await self._load_db_state()
         recent_chat = await self._load_chat(r)
         my_recent_actions = await self._load_my_actions(r)
 
@@ -282,6 +282,24 @@ class ContextBuffer:
                     "supervisor_mode": strategy.supervisor_mode,
                 }
 
+        # Spec 13 — load active comm_mode + reveal_queue from sub_phase
+        comm_mode = "discussion"
+        active_zones: list[str] = []
+        reveal_queue: list[str] = []
+        if current_sub_phase:
+            try:
+                from app.stages.sub_phases import get_sub_phase
+                sp = get_sub_phase(current_sub_phase)
+                comm_mode = sp.comm_modes[0] if sp.comm_modes else "discussion"
+                active_zones = list(sp.zones) + ["park"]
+            except KeyError:
+                pass
+            try:
+                from app.agents.reveal_queue import get_queue
+                reveal_queue = await get_queue(self._project_id)
+            except Exception:
+                reveal_queue = []
+
         context: dict = {
             "project_name": project_name,
             "project_description": project_description,
@@ -289,6 +307,10 @@ class ContextBuffer:
             "recent_chat": recent_chat,
             "current_stage": current_stage,
             "current_micro_phase": current_micro_phase,
+            "current_sub_phase": current_sub_phase,
+            "comm_mode": comm_mode,
+            "active_zones": active_zones,
+            "reveal_queue": reveal_queue,
             "my_role_status": role_status_value,
             "stage_duration_minutes": stage_duration,
             "seats": seats,
@@ -357,8 +379,13 @@ class ContextBuffer:
 
     async def _load_db_state(
         self,
-    ) -> tuple[dict, str, str | None, int, list[dict], str, str]:
-        """Load canvas notes, project stage info, and seat states from DB."""
+    ) -> tuple[dict, str, str | None, int, list[dict], str, str, str | None]:
+        """Load canvas notes, project stage info, and seat states from DB.
+
+        Returns (canvas_state, current_stage, current_micro_phase,
+                 stage_duration, seats, project_name, project_description,
+                 current_sub_phase).
+        """
         async with async_session_factory() as session:
             # Project stage + ai_contribution
             from app.db.models.project import Project  # local import avoids circular
@@ -368,6 +395,7 @@ class ContextBuffer:
             project = project_row.scalar_one_or_none()
             current_stage = project.current_stage if project else "discover"
             current_micro_phase = project.current_micro_phase if project else None
+            current_sub_phase = getattr(project, "current_sub_phase", None) if project else None
             project_name = project.name if project else ""
             project_description = (project.description or "") if project else ""
 
@@ -454,7 +482,7 @@ class ContextBuffer:
             # Canvas state: try spatial-aware perception (Phase 14), fallback to legacy
             canvas_state = await self._load_canvas_perception(micro_phase=current_micro_phase)
 
-        return canvas_state, current_stage, current_micro_phase, stage_duration, seats, project_name, project_description
+        return canvas_state, current_stage, current_micro_phase, stage_duration, seats, project_name, project_description, current_sub_phase
 
     async def _load_canvas_perception(self, micro_phase: str | None = None) -> dict:
         """Load canvas state with spatial-aware perception (Phase 14).

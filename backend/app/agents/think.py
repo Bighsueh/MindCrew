@@ -24,6 +24,13 @@ _VALID_ACTION_TYPES = {
     "tidy_area",
     "set_directive",
     "no_action",
+    # Spec 13 — Supervisor only
+    "draw_zone",
+    "draw_template",
+    # Spec 13 — Voting (criteria-gated)
+    "open_vote",
+    "cast_vote",
+    "close_vote",
 }
 
 # Text fields that must be converted to Traditional Chinese
