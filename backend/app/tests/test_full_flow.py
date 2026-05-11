@@ -42,12 +42,19 @@ async def test_full_flow(client: AsyncClient):
     project_id = proj_resp.json()["id"]
     assert len(proj_resp.json()["seats"]) == 5
 
-    # 5. Student joins a seat
+    # 5. Student joins a crew seat
+    # Phase 18：supervisor 席位由 AI 鎖定，人類使用者僅能佔 crew_1..4。
     join_resp = await client.post(f"/api/projects/{project_id}/join", json={
-        "seat_role": "supervisor",
+        "seat_role": "crew_1",
     }, headers={"Authorization": f"Bearer {student_token}"})
     assert join_resp.status_code == 200
     assert join_resp.json()["seat"]["occupant_type"] == "human"
+
+    # 5b. Verify supervisor seat remains AI-locked (Phase 18 SOP)
+    sup_join_resp = await client.post(f"/api/projects/{project_id}/join", json={
+        "seat_role": "supervisor",
+    }, headers={"Authorization": f"Bearer {student_token}"})
+    assert sup_join_resp.status_code == 403
 
     # 6. Verify project state
     get_resp = await client.get(f"/api/projects/{project_id}", headers={
@@ -55,6 +62,8 @@ async def test_full_flow(client: AsyncClient):
     })
     assert get_resp.status_code == 200
     seats = get_resp.json()["seats"]
+    crew_1 = next(s for s in seats if s["seat_role"] == "crew_1")
+    assert crew_1["occupant_type"] == "human"
     supervisor = next(s for s in seats if s["seat_role"] == "supervisor")
-    assert supervisor["occupant_type"] == "human"
+    assert supervisor["occupant_type"] == "ai"
     assert sum(1 for s in seats if s["occupant_type"] == "ai") == 4
