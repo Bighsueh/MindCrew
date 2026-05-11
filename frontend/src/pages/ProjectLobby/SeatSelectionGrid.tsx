@@ -3,6 +3,7 @@ import {
   User,
   LogIn,
   Crown,
+  Lock,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Button } from '../../components/common/Button'
@@ -42,15 +43,8 @@ export function SeatSelectionGrid({
         </div>
       )}
 
-      {/* Supervisor section */}
-      {supervisorSeat && (
-        <SupervisorRow
-          seat={supervisorSeat}
-          currentUserId={currentUserId}
-          onJoin={onJoin}
-          isJoining={joiningRole === 'supervisor'}
-        />
-      )}
+      {/* Supervisor section — locked: AI-only seat */}
+      {supervisorSeat && <SupervisorRow seat={supervisorSeat} />}
 
       {/* Crew section */}
       <div className="divide-y divide-border-light">
@@ -77,50 +71,36 @@ interface SeatRowProps {
   isJoining: boolean
 }
 
-function SupervisorRow({ seat, currentUserId, onJoin, isJoining }: SeatRowProps) {
-  const isMyCurrentSeat =
-    seat.occupant_type === 'human' && seat.user_id === currentUserId
-  const isHumanOccupied =
-    seat.occupant_type === 'human' && !isMyCurrentSeat
-  const isAI = seat.occupant_type === 'ai'
+interface SupervisorRowProps {
+  seat: Seat
+}
+
+function SupervisorRow({ seat }: SupervisorRowProps) {
+  const agentLabel = seat.display_name?.replace(/^AI\s*/, '') ?? 'AI'
 
   return (
-    <div
-      className={cn(
-        'border-b border-border px-5 py-4 transition-colors',
-        isMyCurrentSeat && 'bg-supervisor/5',
-        isAI && 'hover:bg-surface-hover',
-      )}
-    >
+    <div className="border-b border-border bg-supervisor/5 px-5 py-4">
       <div className="flex items-center gap-3">
-        <SeatAvatar
-          isAI={isAI}
-          isMe={isMyCurrentSeat}
-          isSupervisor
-        />
+        <SeatAvatar isAI isMe={false} isSupervisor />
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Crown size={14} className="text-supervisor" />
             <span className="text-sm font-semibold text-text">組長</span>
-            <OccupantBadge
-              isAI={isAI}
-              isMe={isMyCurrentSeat}
-              isOtherHuman={isHumanOccupied}
-              displayName={seat.display_name}
-            />
+            <span className="inline-flex items-center gap-1 rounded-full bg-supervisor/15 px-2 py-0.5 text-[11px] font-medium text-supervisor">
+              <Bot size={10} />
+              {agentLabel} · 代理中
+            </span>
           </div>
           <p className="mt-0.5 text-xs text-text-muted">
             引導討論方向、整理白板、管理進度
           </p>
         </div>
 
-        <SeatAction
-          isAI={isAI}
-          isJoining={isJoining}
-          seatRole={seat.seat_role as SeatRole}
-          onJoin={onJoin}
-        />
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-secondary/40 px-2.5 py-1 text-xs font-medium text-text-muted">
+          <Lock size={12} />
+          AI 專屬席位
+        </span>
       </div>
     </div>
   )

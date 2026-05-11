@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bridge.canvas_ops import canvas_ops
 from app.db.models.project import Project
-from app.db.models.seat import Seat
 from app.db.models.stage_history import StageHistory
+from app.db.models.user import User
 from app.events.bus import event_bus
 from app.events.types import MicroPhaseChangedEvent, StageChangedEvent
 from app.stages.micro_phase_repository import MicroPhaseHistoryRepository
@@ -312,21 +312,33 @@ class StageService:
         return project
 
     async def _assert_supervisor(self, project_id: UUID, user_id: UUID) -> None:
-        """Raise 403 if user does not occupy the supervisor seat."""
-        result = await self.session.execute(
-            select(Seat).where(
-                Seat.project_id == project_id,
-                Seat.seat_role == "supervisor",
-                Seat.occupant_type == "human",
-                Seat.user_id == user_id,
-            )
+        """Raise 403 unless the caller is allowed to manually advance the stage.
+
+        Since the Supervisor seat is AI-only (no human can occupy it), the only
+        humans permitted to manually advance are teachers/admins who created the
+        project. All other manual triggers must be denied — AI agents advance
+        through internal evaluator paths, not this HTTP endpoint.
+        """
+        user_result = await self.session.execute(
+            select(User).where(User.id == user_id)
         )
-        seat = result.scalar_one_or_none()
-        if seat is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only the human supervisor may advance the stage",
+        user = user_result.scalar_one_or_none()
+        if user is not None and user.role in ("teacher", "admin"):
+            project_result = await self.session.execute(
+                select(Project).where(Project.id == project_id)
             )
+            project = project_result.scalar_one_or_none()
+            if project is not None and project.creator_id == user.id:
+                return
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Stage advancement is restricted: the Supervisor seat is "
+                "AI-only, and only the project's teacher/admin creator may "
+                "force-advance manually."
+            ),
+        )
 
     async def _compute_duration(
         self, project_id: UUID, project_created_at: datetime
