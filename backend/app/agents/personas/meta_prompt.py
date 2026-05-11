@@ -82,7 +82,7 @@ _PERSONA_INSTANTIATION_TEMPLATE: str = """\
       "role": "20 字內具體職稱/身份（含工作場景）",
       "expertise": "30 字內，列 2-3 個具體會什麼",
       "personality_axis": "contrarian | balanced | supportive",
-      "personality_desc": "一句話描述他/她在團隊裡的典型發言模式（30 字內）",
+      "personality_desc": "個性特質短語 3-5 個，以頓號或逗號分隔；只能用形容詞性短語，禁止第一人稱、禁止軼事、禁止舉例（如：開朗樂觀、明察秋毫、喜歡發掘未知、思考跳躍）",
       "backstory": "30 字內背景說明：為什麼這個身份對本主題有切角",
       "lens_affinities": {
         "empathy": 0.0,
@@ -102,6 +102,7 @@ _PERSONA_INSTANTIATION_TEMPLATE: str = """\
 - [ ] 是否至少有一位「跨界類比者」（領域與主題乍看無關）？
 - [ ] lens_affinities 是否反映真實職業傾向，而非平均分配？
 - [ ] 是否避免了刻板印象？
+- [ ] `personality_desc` 是否為 3-5 個形容詞性個性特質短語？不可出現「我…」「會分享…」「覺得…」等第一人稱或軼事
 
 只回應 JSON，不要任何其他文字。\
 """

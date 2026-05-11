@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -56,12 +56,47 @@ class CrewPersonaAssignment(BaseModel):
     persona: PersonaPayload
 
 
+MIN_AI_CREW = 1
+MAX_AI_CREW = 4
+
+
+def _expected_crew_slots(ai_crew_count: int) -> tuple[str, ...]:
+    return tuple(f"crew_{i}" for i in range(1, ai_crew_count + 1))
+
+
 class ProjectCreateRequest(BaseModel):
     name: str
     description: str | None = None
     constraints: str | None = None
     ai_contribution: str = "medium"
-    personas: list[CrewPersonaAssignment] | None = None
+    # Phase 21: 教師可自訂 AI 組員人數（1..4），預設 3。
+    ai_crew_count: int = Field(default=3, ge=MIN_AI_CREW, le=MAX_AI_CREW)
+    personas: list[CrewPersonaAssignment] = Field(
+        ..., min_length=MIN_AI_CREW, max_length=MAX_AI_CREW
+    )
+
+    @model_validator(mode="after")
+    def _validate_personas_match_crew_count(self) -> "ProjectCreateRequest":
+        expected = _expected_crew_slots(self.ai_crew_count)
+        if len(self.personas) != len(expected):
+            raise ValueError(
+                f"personas: 需要 {len(expected)} 位 (與 ai_crew_count={self.ai_crew_count} 一致)，"
+                f"但收到 {len(self.personas)} 位"
+            )
+        seen = {item.seat_role for item in self.personas}
+        if len(seen) != len(self.personas):
+            raise ValueError("personas: seat_role 不可重複")
+        missing = set(expected) - seen
+        if missing:
+            raise ValueError(
+                f"personas: 缺少 {sorted(missing)}，必須覆蓋 {list(expected)}"
+            )
+        extra = seen - set(expected)
+        if extra:
+            raise ValueError(
+                f"personas: 多出 {sorted(extra)}，僅允許 {list(expected)}"
+            )
+        return self
 
 
 class SeatResponse(BaseModel):
@@ -71,6 +106,8 @@ class SeatResponse(BaseModel):
     agent_id: str | None = None
     display_name: str | None = None
     persona: dict[str, Any] | None = None
+    # Phase 21: 在第一位真人入座前 AI 為 "dormant"——前端據此顯示「待加入」。
+    is_active: bool = True
 
     model_config = {"from_attributes": True}
 

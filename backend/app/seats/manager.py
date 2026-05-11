@@ -211,6 +211,9 @@ class SeatManager:
         """Start AI agents on all AI-occupied seats for a project.
 
         Idempotent: skips seats that already have a running task.
+        Phase 21: dormant seats are skipped here — they only activate via
+        :meth:`activate_dormant_seats` which is triggered by the first
+        human joining the project.
         """
         async with async_session_factory() as session:
             result = await session.execute(
@@ -222,12 +225,106 @@ class SeatManager:
             ai_seats = result.scalars().all()
 
         for seat in ai_seats:
+            if seat.state == "dormant":
+                continue  # Phase 21: not yet activated
             key = (project_id, seat.seat_role)
             if key in self._agent_tasks and not self._agent_tasks[key].done():
                 continue  # already running
             agent_id = seat.agent_id or f"agent_{seat.seat_role}"
             self._restart_counts.pop(key, None)  # reset counter on explicit start
             await self._start_agent(project_id, seat.seat_role, agent_id)
+
+    async def activate_dormant_seats(
+        self,
+        project_id: UUID,
+        *,
+        crew_stagger_seconds: float = 1.0,
+    ) -> None:
+        """Phase 21: 第一位真人入座後，把所有 dormant AI 席位轉為 active。
+
+        - Supervisor 立即啟動（含 greeting）。
+        - 其他 dormant crew seats 在 ``crew_stagger_seconds`` 間距內依序啟動，
+          並在 background task 中執行以避免阻塞 HTTP 回應。
+        """
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(Seat).where(
+                    Seat.project_id == project_id,
+                    Seat.occupant_type == "ai",
+                    Seat.state == "dormant",
+                )
+            )
+            dormant_seats = list(result.scalars().all())
+
+        if not dormant_seats:
+            return
+
+        supervisor_seat = next(
+            (s for s in dormant_seats if s.seat_role == "supervisor"), None
+        )
+        crew_seats = [s for s in dormant_seats if s.seat_role != "supervisor"]
+        crew_seats.sort(key=lambda s: s.seat_role)  # crew_1, crew_2, ...
+
+        if supervisor_seat is not None:
+            await self._promote_dormant_seat(project_id, supervisor_seat.seat_role)
+
+        async def _stagger_crew() -> None:
+            for idx, seat in enumerate(crew_seats):
+                await asyncio.sleep(crew_stagger_seconds * (idx + 1))
+                try:
+                    await self._promote_dormant_seat(project_id, seat.seat_role)
+                except Exception as exc:  # pragma: no cover - background safety
+                    logger.warning(
+                        "activate_dormant_seats(crew=%s) failed: %s", seat.seat_role, exc
+                    )
+
+        if crew_seats:
+            asyncio.create_task(_stagger_crew())
+
+    async def _promote_dormant_seat(
+        self, project_id: UUID, seat_role: str
+    ) -> None:
+        """Flip a single seat from dormant → ai_running, start its agent, and broadcast."""
+        agent_id = f"agent_{seat_role}"
+
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(Seat).where(
+                    Seat.project_id == project_id,
+                    Seat.seat_role == seat_role,
+                )
+            )
+            seat = result.scalar_one_or_none()
+            if seat is None or seat.state != "dormant":
+                return
+            seat.agent_id = agent_id
+            seat.state = "ai_running"
+            seat.updated_at = datetime.now(timezone.utc)
+            await session.commit()
+
+        await self._update_redis_seat(project_id, seat_role, "ai", agent_id)
+
+        # Broadcast so frontends switch the seat from "待加入" → "代理中".
+        persona = await self._fetch_seat_persona(project_id, seat_role)
+        ai_display_name = self._role_to_display_name(seat_role, persona)
+        event = SeatChangedEvent(
+            project_id=project_id,
+            seat_role=seat_role,
+            previous_occupant_type="ai",
+            previous_display_name="",
+            current_occupant_type="ai",
+            current_display_name=ai_display_name,
+        )
+        await event_bus.publish(event)
+
+        # Spin up the agent task and let it greet.
+        await self._start_agent(project_id, seat_role, agent_id)
+        await self._send_ai_greeting(project_id, seat_role, agent_id)
+        logger.info(
+            "Seat %s in project %s promoted from dormant → ai_running",
+            seat_role,
+            project_id,
+        )
 
     def get_agent(self, project_id: UUID, seat_role: str) -> Any | None:
         """Return the running BaseAgent instance, if any."""

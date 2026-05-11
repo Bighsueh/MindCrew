@@ -63,7 +63,7 @@ class Persona:
         role: 20 字內的職稱/身份描述
         expertise: 30 字內的專長範圍 (列 2-3 個具體面向)
         personality_axis: contrarian | balanced | supportive
-        personality_desc: 一句話描述典型發言模式
+        personality_desc: 個性特質短語清單，以頓號或逗號分隔（如「開朗樂觀、明察秋毫、思考跳躍」）
         backstory: 30 字內背景說明
         lens_affinities: 對四種認知透鏡的傾向分數
     """
@@ -136,7 +136,7 @@ _FALLBACK_DEFINITIONS: dict[str, dict[str, Any]] = {
         "role": "使用者研究員",
         "expertise": "使用者觀察、情緒洞察、需求挖掘",
         "personality_axis": "supportive",
-        "personality_desc": "總是把討論拉回使用者的真實感受",
+        "personality_desc": "細膩敏感、情緒共感力強、傾聽優先",
         "backstory": "預設角色，當未指定具體人設時啟用",
         "lens_affinities": {
             "empathy": 0.9,
@@ -150,7 +150,7 @@ _FALLBACK_DEFINITIONS: dict[str, dict[str, Any]] = {
         "role": "系統思考者",
         "expertise": "資訊整理、模式識別、邏輯框架",
         "personality_axis": "balanced",
-        "personality_desc": "擅長把零散觀點歸納成清晰結構",
+        "personality_desc": "邏輯清晰、有系統觀、善歸納",
         "backstory": "預設角色，當未指定具體人設時啟用",
         "lens_affinities": {
             "empathy": 0.3,
@@ -164,7 +164,7 @@ _FALLBACK_DEFINITIONS: dict[str, dict[str, Any]] = {
         "role": "跨界發想者",
         "expertise": "類比聯想、反向思考、跳脫框架",
         "personality_axis": "contrarian",
-        "personality_desc": "經常拋出意想不到的角度刺激思考",
+        "personality_desc": "思考跳躍、好奇求新、敢挑戰前提",
         "backstory": "預設角色，當未指定具體人設時啟用",
         "lens_affinities": {
             "empathy": 0.4,
@@ -178,7 +178,7 @@ _FALLBACK_DEFINITIONS: dict[str, dict[str, Any]] = {
         "role": "落地策略師",
         "expertise": "資源評估、技術約束、實施路徑",
         "personality_axis": "balanced",
-        "personality_desc": "聚焦在「下一步怎麼做」",
+        "personality_desc": "務實穩健、目標導向、執行力強",
         "backstory": "預設角色，當未指定具體人設時啟用",
         "lens_affinities": {
             "empathy": 0.3,

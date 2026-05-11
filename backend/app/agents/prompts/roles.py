@@ -314,7 +314,7 @@ def render_persona_prompt(persona_payload: dict | None) -> str:
     )
     sections.append("【你的個性】\n" + axis_rule)
     if persona.personality_desc:
-        sections.append(f"【典型發言模式】\n{persona.personality_desc}")
+        sections.append(f"【個性特質】\n{persona.personality_desc}")
     sections.append(
         "【共通鐵則】\n"
         "- 永遠從你「這個身分」會關注的角度切入，避免變成泛泛的 AI 助理\n"

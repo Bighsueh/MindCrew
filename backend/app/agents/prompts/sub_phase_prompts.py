@@ -120,7 +120,6 @@ def build_sub_phase_prompt(sub_phase_id: str) -> str:
                 colors = ", ".join(zone.allowed_colors)
                 title = zone.visual.title_sticky if zone.visual else zone_id
                 lines.append(f"- `{zone_id}` — {title}（可用顏色：{colors}）")
-        lines.append("- `park` — 孤兒區（任何顏色，跨 phase 共用）")
         lines.append("")
 
     # Templates
@@ -159,9 +158,9 @@ def build_sub_phase_prompt(sub_phase_id: str) -> str:
 
 
 def list_zones_for_sub_phase(sub_phase_id: str) -> list[str]:
-    """List zone ids active for the given sub-phase (含 park always-on)."""
+    """List zone ids active for the given sub-phase."""
     try:
         sp = get_sub_phase(sub_phase_id)
     except KeyError:
-        return ["park"]
-    return list(sp.zones) + ["park"]
+        return []
+    return list(sp.zones)

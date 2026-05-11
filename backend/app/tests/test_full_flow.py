@@ -33,14 +33,18 @@ async def test_full_flow(client: AsyncClient):
     student_token = login_resp.json()["access_token"]
 
     # 4. Student creates project
+    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD
+
     proj_resp = await client.post("/api/projects", json={
         "name": "Flow Project",
         "description": "Full flow test",
         "ai_contribution": "high",
+        "personas": VALID_PERSONAS_PAYLOAD,
     }, headers={"Authorization": f"Bearer {student_token}"})
     assert proj_resp.status_code == 201
     project_id = proj_resp.json()["id"]
-    assert len(proj_resp.json()["seats"]) == 5
+    # Phase 21：預設 ai_crew_count=3 → 4 seats
+    assert len(proj_resp.json()["seats"]) == 4
 
     # 5. Student joins a crew seat
     # Phase 18：supervisor 席位由 AI 鎖定，人類使用者僅能佔 crew_1..4。
@@ -66,4 +70,5 @@ async def test_full_flow(client: AsyncClient):
     assert crew_1["occupant_type"] == "human"
     supervisor = next(s for s in seats if s["seat_role"] == "supervisor")
     assert supervisor["occupant_type"] == "ai"
-    assert sum(1 for s in seats if s["occupant_type"] == "ai") == 4
+    # Phase 21：預設 ai_crew_count=3，扣掉人類入座的 crew_1 → 還剩 3 個 AI (supervisor + crew_2 + crew_3)
+    assert sum(1 for s in seats if s["occupant_type"] == "ai") == 3

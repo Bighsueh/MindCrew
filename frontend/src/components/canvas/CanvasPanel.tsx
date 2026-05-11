@@ -10,7 +10,6 @@ import { NoteAuthorOverlay } from './NoteAuthorOverlay'
 import { AnimatedYjsBridge } from './AnimatedYjsBridge'
 // Phase 17 Stream B (Spec 13) — Sticky-Only Strategy overlays
 import { ZoneOverlay } from './ZoneOverlay'
-import { ParkSidebar } from './ParkSidebar'
 import { HmwTabBar } from './HmwTabBar'
 import { CommModeIndicator } from './CommModeIndicator'
 // Phase 17 Stream B (Spec 14 + 15) — Timer + Advance vote
@@ -166,7 +165,6 @@ export function CanvasPanel({
         subPhaseName={subPhaseName}
         nextRevealSeat={nextRevealSeat}
       />
-      <ParkSidebar notes={[]} />
       {/* Phase 17 Stream B (Spec 15): everyone-visible timer */}
       <TimerBadge />
       {/* Phase 17 Stream B (Spec 15): teacher-only timer control */}

@@ -8,10 +8,13 @@ Two responsibilities:
 """
 from __future__ import annotations
 
+import json
 import logging
+from typing import AsyncIterator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,6 +80,47 @@ async def generate_personas(
         PersonaPayload(**persona_to_dict(persona)) for persona in personas
     ]
     return PersonaGenerateResponse(personas=payloads)
+
+
+@router.post("/api/personas/generate/stream")
+async def generate_personas_stream(
+    request: PersonaGenerateRequest,
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Stream persona generation events as SSE (see spec §17.3.1.2).
+
+    The response stays open until either ``done`` or ``error`` is emitted.
+    Errors during generation are reported as ``event: error`` frames with
+    HTTP status 200 — the client decides whether to fall back to the sync
+    endpoint or display the message.
+    """
+    generator = PersonaGenerator()
+
+    async def event_stream() -> AsyncIterator[bytes]:
+        try:
+            async for event in generator.generate_stream(
+                title=request.title,
+                description=request.description,
+                constraints=request.constraints,
+                num_personas=request.num_personas,
+            ):
+                event_name = str(event.get("type") or "message")
+                payload = {k: v for k, v in event.items() if k != "type"}
+                data = json.dumps(payload, ensure_ascii=False)
+                yield f"event: {event_name}\ndata: {data}\n\n".encode("utf-8")
+        except Exception as exc:  # noqa: BLE001 — translate to SSE error frame
+            logger.exception("Persona SSE stream crashed")
+            data = json.dumps({"detail": str(exc)}, ensure_ascii=False)
+            yield f"event: error\ndata: {data}\n\n".encode("utf-8")
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",  # disable nginx/proxy buffering
+        },
+    )
 
 
 @router.patch(

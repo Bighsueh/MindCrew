@@ -398,7 +398,7 @@ class ContextBuffer:
             from app.stages.sub_phases import get_sub_phase
             sp = get_sub_phase(current_sub_phase)
             comm_mode = sp.comm_modes[0] if sp.comm_modes else "discussion"
-            active_zones = list(sp.zones) + ["park"]
+            active_zones = list(sp.zones)
         except (ImportError, KeyError):
             pass
 

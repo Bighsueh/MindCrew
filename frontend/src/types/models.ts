@@ -79,6 +79,8 @@ export interface Seat {
   display_name?: string
   persona?: Persona | null
   state: string
+  // Phase 21：第一位真人入座前，AI 席位為 dormant（is_active=false）→ 顯示「待加入」。
+  is_active?: boolean
   joined_at?: string | null
   updated_at: string
 }

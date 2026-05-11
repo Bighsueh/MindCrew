@@ -168,13 +168,13 @@ export function PersonaEditDialog({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-text">典型發言模式</label>
+          <label className="text-sm font-medium text-text">個性特質</label>
           <textarea
             value={draft.personality_desc}
             onChange={(e) =>
               setDraft((prev) => ({ ...prev, personality_desc: e.target.value }))
             }
-            placeholder="一句話描述他/她在團隊裡通常怎麼發言"
+            placeholder="3-5 個個性特質短語（如：開朗樂觀、明察秋毫、思考跳躍）"
             rows={2}
             className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
           />

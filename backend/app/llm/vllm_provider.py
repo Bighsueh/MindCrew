@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import AsyncIterator
 
 from openai import AsyncOpenAI
 
@@ -75,6 +76,45 @@ class VLLMProvider(LLMProvider):
             model=model,
             finish_reason=finish_reason,
         )
+
+    async def chat_completion_stream(
+        self,
+        messages: list[dict],
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+    ) -> AsyncIterator[str]:
+        """Yield content delta strings as the LLM streams its response.
+
+        Raises asyncio.TimeoutError if the initial connect or any chunk
+        exceeds the configured timeout.
+        """
+        try:
+            stream = await asyncio.wait_for(
+                self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,  # type: ignore[arg-type]
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=True,
+                ),
+                timeout=self._timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "vLLM chat_completion_stream connect timed out after %ss",
+                self._timeout,
+            )
+            raise
+
+        try:
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except asyncio.TimeoutError:
+            logger.warning(
+                "vLLM streaming chunk timed out after %ss", self._timeout
+            )
+            raise
 
     async def health_check(self) -> bool:
         """Return True if the vLLM endpoint can list its models."""

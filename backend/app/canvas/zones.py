@@ -51,9 +51,6 @@ class Zone:
 # 合法顏色列舉
 COLORS: frozenset[str] = frozenset({"yellow", "pink", "blue", "green"})
 
-# Park sidebar 座標（右側固定）
-PARK_BOUNDS = Bounds(x=2400, y=0, w=240, h=2000)
-
 
 # ---------------------------------------------------------------------------
 # Zone registry — 所有 sub-phase 用到的 zones
@@ -276,16 +273,6 @@ ZONES: dict[str, Zone] = {
         default_bounds=Bounds(x=100, y=100, w=1500, h=400),
         visual=ZoneVisual("rectangle", "決定去向（Close / Loop-D / Loop-F）"),
     ),
-
-    # ── Global zones ────────────────────────────────────────
-    "park": Zone(
-        id="park",
-        phase_visible=tuple(),  # always visible，by special case
-        allowed_colors=("yellow", "pink", "blue", "green"),
-        default_bounds=PARK_BOUNDS,
-        visual=ZoneVisual("sidebar", "🅿️ Park（孤兒區）", border_color="#9CA3AF"),
-        description="跨 phase 共用，便條不會被自動聚類",
-    ),
 }
 
 
@@ -298,18 +285,9 @@ def get_zone(zone_id: str) -> Zone:
     return ZONES[zone_id]
 
 
-def is_park_zone(zone_id: str) -> bool:
-    return zone_id == "park"
-
-
 def get_active_zones(sub_phase_id: str) -> list[Zone]:
-    """Return all zones active in the given sub-phase (含 always-on park)."""
-    result = [z for z in ZONES.values() if sub_phase_id in z.phase_visible]
-    # Park 永遠 active
-    park = ZONES.get("park")
-    if park and park not in result:
-        result.append(park)
-    return result
+    """Return all zones active in the given sub-phase."""
+    return [z for z in ZONES.values() if sub_phase_id in z.phase_visible]
 
 
 def resolve_zone_by_position(
