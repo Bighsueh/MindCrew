@@ -8,28 +8,42 @@ import { MiniToolbar } from './MiniToolbar'
 import { ZoomControls } from './ZoomControls'
 import { NoteAuthorOverlay } from './NoteAuthorOverlay'
 import { AnimatedYjsBridge } from './AnimatedYjsBridge'
-// Spec 13 — Sticky-Only Strategy overlays
+// Phase 17 Stream B (Spec 13) — Sticky-Only Strategy overlays
 import { ZoneOverlay } from './ZoneOverlay'
 import { ParkSidebar } from './ParkSidebar'
 import { HmwTabBar } from './HmwTabBar'
 import { CommModeIndicator } from './CommModeIndicator'
-// Spec 14 + 15 — Timer + Advance vote
+// Phase 17 Stream B (Spec 14 + 15) — Timer + Advance vote
 import { TimerBadge } from '../timer/TimerBadge'
 import { TimerControlPanel } from '../timer/TimerControlPanel'
 import { AdvanceVoteBanner } from '../vote/AdvanceVoteBanner'
 import { useProjectRealtime } from '@/hooks/useProjectRealtime'
+// Phase 20 — Empty state for the start-action UX
+import { CanvasEmptyState, type StartActionStage } from './CanvasEmptyState'
 
 interface CanvasPanelProps {
   projectId: string
   currentStage?: DTStage
-  // Spec 13: 由父層注入當前 sub_phase 與 comm_mode
+  // Phase 17 Stream B: parent injects current sub_phase + comm_mode
   subPhase?: string | null
   commMode?: 'silent_write' | 'reveal_round' | 'silent_rearrange' | 'discussion'
   subPhaseName?: string
   nextRevealSeat?: string | null
-  // Spec 14 + 15: teacher mode + current user id
+  // Phase 17 Stream B: teacher mode + current user id for vote / timer
   isTeacher?: boolean
   currentUserId?: string
+  // Phase 20: EmptyState action callback. Stable string actionId.
+  onEmptyStateAction?: (actionId: string) => void
+  // Phase 20: notify parent when shape count changes (for EmptyState toggle / tour)
+  onShapeCountChange?: (count: number) => void
+  // Phase 20: parent override for EmptyState visibility; fallback = shapeCount === 0
+  emptyStateVisible?: boolean
+}
+
+// Phase 20: narrow DTStage to the 4 stages the EmptyState recognises (matches STAGE_ACTIONS keys)
+function asStartActionStage(s: DTStage | undefined): StartActionStage {
+  if (s === 'discover' || s === 'define' || s === 'develop' || s === 'deliver') return s
+  return 'discover'
 }
 
 function getYjsWsUrl(): string {
@@ -62,20 +76,27 @@ const STAGE_BG: Record<string, string> = {
 export function CanvasPanel({
   projectId,
   currentStage,
+  // Phase 17 Stream B
   subPhase = null,
   commMode = 'discussion',
   subPhaseName,
   nextRevealSeat = null,
   isTeacher = false,
   currentUserId = '',
+  // Phase 20
+  onEmptyStateAction,
+  onShapeCountChange,
+  emptyStateVisible,
 }: CanvasPanelProps) {
-  // Spec 14 + 15: pull timer + vote state
+  // Phase 17 Stream B (Spec 14 + 15): pull timer + vote state
   const { voteSession } = useProjectRealtime(projectId)
   const [connected, setConnected] = useState(false)
   const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), [])
   const docRef = useRef<Y.Doc | null>(null)
   const providerRef = useRef<WebsocketProvider | null>(null)
   const [shapesMap, setShapesMap] = useState<Y.Map<unknown> | null>(null)
+  // Phase 20: track shape count for EmptyState visibility fallback
+  const [shapeCount, setShapeCount] = useState(0)
 
   useEffect(() => {
     const doc = new Y.Doc()
@@ -102,6 +123,20 @@ export function CanvasPanel({
     }
   }, [projectId])
 
+  // Phase 20: subscribe to tldraw store for shape-count changes (used by EmptyState).
+  // Deliberately outside <Tldraw> children because tldraw renders children twice.
+  useEffect(() => {
+    const update = () => {
+      const records = store.allRecords()
+      const next = records.filter((r) => r.typeName === 'shape').length
+      setShapeCount(next)
+      onShapeCountChange?.(next)
+    }
+    update()
+    const unlisten = store.listen(update, { source: 'all', scope: 'document' })
+    return unlisten
+  }, [store, onShapeCountChange])
+
   const stageBg = currentStage ? STAGE_BG[currentStage] ?? '' : ''
 
   return (
@@ -120,9 +155,10 @@ export function CanvasPanel({
         <MiniToolbar />
         <ZoomControls />
         <NoteAuthorOverlay />
-        {/* Spec 13: zone 視覺框 — 相機座標傳 0/0/1，前端 store 內部再對齊 */}
+        {/* Phase 17 Stream B (Spec 13): zone overlay. Camera coords passthrough — store internal aligns. */}
         <ZoneOverlay cameraX={0} cameraY={0} cameraZ={1} />
       </Tldraw>
+      {/* Phase 17 Stream B (Spec 13) overlays — outside Tldraw to avoid double-render */}
       <HmwTabBar />
       <CommModeIndicator
         subPhase={subPhase}
@@ -131,17 +167,26 @@ export function CanvasPanel({
         nextRevealSeat={nextRevealSeat}
       />
       <ParkSidebar notes={[]} />
-      {/* Spec 15: 所有人可見的 timer */}
+      {/* Phase 17 Stream B (Spec 15): everyone-visible timer */}
       <TimerBadge />
-      {/* Spec 15: 老師限定 timer 控制 */}
+      {/* Phase 17 Stream B (Spec 15): teacher-only timer control */}
       <TimerControlPanel projectId={projectId} isTeacher={isTeacher} />
-      {/* Spec 14 N2: Crew 推進投票 */}
+      {/* Phase 17 Stream B (Spec 14 N2): Crew advance vote */}
       <AdvanceVoteBanner
         projectId={projectId}
         isTeacher={isTeacher}
         currentUserId={currentUserId}
         session={voteSession}
       />
+      {/* Phase 20: EmptyState must be a <Tldraw> sibling, not a child (tldraw double-renders children).
+          Only mount when parent registered onEmptyStateAction, to avoid surprising pre-wired callers. */}
+      {onEmptyStateAction !== undefined && (
+        <CanvasEmptyState
+          stage={asStartActionStage(currentStage)}
+          visible={emptyStateVisible ?? shapeCount === 0}
+          onActionClick={onEmptyStateAction}
+        />
+      )}
     </div>
   )
 }
