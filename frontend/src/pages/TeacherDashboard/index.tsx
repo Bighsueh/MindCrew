@@ -11,6 +11,7 @@ import { AlertBanner } from '../../components/teacher/AlertBanner'
 import { ProjectMonitorCard } from '../../components/teacher/ProjectMonitorCard'
 import { Plus, RefreshCw } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { useTeacherDashboardTourAutoStart } from '../../components/onboarding/useTeacherDashboardTourAutoStart'
 import type { TeacherProjectSummary, ProjectOverviewResponse, User } from '../../types/models'
 
 interface NewStudentFormData {
@@ -52,6 +53,12 @@ export function TeacherDashboardPage() {
   useEffect(() => {
     loadOverview().finally(() => setIsLoadingProjects(false))
   }, [])
+
+  // 首次進入自動跑 driver.js 漫遊（每個 session 一次）
+  useTeacherDashboardTourAutoStart({
+    isLoading: isLoadingProjects,
+    delayMs: 500,
+  })
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
@@ -100,7 +107,7 @@ export function TeacherDashboardPage() {
   return (
     <div>
       {/* Page header */}
-      <div className="mb-8 flex items-center justify-between">
+      <div data-tour="teacher-hero" className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-text">教師儀表板</h1>
           <p className="mt-1 text-sm text-text-muted">{user?.display_name} 老師</p>
@@ -112,7 +119,11 @@ export function TeacherDashboardPage() {
               重新整理
             </Button>
           )}
-          <Button className="rounded-full px-6" onClick={() => setShowCreateProject(true)}>
+          <Button
+            data-tour="teacher-create"
+            className="rounded-full px-6"
+            onClick={() => setShowCreateProject(true)}
+          >
             <Plus size={16} />
             建立新專案
           </Button>
@@ -120,7 +131,7 @@ export function TeacherDashboardPage() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-border-light mb-8">
+      <div data-tour="teacher-tabs" className="border-b border-border-light mb-8">
         <div className="flex gap-0">
           {(['projects', 'students'] as const).map((tab) => (
             <button
@@ -153,21 +164,30 @@ export function TeacherDashboardPage() {
             <div className="flex flex-col items-center justify-center rounded-2xl bg-bg-warm py-16">
               <p className="text-lg font-medium text-text">尚無專案</p>
               <p className="mt-1 text-sm text-text-muted">建立你的第一個 Design Thinking 專案</p>
-              <Button className="mt-5 rounded-full px-8" onClick={() => setShowCreateProject(true)}>
+              <Button
+                data-tour="teacher-empty-cta"
+                className="mt-5 rounded-full px-8"
+                onClick={() => setShowCreateProject(true)}
+              >
                 建立第一個專案
               </Button>
             </div>
           ) : (
             <>
-              <StageDistributionBar distribution={overview.stage_distribution} />
-              <AlertBanner projects={overview.projects} />
+              <div data-tour="teacher-stage-distribution">
+                <StageDistributionBar distribution={overview.stage_distribution} />
+              </div>
+              <div data-tour="teacher-alerts">
+                <AlertBanner projects={overview.projects} />
+              </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {overview.projects.map((p) => (
-                  <ProjectMonitorCard
+                {overview.projects.map((p, idx) => (
+                  <div
                     key={p.id}
-                    project={p}
-                    onRefresh={handleRefresh}
-                  />
+                    {...(idx === 0 ? { 'data-tour': 'teacher-monitor-card' } : {})}
+                  >
+                    <ProjectMonitorCard project={p} onRefresh={handleRefresh} />
+                  </div>
                 ))}
               </div>
             </>

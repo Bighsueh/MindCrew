@@ -7,6 +7,7 @@ import { CreateProjectDialog } from '../../components/project/CreateProjectDialo
 import { DeleteProjectDialog } from '../../components/project/DeleteProjectDialog'
 import { ProjectCard } from '../../components/project/ProjectCard'
 import { StickyNoteSVG } from '../../components/landing/StickyNoteSVG'
+import { useProjectsTourAutoStart } from '../../components/onboarding/useProjectsTourAutoStart'
 import { cn } from '../../lib/utils'
 import { Plus, Search, FolderOpen, Sparkles, CheckCircle2 } from 'lucide-react'
 import type { ProjectListItem, DTStage } from '../../types/models'
@@ -65,6 +66,13 @@ export function ProjectsPage() {
     fetchProjects()
   }, [fetchProjects])
 
+  // 首次進入自動跑 driver.js 漫遊（每個 session 一次）
+  // 等 fetchProjects 拿到資料 + DOM render 完再啟動，否則 projects-card anchor 還不存在
+  useProjectsTourAutoStart({
+    role: user?.role,
+    delayMs: isLoading ? 800 : 400,
+  })
+
   // Compute stats
   const stats = useMemo(() => {
     const active = projects.filter((p) => p.status === 'active').length
@@ -118,20 +126,24 @@ export function ProjectsPage() {
     <div className="flex flex-col gap-8">
       {/* Welcome Hero + Stats */}
       <div className="flex flex-col gap-6">
-        <div className="flex items-end justify-between">
+        <div data-tour="projects-hero" className="flex items-end justify-between">
           <div>
             <h1 className="text-3xl font-bold text-text">{greeting}</h1>
             <p className="mt-1 text-base text-text-muted">管理你的設計思考專案</p>
           </div>
           {canCreateProject && (
-            <Button className="rounded-full px-6" onClick={() => setShowCreate(true)}>
+            <Button
+              data-tour="projects-create"
+              className="rounded-full px-6"
+              onClick={() => setShowCreate(true)}
+            >
               <Plus size={16} />
               新增專案
             </Button>
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div data-tour="projects-stats" className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatCard icon={FolderOpen} label="全部專案" value={stats.total} accent="bg-primary/10 text-primary" delay={0} />
           <StatCard icon={Sparkles} label="進行中" value={stats.active} accent="bg-info/10 text-info" delay={100} />
           <StatCard icon={CheckCircle2} label="已完成" value={stats.completed} accent="bg-success/10 text-success" delay={200} />
@@ -140,7 +152,7 @@ export function ProjectsPage() {
 
       {/* Filter + Search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-2">
+        <div data-tour="projects-filters" className="flex flex-wrap gap-2">
           {STAGE_FILTERS.map((f) => (
             <button
               key={f.value}
@@ -157,7 +169,7 @@ export function ProjectsPage() {
           ))}
         </div>
 
-        <div className="relative max-w-xs flex-1">
+        <div data-tour="projects-search" className="relative max-w-xs flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
             type="text"
@@ -188,7 +200,11 @@ export function ProjectsPage() {
             {canCreateProject ? '點擊「新增專案」開始你的設計思考之旅。' : '等待老師邀請你加入專案。'}
           </p>
           {canCreateProject && (
-            <Button className="mt-5 rounded-full px-8" onClick={() => setShowCreate(true)}>
+            <Button
+              data-tour="projects-card"
+              className="mt-5 rounded-full px-8"
+              onClick={() => setShowCreate(true)}
+            >
               建立第一個專案
             </Button>
           )}
@@ -207,13 +223,17 @@ export function ProjectsPage() {
                 進行中 ({activeProjects.length})
               </h2>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {activeProjects.map((project) => (
-                  <ProjectCard
+                {activeProjects.map((project, idx) => (
+                  <div
                     key={project.id}
-                    project={project}
-                    isOwner={project.creator_id === user?.id}
-                    onDelete={setDeleteTarget}
-                  />
+                    {...(idx === 0 ? { 'data-tour': 'projects-card' } : {})}
+                  >
+                    <ProjectCard
+                      project={project}
+                      isOwner={project.creator_id === user?.id}
+                      onDelete={setDeleteTarget}
+                    />
+                  </div>
                 ))}
               </div>
             </section>
@@ -226,13 +246,19 @@ export function ProjectsPage() {
                 已完成 ({completedProjects.length})
               </h2>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {completedProjects.map((project) => (
-                  <ProjectCard
+                {completedProjects.map((project, idx) => (
+                  <div
                     key={project.id}
-                    project={project}
-                    isOwner={project.creator_id === user?.id}
-                    onDelete={setDeleteTarget}
-                  />
+                    {...(idx === 0 && activeProjects.length === 0
+                      ? { 'data-tour': 'projects-card' }
+                      : {})}
+                  >
+                    <ProjectCard
+                      project={project}
+                      isOwner={project.creator_id === user?.id}
+                      onDelete={setDeleteTarget}
+                    />
+                  </div>
                 ))}
               </div>
             </section>
