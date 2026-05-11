@@ -20,96 +20,100 @@ export interface MacroStageMeta {
   micro: [MicroPhaseMeta, MicroPhaseMeta, MicroPhaseMeta]
 }
 
+// 文案原則：寫給「沒做過 Design Thinking」的使用者看，避免 HMW / POV / Debrief
+// / Empathy Map / Journey Map / category-shift / low-fidelity / Loop 等專有名詞，
+// 一律用日常中文說明做什麼、為什麼這樣做。
+
 export const MACRO_STAGES: MacroStageMeta[] = [
   {
     stage: 'discover',
-    label: 'Discover 發現',
+    label: 'Discover 了解使用者',
     shape: '發散',
-    summary: '深入了解使用者的真實需求與痛點。',
+    summary: '先弄清楚「使用者真正在意什麼」——多聽、多看、不急著想答案。',
     micro: [
       {
         id: '1.1',
-        label: '暖場與經驗分享',
-        description: '團隊先各自分享對該議題的使用經驗，建立共同認知；然後獨立列出利害關係人並收斂。',
+        label: '暖身與選對象',
+        description: '大家先聊聊自己對這個主題的經驗，然後列出「會被影響的人」有哪些，挑出最值得了解的對象。',
       },
       {
         id: '1.2',
-        label: '視角擴展',
-        description: '依利害關係人分工，透過訪談、觀察、二手資料搜集多元觀點。',
+        label: '收集多元觀點',
+        description: '分頭去訪談、觀察、查資料，把不同角色的故事和想法都收集回來。',
       },
       {
         id: '1.3',
-        label: '同理心收斂',
-        description: '把訪談資料用 Empathy Map / Persona / Journey Map 結構化，先保留原音、延後詮釋。',
+        label: '整理使用者畫像',
+        description: '把訪談聽到的內容整理成「使用者是誰、他想什麼、做什麼」的清楚畫面；先寫下原話，不要急著下結論。',
       },
     ],
   },
   {
     stage: 'define',
-    label: 'Define 定義',
+    label: 'Define 找出問題',
     shape: '收斂',
-    summary: '從大量資訊中產生候選問題陳述，收斂出核心 HMW。',
+    summary: '從一堆資訊裡挑出最關鍵的痛點，問對問題比急著想答案更重要。',
     micro: [
       {
         id: '2.1',
-        label: '使用者旅程追蹤',
-        description: '整理使用者完成任務的流程，找出痛點與機會點。',
+        label: '畫使用情境',
+        description: '把使用者完成這件事的流程拆開，看看哪一步最卡、最讓人不爽。',
       },
       {
         id: '2.2',
-        label: '洞察萃取與矛盾發掘',
-        description: '用 POV 句型寫出 ≥3 個候選問題陳述；INSIGHT 不能是 NEED 的同義反覆。',
+        label: '挑出關鍵痛點',
+        description: '從訪談裡找出 3 個以上「沒被滿足的需求」或「明顯的矛盾」，用一句話寫清楚。',
       },
       {
         id: '2.3',
-        label: 'HMW 問題陳述',
-        description: '建立收斂準則 → 投票選出 1–3 個高優先級問題 → 改寫為 How Might We 開放式挑戰。',
+        label: '決定要解哪個問題',
+        description: '先講好「用什麼標準選」，投票挑出 1–3 個最值得解的問題，改寫成「我們可以怎麼…？」這種好回答的問句。',
       },
     ],
   },
   {
     stage: 'develop',
-    label: 'Develop 發展',
+    label: 'Develop 想各種解法',
     shape: '純發散',
-    summary: '天馬行空提出解法，禁止討論可行性。',
+    summary: '針對選定的問題盡量丟點子，這一階段「點子多」比「點子好」重要。',
     micro: [
       {
         id: '3.1',
-        label: '規則建立與大量發散',
-        description: '建立發散規則（不批判、外部化），每人獨立寫下點子。',
+        label: '訂規則 + 各自寫點子',
+        description: '先講好遊戲規則：先別管做不做得到、想到什麼都寫下來。每個人安靜地把點子寫在便條紙上。',
       },
       {
         id: '3.2',
-        label: '概念分群與合併',
-        description: '揭示所有點子、分群、結合，激發新想法。',
+        label: '把點子分類組合',
+        description: '一起看所有便條紙，把性質相近的歸成一群、把兩個點子合在一起、相互激發新想法。',
       },
       {
         id: '3.3',
-        label: '評估收斂與方案選定',
-        description: '依組長判斷，用 category-shift 換機制再發散，確保多樣性後選定方向。',
+        label: '挑出要繼續做的方案',
+        description: '看看是不是還缺哪一類的方案，補上幾個之後，選出最有潛力的 1–2 個帶到下一階段。',
       },
     ],
   },
   {
     stage: 'deliver',
-    label: 'Deliver 交付',
+    label: 'Deliver 做出來測一下',
     shape: '收斂+產出',
-    summary: '收斂方案、製作雛形、內部 Debrief，決定 Close 或 Loop。',
+    summary: '把想法做成最簡單的版本給人試用，看真的有解決問題嗎；學到的回頭再改。',
     micro: [
       {
         id: '4.1',
-        label: '原型規劃與快速製作',
-        description: '口頭闡明假設 → 拆 Task Ticket → 強制 low-fidelity 雛形（禁寫 production code）。',
+        label: '快速做出簡單原型',
+        description: '先講清楚「我假設這樣做使用者會喜歡」，然後拆成小任務，用紙、便條、簡單畫圖做出能讓人試用的版本（不用做完美的成品）。',
       },
       {
         id: '4.2',
-        label: '測試設計',
-        description: '設計能驗證假設的測試方式，包含 success / fail 條件與保真度上限。',
+        label: '規劃怎麼測試',
+        description: '想清楚要找誰來試、怎麼算成功怎麼算失敗、要觀察什麼。',
       },
       {
         id: '4.3',
-        label: '模擬測試與學習迭代',
-        description: '跑完雛形做三題 Debrief（信念更新／回應 HMW／回溯反省），決定 Close 或 Loop。',
+        label: '試用後回顧',
+        description: '跑完試用後問三個問題：哪些想法被證實 / 哪些要修 / 還有哪裡可以更好。決定就此收工或再迭代一輪。',
       },
     ],
   },

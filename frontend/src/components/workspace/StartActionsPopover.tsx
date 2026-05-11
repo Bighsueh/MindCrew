@@ -24,7 +24,7 @@ export interface StartActionsPopoverProps {
   onActionClick?: (actionId: string) => void
 }
 
-const POPOVER_WIDTH = 360
+const POPOVER_WIDTH = 520
 const POPOVER_GAP = 8
 
 interface AnchorRect {

@@ -20,6 +20,7 @@ from app.chinese.converter import chinese_converter
 from app.coach.canvas_context import build_canvas_topic_summary
 from app.coach.context import build_group_topic_summary
 from app.coach.prompts import build_messages
+from app.coach.time_context import build_time_budget_summary
 from app.db.models.message import Message
 from app.db.models.project import Project
 from app.db.session import async_session_factory
@@ -108,6 +109,11 @@ class DTCoachService:
                     project_id, micro_phase
                 )
 
+                # 3c) 取時間預算摘要（≤120 字；spec 16 §6.5.6）。
+                time_budget = await build_time_budget_summary(
+                    project_id, micro_phase
+                )
+
                 # 4) 組 messages。注意：personal_history 已含「使用者剛送出的訊息」，
                 # 因此 build_messages 內把它當作最後一筆 user turn 即可；為了
                 # 避免重複，我們把 history 截到「不含本輪訊息」再加最末 user。
@@ -120,6 +126,7 @@ class DTCoachService:
                     user_display_name=user_display_name,
                     group_summary_text=group_summary,
                     canvas_summary_text=canvas_summary,
+                    time_budget_text=time_budget,
                     personal_history=history_for_prompt,
                     current_user_message=user_message_content,
                 )

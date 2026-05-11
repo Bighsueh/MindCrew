@@ -16,6 +16,7 @@ interface SeatSelectionGridProps {
   onJoin: (role: SeatRole) => void
   joiningRole: SeatRole | null
   joinError: string
+  isLocked: boolean
 }
 
 // Phase 21：dormant 表示「AI 還沒被啟動」——第一位真人入座前的 lobby 狀態。
@@ -59,6 +60,7 @@ export function SeatSelectionGrid({
   onJoin,
   joiningRole,
   joinError,
+  isLocked,
 }: SeatSelectionGridProps) {
   const supervisorSeat = seats.find((s) => s.seat_role === 'supervisor')
   const crewSeats = seats.filter((s) => s.seat_role !== 'supervisor')
@@ -92,18 +94,25 @@ export function SeatSelectionGrid({
 
       {/* Crew section */}
       <div className="divide-y divide-border-light">
-        {crewSeats.map((seat) => (
-          <CrewRow
-            key={seat.seat_role}
-            seat={seat}
-            currentUserId={currentUserId}
-            onJoin={onJoin}
-            isJoining={joiningRole === seat.seat_role}
-            disabledReason={
-              userHasSeat ? '你已經在這個專案中佔有一個席位' : undefined
-            }
-          />
-        ))}
+        {crewSeats.map((seat) => {
+          const isJoining = joiningRole === seat.seat_role
+          let disabledReason: string | undefined
+          if (userHasSeat) {
+            disabledReason = '你已經在這個專案中佔有一個席位'
+          } else if (isLocked && !isJoining) {
+            disabledReason = '正在加入其他席位…'
+          }
+          return (
+            <CrewRow
+              key={seat.seat_role}
+              seat={seat}
+              currentUserId={currentUserId}
+              onJoin={onJoin}
+              isJoining={isJoining}
+              disabledReason={disabledReason}
+            />
+          )
+        })}
       </div>
     </div>
   )

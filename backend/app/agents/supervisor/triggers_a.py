@@ -153,23 +153,16 @@ async def detect_a_triggers(ctx: dict[str, Any]) -> list[tuple[str, dict[str, st
 # ---------------------------------------------------------------------------
 
 def _divergence_label(sub_phase: str) -> str:
-    divergent = {
-        "1.1a", "1.1b", "1.5",
-        "2.2",
-        "3.2", "3.3",
-    }
-    convergent = {
-        "1.1c", "1.6",
-        "2.1", "2.5", "2.6", "2.7",
-        "3.4",
-        "4.1a", "4.1b", "4.1c", "4.1d", "4.1e",
-        "4.2", "4.3",
-    }
-    if sub_phase in divergent:
-        return "發散"
-    if sub_phase in convergent:
-        return "收斂"
-    return "過渡"
+    """sub-phase 級別的「發散 / 收斂 / 過渡」中文標籤。
+
+    具體分類規則委派給 `app.stages.phase_intent`，避免發散收斂定義
+    散落多處（specs/16-timer-system.md §6.5.2）。
+    """
+    from app.stages.phase_intent import (
+        get_phase_intent_by_sub_phase,
+        get_phase_intent_label_zh,
+    )
+    return get_phase_intent_label_zh(get_phase_intent_by_sub_phase(sub_phase))
 
 
 def _supervisor_announced_for_phase(ctx: dict[str, Any], sub_phase: str) -> bool:

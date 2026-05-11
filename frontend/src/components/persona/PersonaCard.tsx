@@ -1,6 +1,7 @@
 import { Pencil, RefreshCw, Trash2 } from 'lucide-react'
 import type { Persona } from '../../types/models'
 import { cn } from '../../lib/utils'
+import { AXIS_LABEL, AXIS_TONE, LENS_LABEL, LensBar } from './personaLabels'
 
 interface PersonaCardProps {
   persona: Persona
@@ -9,43 +10,6 @@ interface PersonaCardProps {
   onRegenerate?: () => void
   onDelete?: () => void
   isBusy?: boolean
-}
-
-const AXIS_LABEL: Record<Persona['personality_axis'], string> = {
-  contrarian: '挑戰者',
-  balanced: '平衡型',
-  supportive: '共建者',
-}
-
-const AXIS_TONE: Record<Persona['personality_axis'], string> = {
-  contrarian: 'bg-warning/10 text-warning',
-  balanced: 'bg-info/10 text-info',
-  supportive: 'bg-success/10 text-success',
-}
-
-const LENS_LABEL: Record<keyof Persona['lens_affinities'], string> = {
-  empathy: '同理',
-  structure: '結構',
-  creativity: '創意',
-  feasibility: '可行',
-}
-
-function LensBar({ label, value }: { label: string; value: number }) {
-  const pct = Math.max(0, Math.min(1, value)) * 100
-  return (
-    <div className="flex items-center gap-2 text-xs text-text-muted">
-      <span className="w-10 shrink-0">{label}</span>
-      <div className="flex-1 rounded-full bg-border-light/60 overflow-hidden h-1.5">
-        <div
-          className="h-full rounded-full bg-primary"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="w-9 shrink-0 text-right tabular-nums">
-        {value.toFixed(2)}
-      </span>
-    </div>
-  )
 }
 
 export function PersonaCard({

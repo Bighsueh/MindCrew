@@ -32,31 +32,33 @@ interface StageMeta {
   defaultGoal: string
 }
 
+// 文案改為白話 + 保留四個 D 英文專名：chip 顯示 Discover 等英文（設計語言），
+// 描述句改寫為非專業中文，讓沒做過 DT 的人也看得懂。
 const STAGE_META: Record<DTStage, StageMeta> = {
   discover: {
     label: 'Discover',
     icon: Compass,
-    defaultGoal: '透過訪談找出真實痛點，產出洞察便利貼。',
+    defaultGoal: '多聽多看：訪談使用者、把他們的真實感受寫成便條紙。',
   },
   define: {
     label: 'Define',
     icon: Target,
-    defaultGoal: '把痛點收斂成一句 HMW（How might we）問題。',
+    defaultGoal: '從一堆訊息中挑出最值得解的問題，改寫成「我們可以怎麼…？」的問句。',
   },
   develop: {
     label: 'Develop',
     icon: Lightbulb,
-    defaultGoal: '為 HMW 發散多個解法構想，再投票收斂。',
+    defaultGoal: '對著選定的問題大量丟點子，先求量再求質、最後挑出要繼續做的方向。',
   },
   deliver: {
     label: 'Deliver',
     icon: Rocket,
-    defaultGoal: '將最佳構想做成可測試的原型與測試計畫。',
+    defaultGoal: '把想法做成最簡單可試用的版本，找人試一試看真的解決問題嗎。',
   },
   completed: {
     label: 'Completed',
     icon: Rocket,
-    defaultGoal: '專案已完成，回顧成果並整理紀錄。',
+    defaultGoal: '專案已結束，回頭看看學到什麼。',
   },
 }
 

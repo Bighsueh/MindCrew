@@ -7,6 +7,7 @@ import { useStageStore } from '../../stores/stageStore'
 import { useAuthStore } from '../../stores/authStore'
 import { advanceStage, leaveProject, getStage } from '../../services/projectService'
 import { DoubleDiamondProgress } from '../../components/progress/DoubleDiamondProgress'
+import { TimerInline } from '../../components/timer/TimerInline'
 import { ConnectionBanner } from '../../components/workspace/ConnectionBanner'
 import { SeatBar } from '../../components/workspace/SeatBar'
 import { ChatPanel } from '../../components/chat/ChatPanel'
@@ -24,10 +25,10 @@ import { StartActionsPopover } from '../../components/workspace/StartActionsPopo
 import { OnboardingModal } from '../../components/workspace/OnboardingModal'
 import { Button } from '../../components/common/Button'
 import { Loading } from '../../components/common/Loading'
-import { HelpCircle, MessageCircle, Users } from 'lucide-react'
+import { HelpCircle, Users } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { ChatKind } from '../../stores/chatStore'
-import type { DTStage, MicroPhaseId, Seat } from '../../types/models'
+import type { DTStage, MicroPhaseId } from '../../types/models'
 import type { StartActionStage } from '../../components/canvas/CanvasEmptyState'
 import { useWorkspaceWS } from './useWorkspaceWS'
 import { useWorkspaceCoachState } from './useWorkspaceCoachState'
@@ -68,9 +69,6 @@ export function WorkspacePage() {
   const [activeTab, setActiveTab] = useState<MobileTab>('canvas')
   // 當前在前景的聊天 channel；由 ChatDock onActiveChange 回報。
   const [activeChannel, setActiveChannel] = useState<ChatKind | null>(null)
-  // 觸發 ChatDock 重新初始化以切到 personal channel 的計數（最小變動方案）。
-  const [dockOpenNonce, setDockOpenNonce] = useState(0)
-  const [dockInitialOpen, setDockInitialOpen] = useState<ChatKind | null>('group')
 
   // 衍生狀態：SeatBar 需要的 typing / preview / recentSpeaker
   const coachState = useWorkspaceCoachState({ seats })
@@ -181,12 +179,6 @@ export function WorkspacePage() {
     orchestration.toggleStartPopover()
   }, [orchestration])
 
-  // ── SeatBar：點 AI 座位 → 切到個人助理 channel ──
-  const handleDirectMessage = useCallback((_seat: Seat) => {
-    setDockInitialOpen('personal')
-    setDockOpenNonce((n) => n + 1)
-  }, [])
-
   // ── EmptyState banner 是否顯示（CanvasPanel 用） ──
   const bannerVisible = useMemo(
     () =>
@@ -222,7 +214,7 @@ export function WorkspacePage() {
         <ConnectionBanner status={wsStatus === 'failed' ? 'failed' : 'disconnected'} />
       )}
 
-      {/* DT Progress bar */}
+      {/* DT Progress bar + 全員 Timer（specs/16-timer-system.md §6.5.3） */}
       <header className="flex-shrink-0 border-b border-border bg-surface px-4 py-2">
         <div className="flex items-center gap-4">
           <span className="text-sm text-text-muted whitespace-nowrap">
@@ -327,11 +319,10 @@ export function WorkspacePage() {
 
           {user && (
             <ChatDock
-              key={dockOpenNonce}
               projectId={id!}
               currentUserId={user.id}
               sendWS={sendWS}
-              initialOpen={dockInitialOpen}
+              initialOpen="group"
               groupDisabled={isObserver}
               onActiveChange={setActiveChannel}
             />
@@ -339,19 +330,24 @@ export function WorkspacePage() {
         </div>
       </div>
 
-      {/* Seat status bar；overflow-x-visible 避免 SeatPopover 被裁切（spec §6 trade-off） */}
+      {/* Seat status bar + 全員 Timer（specs/16-timer-system.md §6.5.3）。
+          三段式 layout：SeatBar 左 / TimerInline 居中 / 操作鈕右。
+          overflow-x-visible 避免 SeatPopover 被裁切（spec §6 trade-off）。 */}
       <footer className="flex-shrink-0 border-t border-border bg-surface px-4 py-2">
-        <div className="flex items-center gap-2 overflow-x-visible">
-          <SeatBar
-            seats={seats}
-            currentUserId={user?.id}
-            typingNames={coachState.typingNames}
-            recentSpeaker={coachState.recentSpeaker}
-            seatPreviews={coachState.seatPreviews}
-            onDirectMessage={handleDirectMessage}
-          />
+        <div className="flex items-center gap-3 overflow-x-visible">
+          <div className="flex-1 min-w-0">
+            <SeatBar
+              seats={seats}
+              currentUserId={user?.id}
+              typingNames={coachState.typingNames}
+              recentSpeaker={coachState.recentSpeaker}
+              seatPreviews={coachState.seatPreviews}
+            />
+          </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <TimerInline />
+
+          <div className="flex-1 flex justify-end items-center gap-2">
             {currentProject?.creator_id === user?.id && (
               <Button
                 variant="ghost"

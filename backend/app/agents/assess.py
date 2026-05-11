@@ -352,7 +352,7 @@ class AssessEngine:
             am_participant = any(my_seat.lower() in p.lower() for p in participants)
             am_addressed = bool(pending and my_seat.lower() in str(pending).lower())
             if not am_participant and not am_addressed:
-                if comm_strategy in ("simultaneous", "simultaneous_summarizer"):
+                if comm_strategy == "simultaneous":
                     yield_probability = 0.20
                 elif comm_strategy == "one_by_one":
                     yield_probability = 0.70

@@ -321,6 +321,21 @@ class ContextBuffer:
         }
         if phase_strategy_dict:
             context["phase_strategy"] = phase_strategy_dict
+
+        # specs/16-timer-system.md §6.5.4：把時間壓力等級 + 階段意圖塞進
+        # context，讓 serializer / supervisor triggers / crew prompts 都
+        # 能讀取，不必各自重算。
+        try:
+            from app.stages.phase_intent import get_phase_intent
+            from app.timer.pressure import compute_pressure_level
+
+            context["phase_intent"] = get_phase_intent(state.current_micro_phase)
+            context["time_pressure_level"] = compute_pressure_level(
+                sub_phase_frame.time_budget_used_pct
+            )
+        except Exception:
+            logger.debug("phase_intent/pressure injection failed", exc_info=True)
+
         return context
 
     # -------- Phase-specific helpers --------

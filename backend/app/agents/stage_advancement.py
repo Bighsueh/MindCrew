@@ -105,10 +105,15 @@ async def advance_stage(
 
             # 同步更新 current_micro_phase（修復 macro boundary crossing bug — Phase 13）
             from app.stages.micro_phases import get_first_micro_phase_for_stage
+            from app.stages.sub_phases import get_first_sub_phase_of_macro
             first_micro = get_first_micro_phase_for_stage(next_stage)
+            # specs/16-timer-system.md §6.5：macro 切換必須同步重設 sub_phase 與 timer
+            first_sub = get_first_sub_phase_of_macro(next_stage)
             update_values: dict = {"current_stage": next_stage, "updated_at": now}
             if first_micro:
                 update_values["current_micro_phase"] = first_micro
+            if first_sub:
+                update_values["current_sub_phase"] = first_sub
 
             await session.execute(
                 update(Project)
@@ -145,6 +150,14 @@ async def advance_stage(
         )
         await event_bus.publish(event)
 
+        # specs/16-timer-system.md §6.5：macro 切換時重啟 timer 到新 sub_phase
+        if first_sub:
+            try:
+                from app.timer.service import TimerService
+                await TimerService.start_phase(project_id, first_sub)
+            except Exception as exc:
+                logger.debug("Timer start_phase on advance_stage failed: %s", exc)
+
         if blackboard:
             await blackboard.clear_stage(next_stage)
 
@@ -177,13 +190,24 @@ async def advance_micro_phase(
             from sqlalchemy import update
             from app.db.models.project import Project
             from app.db.models.micro_phase_history import MicroPhaseHistory  # type: ignore[attr-defined]
+            from app.stages.sub_phases import get_first_sub_phase_of_micro
 
             now = datetime.now(timezone.utc)
+
+            # specs/16-timer-system.md §6.5：micro_phase 切換時同步把 sub_phase
+            # 推到對應 micro 的第一個 sub，timer 才會跟上。
+            first_sub = get_first_sub_phase_of_micro(to_phase)
+            mp_update_values: dict = {
+                "current_micro_phase": to_phase,
+                "updated_at": now,
+            }
+            if first_sub:
+                mp_update_values["current_sub_phase"] = first_sub
 
             await session.execute(
                 update(Project)
                 .where(Project.id == project_id)
-                .values(current_micro_phase=to_phase, updated_at=now)
+                .values(**mp_update_values)
             )
 
             mp_hist = MicroPhaseHistory(
@@ -209,6 +233,16 @@ async def advance_micro_phase(
                 triggered_by=agent_id,
             )
             await event_bus.publish(event)
+
+            # specs/16-timer-system.md §6.5：重啟 timer 到新 sub_phase 預算
+            if first_sub:
+                try:
+                    from app.timer.service import TimerService
+                    await TimerService.start_phase(project_id, first_sub)
+                except Exception as exc:
+                    logger.debug(
+                        "Timer start_phase on advance_micro_phase failed: %s", exc
+                    )
 
         # Announce transition via chat (best-effort, outside DB session)
         try:

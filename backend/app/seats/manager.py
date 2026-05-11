@@ -206,9 +206,8 @@ class SeatManager:
             )
             return
 
-        # Start AI agent + greeting + summary
+        # Start AI agent silently (no greeting / progress summary — see progress.md 2026-05-11)
         await self._start_agent(project_id, seat_role, agent_id)
-        await self._send_ai_greeting(project_id, seat_role, agent_id)
 
         logger.info(
             "Seat %s in project %s released to AI agent %s", seat_role, project_id, agent_id
@@ -387,9 +386,8 @@ class SeatManager:
         )
         await event_bus.publish(event)
 
-        # Spin up the agent task and let it greet.
+        # Spin up the agent task silently (no greeting / progress summary — see progress.md 2026-05-11)
         await self._start_agent(project_id, seat_role, agent_id)
-        await self._send_ai_greeting(project_id, seat_role, agent_id)
         logger.info(
             "Seat %s in project %s promoted from dormant → ai_running",
             seat_role,
@@ -585,28 +583,6 @@ class SeatManager:
             if seat and seat.occupant_type == "ai":
                 self._restart_counts[key] = count + 1
                 await self._start_agent(project_id, seat_role, agent_id)
-
-    async def _send_ai_greeting(
-        self, project_id: UUID, seat_role: str, agent_id: str
-    ) -> None:
-        """Send greeting and progress summary after AI takes over a seat."""
-        from app.seats.seat_progress import (
-            build_regular_progress_summary,
-            build_supervisor_progress_summary,
-        )
-
-        persona = await self._fetch_seat_persona(project_id, seat_role)
-        agent_name = self._role_to_display_name(seat_role, persona)
-        await self._publish_chat(
-            project_id, agent_id, agent_name, "我來接手了！讓我先看看目前的進度…"
-        )
-        await asyncio.sleep(2.0)
-
-        if seat_role == "supervisor":
-            progress_msg = await build_supervisor_progress_summary(project_id)
-        else:
-            progress_msg = await build_regular_progress_summary(project_id)
-        await self._publish_chat(project_id, agent_id, agent_name, progress_msg)
 
     async def _publish_chat(
         self,

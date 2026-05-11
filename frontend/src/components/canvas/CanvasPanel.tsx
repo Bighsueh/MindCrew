@@ -13,7 +13,6 @@ import { ZoneOverlay } from './ZoneOverlay'
 import { HmwTabBar } from './HmwTabBar'
 import { CommModeIndicator } from './CommModeIndicator'
 // Phase 17 Stream B (Spec 14 + 15) — Timer + Advance vote
-import { TimerBadge } from '../timer/TimerBadge'
 import { TimerControlPanel } from '../timer/TimerControlPanel'
 import { AdvanceVoteBanner } from '../vote/AdvanceVoteBanner'
 import { useProjectRealtime } from '@/hooks/useProjectRealtime'
@@ -171,8 +170,8 @@ export function CanvasPanel({
         subPhaseName={subPhaseName}
         nextRevealSeat={nextRevealSeat}
       />
-      {/* Phase 17 Stream B (Spec 15): everyone-visible timer */}
-      <TimerBadge />
+      {/* Phase 17 Stream B (Spec 16 §6.5.3): Timer 改放 Workspace navbar（TimerInline）。
+          這裡保留註解便於追蹤；舊浮動 TimerBadge 已下架避免與 navbar 重複。 */}
       {/* Phase 17 Stream B (Spec 15): teacher-only timer control */}
       <TimerControlPanel projectId={projectId} isTeacher={isTeacher} />
       {/* Phase 17 Stream B (Spec 14 N2): Crew advance vote */}

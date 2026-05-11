@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.timer.schemas import TimerConfig
+
 
 # ---------------------------------------------------------------------------
 # Persona schemas (Phase 19)
@@ -74,6 +76,9 @@ class ProjectCreateRequest(BaseModel):
     personas: list[CrewPersonaAssignment] = Field(
         ..., min_length=MIN_AI_CREW, max_length=MAX_AI_CREW
     )
+    # specs/16-timer-system.md：老師建立專案時可選擇 preset 或自訂 macro budget。
+    # 未提供時走 DEFAULT_2HR_PRESET（120 分鐘 / 4 macro phases）。
+    timer_config: "TimerConfig | None" = None
 
     @model_validator(mode="after")
     def _validate_personas_match_crew_count(self) -> "ProjectCreateRequest":

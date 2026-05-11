@@ -39,6 +39,7 @@ def test_system_prompt_includes_all_summary_fields() -> None:
         user_display_name="小華",
         group_summary_text="- 小明：在討論 persona\n- 小美：問訪談對象",
         canvas_summary_text="- 總覽：便條紙 8 張、分群 2 群、整齊度 0.7",
+        time_budget_text="已用 70%（壓力：剩 1/3）；本階段意圖：發散",
         personal_history=[],
         current_user_message="我卡在 POV 怎麼寫",
     )
@@ -50,6 +51,7 @@ def test_system_prompt_includes_all_summary_fields() -> None:
     assert "empathy_map" in system
     assert "小明" in system
     assert "便條紙 8 張" in system
+    assert "已用 70%" in system  # time_budget 注入
     # 認知師徒制核心字眼必須出現。
     assert "Modeling" in system
     assert "Cognitive Apprenticeship" in system or "認知師徒制" in system
@@ -63,11 +65,13 @@ def test_empty_summaries_fall_back_to_placeholder() -> None:
         user_display_name="小華",
         group_summary_text="",
         canvas_summary_text="   ",  # 只有空白也算空
+        time_budget_text="",
         personal_history=[],
         current_user_message="hi",
     )
     system = messages[0]["content"]
-    assert system.count("（暫無）") == 2
+    # group / canvas / time_budget 三個欄位都應退回「（暫無）」
+    assert system.count("（暫無）") == 3
 
 
 @pytest.mark.unit
@@ -83,6 +87,7 @@ def test_history_sorted_and_roles_mapped() -> None:
         user_display_name="小華",
         group_summary_text="x",
         canvas_summary_text="y",
+        time_budget_text="z",
         personal_history=history,
         current_user_message="這一輪的問題",
     )

@@ -167,10 +167,10 @@ def _generate_organization_hint(
     cluster_count = len(analysis.cluster_state.clusters)
     ungrouped_ratio = ungrouped_count / total
 
-    _DIVERGE_PHASES = frozenset(("1.1", "1.2", "3.1"))
+    # 發散/收斂單一真實來源；本 hint 額外保留「重整理」子集（1.3 / 3.2 偏整理而非單純收斂）。
+    from app.stages.phase_intent import get_phase_intent
+    intent = get_phase_intent(micro_phase)
     _HEAVY_ORGANIZE_PHASES = frozenset(("1.3", "3.2"))
-    # Only phases not already in _HEAVY_ORGANIZE_PHASES
-    _CONVERGE_PHASES = frozenset(("2.3", "3.3"))
 
     hints: list[str] = []
 
@@ -179,7 +179,7 @@ def _generate_organization_hint(
         hints.append(f"有 {overlap_count} 處便條紙重疊，影響可讀性，建議用 tidy_area 消除。")
 
     # 2. Phase-aware strategy
-    if micro_phase in _DIVERGE_PHASES:
+    if intent == "divergent":
         if orderliness < 0.25 and total > 12:
             hints.append(
                 "目前處於發散階段，白板非常混亂。"
@@ -201,7 +201,7 @@ def _generate_organization_hint(
             )
         else:
             hints.append("目前處於收斂整理階段，白板結構尚可。可視需要微調。")
-    elif micro_phase in _CONVERGE_PHASES:
+    elif intent == "convergent":
         if orderliness < 0.45:
             hints.append("目前處於收斂階段，白板偏亂。建議整理後再進行討論。")
     else:

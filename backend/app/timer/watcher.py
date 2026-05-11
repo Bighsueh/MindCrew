@@ -17,7 +17,7 @@ from sqlalchemy import select
 from app.db.models.project import Project
 from app.db.session import async_session_factory
 from app.timer.calculator import get_phase_budget_seconds
-from app.timer.events import TimerTimeoutEvent, TimerWarningEvent
+from app.timer.events import TimerStateEvent, TimerTimeoutEvent, TimerWarningEvent
 from app.timer.service import TimerService
 
 logger = logging.getLogger(__name__)
@@ -76,6 +76,12 @@ async def _check_one(project_id: UUID, current_sub_phase: str | None) -> None:
         return
     used_pct = used_secs / budget * 100.0
 
+    # specs/16-timer-system.md §6.5.3：每 tick 都廣播 state，讓所有訂閱者
+    # （前端 TimerBadge、AI agent 觀察者）即時對齊 pause/resume 狀態。
+    await _broadcast_state(
+        project_id, current_sub_phase, used_secs, budget, used_pct, paused=False,
+    )
+
     # Fire warnings for crossed thresholds
     for threshold in config.warning_thresholds_pct:
         if used_pct >= threshold and threshold not in state.warnings_fired:
@@ -89,6 +95,30 @@ async def _check_one(project_id: UUID, current_sub_phase: str | None) -> None:
                     await _handle_timeout(
                         project_id, current_sub_phase, config.auto_advance_on_timeout,
                     )
+
+
+async def _broadcast_state(
+    project_id: UUID,
+    sub_phase: str | None,
+    used_seconds: int,
+    budget_seconds: int,
+    used_pct: float,
+    paused: bool,
+) -> None:
+    """每 tick 廣播一次 TimerStateEvent，讓前端與 AI 訂閱者即時對齊。"""
+    try:
+        from app.events.bus import event_bus
+        event = TimerStateEvent(
+            project_id=project_id,
+            current_sub_phase=sub_phase,
+            budget_seconds=budget_seconds,
+            used_seconds=used_seconds,
+            paused=paused,
+            used_pct=used_pct,
+        )
+        await event_bus.publish(event)
+    except Exception:
+        logger.debug("Timer state broadcast failed", exc_info=True)
 
 
 async def _broadcast_warning(

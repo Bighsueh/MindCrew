@@ -228,10 +228,51 @@ TRIGGERS: dict[str, TriggerSpec] = {
         ),
         context_keys=("sub_phase", "matched_phrase"),
     ),
-    "B3_time_budget_warning": TriggerSpec(
-        id="B3_time_budget_warning",
+    # specs/16-timer-system.md §6.5.5：四階遞進時間壓力 trigger，
+    # 對應 1/2、1/3、1/4 剩餘 + 最後 sliver。每階 few_shot 用詞由溫和到強硬。
+    "B3a_halfway_pivot": TriggerSpec(
+        id="B3a_halfway_pivot",
         persona="B",
-        description_zh="時間 ≥ 80% 但 deliverable 未達成",
+        description_zh="時間過半（50-67%）且仍在發散階段——提醒可開始挑潛力候選",
+        few_shot=(
+            "我們用一半時間了。先別停發散，但可以開始挑你覺得最有潛力的那 2-3 張。"
+        ),
+        directive_template=(
+            "當前 sub_phase ({sub_phase}) 用了 {used_pct}%、仍處發散階段。"
+            "請以柔性提醒讓團隊注意有潛力的候選便條紙，但不要急著收斂。"
+        ),
+        context_keys=("sub_phase", "used_pct", "remaining_pct"),
+    ),
+    "B3b_two_thirds_focus": TriggerSpec(
+        id="B3b_two_thirds_focus",
+        persona="B",
+        description_zh="剩 1/3 時間（67-75%）——停止開新主題、收到 3 候選內",
+        few_shot=(
+            "剩 1/3 時間，停下新主題。我們把候選收到 3 個內，下一步要做決定。"
+        ),
+        directive_template=(
+            "當前 sub_phase ({sub_phase}) 用了 {used_pct}%。"
+            "請明確要求團隊停止開新主題，把候選收到 3 個以內。"
+        ),
+        context_keys=("sub_phase", "used_pct", "remaining_pct"),
+    ),
+    "B3c_close_diverge": TriggerSpec(
+        id="B3c_close_diverge",
+        persona="B",
+        description_zh="剩 1/4 時間（75-90%）且仍在發散——宣布結束發散",
+        few_shot=(
+            "剩 1/4 時間，我宣布結束發散——不再寫新便條，我們回到現有的整理。"
+        ),
+        directive_template=(
+            "當前 sub_phase ({sub_phase}) 用了 {used_pct}% 但仍在發散。"
+            "請強力宣布結束發散，要求所有人停止新增便條，改做整理 / 投票。"
+        ),
+        context_keys=("sub_phase", "used_pct", "remaining_pct"),
+    ),
+    "B3_critical_rescope": TriggerSpec(
+        id="B3_critical_rescope",
+        persona="B",
+        description_zh="≥90% 用罄但 deliverable 未達成——強制 re-scope",
         few_shot=(
             "時間剩 {remaining_pct}%，我們 re-scope —— 降 fidelity 或跳過低優先項。不要硬趕。"
         ),

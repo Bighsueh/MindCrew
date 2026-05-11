@@ -210,7 +210,7 @@ export interface CanvasEmptyStateProps {
 }
 
 // 退場動畫時序
-const FLY_DELAY_MS = 700
+const FLY_DELAY_MS = 2500
 const FLY_DURATION_MS = 1400
 const ANCHOR_SELECTOR = '[data-startwith-anchor]'
 
@@ -263,7 +263,7 @@ export function CanvasEmptyState({
     if (exitStartedRef.current) return
     exitStartedRef.current = true
 
-    // Phase 1：延遲 500ms 讓使用者看清第一張便利貼
+    // Phase 1：延遲 FLY_DELAY_MS 讓使用者讀完起手式卡片再看第一張便利貼
     setExitPhase('pending-fly')
     const delayTimer = window.setTimeout(() => {
       const anchor = document.querySelector(ANCHOR_SELECTOR) as HTMLElement | null
@@ -354,7 +354,7 @@ export function CanvasEmptyState({
     >
       <div
         ref={panelRef}
-        className="flex max-w-xl flex-col items-center gap-4"
+        className="pointer-events-auto flex max-w-2xl flex-col items-center gap-5 rounded-3xl bg-white/65 px-10 py-9 shadow-[0_8px_40px_rgba(0,0,0,0.08),0_0_60px_24px_rgba(255,255,255,0.55)] backdrop-blur-xl"
         style={animatedStyle}
       >
         <div className="flex flex-col items-center gap-1 text-center">

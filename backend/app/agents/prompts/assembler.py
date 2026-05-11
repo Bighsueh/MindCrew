@@ -87,16 +87,16 @@ _RESPONSE_RULES_CONVERGE = """\
 - 白板有序度低時，考慮使用 arrange_notes 或 tidy_area 整理\
 """
 
-_DIVERGE_PHASES = frozenset(("1.1", "1.2", "3.1"))
 _DIVERGE_STAGES = frozenset(("discover", "develop"))
 
 
 def _get_response_format(context: dict) -> str:
     """Return the response format instruction with phase-appropriate rules."""
+    from app.stages.phase_intent import get_phase_intent
     micro_phase = context.get("current_micro_phase")
     stage = context.get("current_stage", "discover")
 
-    if micro_phase and micro_phase in _DIVERGE_PHASES:
+    if micro_phase and get_phase_intent(micro_phase) == "divergent":
         is_diverge = True
     elif not micro_phase and stage in _DIVERGE_STAGES:
         is_diverge = True
@@ -224,19 +224,28 @@ class PromptAssembler:
                 stage_prompt += f"\n\n{PROTAGONIST_BOOST}"
             elif role_status == "suppressed":
                 stage_prompt += f"\n\n{SUPPRESSED_CONSTRAINT.format(forbidden_behaviors=crew_override)}"
-            # Phase-specific note creation strategy
-            _DIVERGE_PHASES = frozenset(("1.1", "1.2", "3.1"))
-            _CONVERGE_PHASES = frozenset(("1.3", "2.3", "3.2", "3.3"))
-            if micro_phase in _DIVERGE_PHASES:
+            # Phase-specific note creation strategy + time pressure overlay
+            from app.stages.phase_intent import get_phase_intent
+            phase_intent_value = get_phase_intent(micro_phase)
+            if phase_intent_value == "divergent":
                 stage_prompt += (
                     "\n\n⚠️ 本步驟的核心產出是便條紙。每次發言時盡量搭配一張便條紙，"
                     "把想法具體化到白板上。聊天是輔助，便條紙才是成果。"
                 )
-            elif micro_phase in _CONVERGE_PHASES:
+            elif phase_intent_value == "convergent":
                 stage_prompt += (
                     "\n\n⚠️ 本步驟以整理和分群為主。不要新增大量便條紙，"
                     "專注在 move_note 和 arrange_notes 操作。"
                 )
+
+            # specs/16-timer-system.md §6.5.4：tight / critical 等級時，
+            # 不論本來 protagonist_lens 是誰，都強制注入收斂/取捨 directive。
+            pressure_level = context.get("time_pressure_level")
+            if pressure_level in ("tight", "critical"):
+                from app.timer.pressure import pressure_directive
+                directive = pressure_directive(pressure_level, phase_intent_value)
+                if directive:
+                    stage_prompt += f"\n\n【時間壓力指令】{directive}"
         else:
             from app.agents.prompts.stages import STAGE_PROMPTS as _STAGE_PROMPTS_FALLBACK
             # Fallback: old discover sub-phase prompts for supervisor, generic for crew

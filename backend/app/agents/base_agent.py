@@ -15,7 +15,6 @@ from app.agents.conversation_health import ConversationHealthAnalyzer
 from app.agents.coordinator import agent_coordinator
 from app.agents.evaluator import StageEvaluator
 from app.agents.phase_strategy import PHASE_STRATEGIES
-from app.agents.summarizer import do_summarize, should_summarize
 from app.agents.throttle import ThrottleGate
 from app.llm.factory import LLMProviderFactory
 from app.ws.presence_tracker import presence_tracker
@@ -102,9 +101,6 @@ class BaseAgent:
         # Lazy-import ThinkEngine and ActEngine to avoid circular imports
         self._think_engine: Any = None
         self._act_engine: Any = None
-
-        # Summarizer cooldown (Phase 13): prevent rapid-fire summaries
-        self._last_summary_time: float = 0.0
 
         # Proactive initiation budget (spec §5.2)
         self._last_proactive_time: float | None = None
@@ -261,23 +257,6 @@ class BaseAgent:
                 "comm_goal": strategy.comm_goal,
                 "supervisor_mode": strategy.supervisor_mode,
             }
-
-        # Supervisor Summarizer: SS 策略下定期做摘要
-        if self._is_supervisor and strategy:
-            if strategy.comm_strategy == "simultaneous_summarizer":
-                # 摘要冷卻：至少間隔 30 秒避免連續觸發
-                summary_cooldown = time.time() - self._last_summary_time > 30.0
-                if summary_cooldown and should_summarize(context, strategy.summarize_interval):
-                    self._last_summary_time = time.time()
-                    llm_service = LLMProviderFactory.get_service()
-                    summary = await do_summarize(context, llm_service)
-                    if summary:
-                        act_engine = self._get_act_engine()
-                        await act_engine.execute(
-                            actions=[{"type": "chat_message", "content": f"【摘要】{summary}"}],
-                            current_stage=context.get("current_stage", "discover"),
-                        )
-                    return
 
         # Spec 14: Supervisor persona router — 決定本回合是 A/B 哪支發話
         if "supervisor" in self._seat_role.lower():

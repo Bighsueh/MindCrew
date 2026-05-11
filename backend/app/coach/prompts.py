@@ -30,12 +30,15 @@ DT_COACH_SYSTEM_PROMPT = """\
 # 你現在能感知的（皆為摘要，不是逐字）
 
 - DT 階段：{stage}（micro phase {micro_phase}）
+- 時間預算：{time_budget_text}
 - 團隊群組摘要（≤200 字，最近活動的大方向）：
   {group_summary_text}
 - 共享白板摘要（≤300 字，便條紙分群與密度）：
   {canvas_summary_text}
 
 你只在私訊跟 {user_display_name} 說話。你不在群組頻道露面、不在白板上動手、不評論其他成員。對於白板與群組你「看得到大概」，但**不要逐字引用具體訊息或便條紙文字**——只談你觀察到的模式、密度、卡點。
+
+**時間壓力下你的角色是「提醒他怎麼決策」，不是催他做決定**——示範你自己會怎麼在時間有限下取捨（modeling），而不是接管他的選擇。
 
 # 六階段循環（對每個 DT 概念都要走完）
 
@@ -114,13 +117,14 @@ def build_messages(
     user_display_name: str,
     group_summary_text: str,
     canvas_summary_text: str,
+    time_budget_text: str,
     personal_history: Iterable[Message],
     current_user_message: str,
 ) -> list[dict]:
-    """組合送往 LLM 的 messages list（spec §7.4）。
+    """組合送往 LLM 的 messages list（spec §7.4 + spec 16 §6.5.6）。
 
     結構：
-      1. system：DT 教練守則 + group_summary_text + canvas_summary_text
+      1. system：DT 教練守則 + group / canvas / time_budget 三段摘要
       2. personal_history（依 created_at 排序，user/assistant 交錯）
       3. user：當前使用者剛送出的訊息
 
@@ -130,6 +134,7 @@ def build_messages(
         user_display_name: 使用者顯示名稱，用於 prompt 插值。
         group_summary_text: 團隊群組摘要文字（≤200 字）；空字串會被替換為「（暫無）」。
         canvas_summary_text: 共享白板摘要文字（≤300 字）；空字串會被替換為「（暫無）」。
+        time_budget_text: 時間預算摘要文字（≤120 字，含 used_pct / 壓力等級 / 階段意圖）；空字串會被替換為「（暫無）」。
         personal_history: 該 user 個人聊天的最近訊息（不含當前訊息）。
         current_user_message: 使用者本輪提問內容。
 
@@ -138,6 +143,7 @@ def build_messages(
     """
     group_text = (group_summary_text or "").strip() or _SUMMARY_FALLBACK
     canvas_text = (canvas_summary_text or "").strip() or _SUMMARY_FALLBACK
+    time_text = (time_budget_text or "").strip() or _SUMMARY_FALLBACK
 
     system_content = DT_COACH_SYSTEM_PROMPT.format(
         stage=stage,
@@ -145,6 +151,7 @@ def build_messages(
         user_display_name=user_display_name,
         group_summary_text=group_text,
         canvas_summary_text=canvas_text,
+        time_budget_text=time_text,
     )
 
     messages: list[dict] = [{"role": "system", "content": system_content}]

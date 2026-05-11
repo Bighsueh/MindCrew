@@ -235,53 +235,6 @@ async def test_repository_list_group_excludes_personal(
     assert not (set(contents["personal_a"]) | set(contents["personal_b"])) & bodies
 
 
-# ---------- Tests：seat_progress（透過模組函式直接呼叫） ----------
-
-
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_seat_progress_topic_excludes_personal(
-    client: AsyncClient,
-    db_session: AsyncSession,
-) -> None:
-    """Supervisor handoff 摘要的「最近 topic」必須從 group 訊息抽，
-    即使 personal 訊息是 DB 中最新一筆也不能洩漏到 supervisor prompt。
-    """
-    teacher = await _register(client, "iso_seat@test.com")
-    other = await _register(client, "iso_seat_other@test.com")
-    project_id = await _create_project(client, teacher["token"])
-
-    # 故意把 personal 訊息插在最後（最新 created_at），驗證 query 仍會跳過。
-    group_chat_id = make_group_chat_id(project_id)
-    personal_b = make_personal_chat_id(project_id, other["user_id"])
-    await _insert_message(
-        db_session,
-        project_id=project_id,
-        chat_id=group_chat_id,
-        content="團隊正在討論：要做寵物 app",
-    )
-    await _insert_message(
-        db_session,
-        project_id=project_id,
-        chat_id=personal_b,
-        content="這是別人的祕密絕對不能出現在 supervisor 摘要",
-    )
-
-    from app.seats.seat_progress import (
-        build_regular_progress_summary,
-        build_supervisor_progress_summary,
-    )
-
-    regular = await build_regular_progress_summary(project_id)
-    supervisor = await build_supervisor_progress_summary(project_id)
-
-    assert "祕密" not in regular
-    assert "祕密" not in supervisor
-    # group 內容應出現（至少 topic 抓到「寵物 app」前綴）
-    assert "寵物" in regular or "團隊" in regular
-    assert "寵物" in supervisor or "團隊" in supervisor
-
-
 # ---------- Tests：teacher router ----------
 
 

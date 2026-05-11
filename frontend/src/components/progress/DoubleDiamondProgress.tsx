@@ -148,7 +148,9 @@ function DiamondChip({
   onClick,
   registerAnchor,
 }: DiamondChipProps) {
-  const diamondSize = size === 'sm' ? 22 : 32
+  // 字優先版（2026-05-11）：菱形改成 inline 小前綴圖示、字加大加粗為主視覺。
+  // 當前 stage 用底色 chip + accent 邊框強調；微階段點往右邊掛。
+  const diamondSize = size === 'sm' ? 12 : 16
   const showMicroDots = Boolean(currentMicroPhase) && status === 'current'
 
   return (
@@ -160,14 +162,27 @@ function DiamondChip({
       onFocus={onFocus}
       onBlur={onBlur}
       onClick={onClick}
-      disabled={status === 'future'}
+      // disabled 會壓掉 mouseenter，造成未來階段無法 hover 看 popover
+      // → 改用 aria-disabled 維持 a11y 語意，click 行為由 onClick handler 控制。
+      aria-disabled={status === 'future'}
       aria-label={`${macro.label}（${macro.shape}）`}
       aria-expanded={isHovered}
+      // specs/16-timer-system.md：driver.js phase-advance tour 用這個 attr 找錨點
+      data-tour-stage-chip={macro.stage}
       className={cn(
-        'group relative flex flex-col items-center gap-1 rounded-md px-2 py-1 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-        status !== 'future' && 'cursor-pointer hover:bg-accent/5',
-        status === 'future' && 'cursor-default opacity-60',
-        isHovered && 'bg-accent/5',
+        'group relative inline-flex items-center gap-1.5 rounded-md border transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        size === 'sm' ? 'px-2.5 py-1' : 'px-3 py-1.5',
+        // current → 強調底色 + accent 邊框（這是主視覺，醒目度第一）
+        status === 'current' &&
+          'border-accent/40 bg-accent/10 text-accent',
+        // completed → 文字 accent，不上底色，避免亂
+        status === 'completed' &&
+          'border-transparent text-accent hover:bg-accent/5 cursor-pointer',
+        // future → 灰色低調
+        status === 'future' &&
+          'border-transparent text-text-muted opacity-60 cursor-default',
+        // hover 強化
+        isHovered && status !== 'future' && 'bg-accent/10',
       )}
     >
       <svg
@@ -176,9 +191,8 @@ function DiamondChip({
         viewBox="0 0 24 24"
         aria-hidden="true"
         className={cn(
-          'transition-transform',
+          'shrink-0 transition-transform',
           status === 'current' && 'animate-pulse',
-          isHovered && 'scale-110',
         )}
       >
         <polygon
@@ -186,33 +200,28 @@ function DiamondChip({
           className={cn(
             'transition-colors',
             status === 'completed' && 'fill-accent stroke-accent',
-            status === 'current' && 'fill-accent/30 stroke-accent',
+            status === 'current' && 'fill-accent stroke-accent',
             status === 'future' && 'fill-transparent stroke-border',
           )}
           strokeWidth={2}
         />
-        {status === 'current' && (
-          <polygon
-            points="12,6 18,12 12,18 6,12"
-            className="fill-accent"
-          />
-        )}
       </svg>
 
       <span
         className={cn(
-          size === 'sm' ? 'text-xs' : 'text-sm',
-          'font-medium whitespace-nowrap',
-          status === 'completed' && 'text-accent',
-          status === 'current' && 'text-text font-semibold',
-          status === 'future' && 'text-text-muted',
+          // 字優先：sm 也用 text-sm（≈14px），md 用 text-base
+          size === 'sm' ? 'text-sm' : 'text-base',
+          'whitespace-nowrap tracking-wide',
+          status === 'current' && 'font-bold',
+          status === 'completed' && 'font-semibold',
+          status === 'future' && 'font-medium',
         )}
       >
         {macro.label.split(' ')[0]}
       </span>
 
       {showMicroDots && (
-        <div className="flex gap-0.5">
+        <div className="ml-1 flex gap-0.5">
           {macro.micro.map((mp) => {
             const microIdx = MICRO_PHASE_ORDER.indexOf(mp.id)
             const curIdx = MICRO_PHASE_ORDER.indexOf(currentMicroPhase as MicroPhaseId)
@@ -222,10 +231,10 @@ function DiamondChip({
               <span
                 key={mp.id}
                 className={cn(
-                  'h-1 w-1 rounded-full transition-all',
+                  'h-1.5 w-1.5 rounded-full transition-all',
                   isCompleted && 'bg-accent',
                   isCurrent && 'bg-accent animate-pulse',
-                  !isCompleted && !isCurrent && 'bg-text-muted/30',
+                  !isCompleted && !isCurrent && 'bg-accent/30',
                 )}
               />
             )

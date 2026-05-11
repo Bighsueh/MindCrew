@@ -1,8 +1,8 @@
 """Message query 共用 filter。
 
 依 specs/13-personal-chat.md §4.4 與 §9.1，所有「禁止看到個人訊息」的
-查詢場景（agent context_buffer、seat_progress、teacher dashboard 統計與紀錄
-等）必須統一透過 ``group_only_filter()`` 加入 where 條件，避免散落各處
+查詢場景（agent context_buffer、teacher dashboard 統計與紀錄等）必須統一透過
+``group_only_filter()`` 加入 where 條件，避免散落各處
 重複寫 ``chat_id IS NULL OR chat_id LIKE '%:group'`` 拼接字串、導致
 typo 或漏改造成個人訊息洩漏。
 

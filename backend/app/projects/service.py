@@ -89,6 +89,21 @@ class ProjectService:
             seats.append(seat)
         await self.session.flush()
 
+        # specs/16-timer-system.md：建立專案時同步初始化 timer。
+        # 老師可在 request.timer_config 帶 preset 或自訂 macro budget；
+        # 沒提供就用 DEFAULT_2HR_PRESET。建立後從 sub_phase "1.1a" 自動啟動。
+        try:
+            from app.timer.service import TimerService
+            await TimerService.initialize_project(
+                project.id, config=request.timer_config
+            )
+            await TimerService.start_phase(project.id, "1.1a")
+        except Exception:  # noqa: BLE001 — timer 失敗不該擋 project 建立。
+            import logging
+            logging.getLogger(__name__).exception(
+                "Failed to bootstrap timer for project %s", project.id
+            )
+
         return ProjectResponse(
             id=project.id,
             name=project.name,
