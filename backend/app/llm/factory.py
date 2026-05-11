@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import AsyncIterator
 
 from app.llm.base import LLMProvider, LLMResponse
 
@@ -59,6 +60,23 @@ class LLMService:
         raise RuntimeError(
             f"All LLM providers failed. Last error: {last_exc}"
         ) from last_exc
+
+    async def chat_completion_stream(
+        self,
+        messages: list[dict],
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+    ) -> AsyncIterator[str]:
+        """Stream from primary provider only — no fallback for streaming.
+
+        Streaming halfway through and switching providers would produce
+        garbled output. Callers should fall back to the non-streaming
+        ``chat_completion`` path if streaming fails.
+        """
+        async for chunk in self._primary.chat_completion_stream(
+            messages, temperature=temperature, max_tokens=max_tokens
+        ):
+            yield chunk
 
     async def health_check(self) -> bool:
         """Return True if at least one provider is healthy."""

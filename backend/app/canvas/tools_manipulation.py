@@ -279,7 +279,7 @@ async def _evaluate_create_gates(
         )
 
     # Step 2: phase_visible 已由 get_active_zones 過濾，再次確認
-    if sub_phase_id not in zone.phase_visible and zone.id != "park":
+    if sub_phase_id not in zone.phase_visible:
         return CreateNoteOutcome(
             success=False,
             rejection=GateRejection(
@@ -300,39 +300,37 @@ async def _evaluate_create_gates(
             ),
         )
 
-    # Step 4: Content gate
-    # Park 區跳過 content gate（孤兒收容所），其他套用 zone + sub_phase 合併規則
-    if zone.id != "park":
-        all_modules = tuple(set(zone.gate_modules) | set(sub_phase.gate_modules))
-        # Spec 14: 使用 LLM-judged 兩層評估（regex 預過濾 + LLM 確認，能識別引述/否定/Meta）
-        gate_result = await check_text_with_llm(
-            text,
-            all_modules,
-            context={"sub_phase": sub_phase_id, "zone": zone.id},
-            project_id=project_id,
+    # Step 4: Content gate — 套用 zone + sub_phase 合併規則
+    all_modules = tuple(set(zone.gate_modules) | set(sub_phase.gate_modules))
+    # Spec 14: 使用 LLM-judged 兩層評估（regex 預過濾 + LLM 確認，能識別引述/否定/Meta）
+    gate_result = await check_text_with_llm(
+        text,
+        all_modules,
+        context={"sub_phase": sub_phase_id, "zone": zone.id},
+        project_id=project_id,
+    )
+    if not gate_result.passed:
+        violation_metadata = None
+        if author_type == "human" and force_publish:
+            # Human override allowed
+            violation_metadata = {
+                "phase": sub_phase_id,
+                "zone_id": zone.id,
+                "rule": gate_result.violated_rule,
+                "module": gate_result.violated_module,
+                "matched_text": gate_result.matched_text,
+            }
+        return CreateNoteOutcome(
+            success=False,
+            zone_id=zone.id,
+            rejection=GateRejection(
+                reason_zh=gate_result.message_zh or "違反語言規則",
+                rule_module=gate_result.violated_module or "unknown",
+                rule_name=gate_result.violated_rule or "unknown",
+                matched_text=gate_result.matched_text,
+            ),
+            gate_violation_metadata=violation_metadata,
         )
-        if not gate_result.passed:
-            violation_metadata = None
-            if author_type == "human" and force_publish:
-                # Human override allowed
-                violation_metadata = {
-                    "phase": sub_phase_id,
-                    "zone_id": zone.id,
-                    "rule": gate_result.violated_rule,
-                    "module": gate_result.violated_module,
-                    "matched_text": gate_result.matched_text,
-                }
-            return CreateNoteOutcome(
-                success=False,
-                zone_id=zone.id,
-                rejection=GateRejection(
-                    reason_zh=gate_result.message_zh or "違反語言規則",
-                    rule_module=gate_result.violated_module or "unknown",
-                    rule_name=gate_result.violated_rule or "unknown",
-                    matched_text=gate_result.matched_text,
-                ),
-                gate_violation_metadata=violation_metadata,
-            )
 
     # Step 5: Template check (only if zone has a template requirement and text non-empty)
     if zone.templates:

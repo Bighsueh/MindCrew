@@ -8,7 +8,7 @@ interface ModalProps {
   onClose: () => void
   title?: string
   children: ReactNode
-  maxWidth?: 'sm' | 'md' | 'lg' | 'xl'
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl'
 }
 
 const maxWidthClasses = {
@@ -16,6 +16,11 @@ const maxWidthClasses = {
   md: 'max-w-md',
   lg: 'max-w-lg',
   xl: 'max-w-xl',
+  '2xl': 'max-w-2xl',
+  '3xl': 'max-w-3xl',
+  '4xl': 'max-w-4xl',
+  '5xl': 'max-w-5xl',
+  '6xl': 'max-w-6xl',
 }
 
 export function Modal({ isOpen, onClose, title, children, maxWidth = 'md' }: ModalProps) {
@@ -43,14 +48,14 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = 'md' }: Mod
       />
       <div
         className={cn(
-          'relative z-10 w-full rounded-xl bg-surface shadow-xl',
+          'relative z-10 flex max-h-[90vh] w-full flex-col rounded-xl bg-surface shadow-xl',
           maxWidthClasses[maxWidth],
         )}
         role="dialog"
         aria-modal="true"
       >
         {title && (
-          <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
             <h2 className="text-lg font-semibold text-text">{title}</h2>
             <button
               onClick={onClose}
@@ -61,7 +66,7 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = 'md' }: Mod
             </button>
           </div>
         )}
-        <div className="p-6">{children}</div>
+        <div className="overflow-y-auto p-6">{children}</div>
       </div>
     </div>,
     document.body,

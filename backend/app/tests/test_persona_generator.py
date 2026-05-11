@@ -195,3 +195,84 @@ async def test_generator_recovers_from_empty_stage1() -> None:
         title="x", description=None, constraints=None, num_personas=4
     )
     assert len(personas) == 4
+
+
+# ---------------------------------------------------------------------------
+# Streaming pipeline (spec §17.3.1.2)
+# ---------------------------------------------------------------------------
+
+
+class _StubStreamLLM(_StubLLM):
+    """Extends _StubLLM with a streaming method that yields the reply in slices."""
+
+    def __init__(self, sync_replies: list[str], stream_chunks: list[str]) -> None:
+        super().__init__(sync_replies)
+        self._chunks = list(stream_chunks)
+
+    async def chat_completion_stream(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+    ):
+        self.calls.append(
+            {
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": True,
+            }
+        )
+        for chunk in self._chunks:
+            yield chunk
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_emits_stage_and_persona_events() -> None:
+    # Slice the stage-2 JSON so the extractor must reassemble two objects.
+    chunks = [
+        _STAGE2_REPLY[:120],
+        _STAGE2_REPLY[120:240],
+        _STAGE2_REPLY[240:380],
+        _STAGE2_REPLY[380:],
+    ]
+    llm = _StubStreamLLM([_STAGE1_REPLY], chunks)
+    generator = PersonaGenerator(llm_service=llm)
+
+    events = [
+        ev
+        async for ev in generator.generate_stream(
+            title="x",
+            description=None,
+            constraints=None,
+            num_personas=4,
+        )
+    ]
+    types = [ev["type"] for ev in events]
+    assert types[0] == "stage" and events[0]["status"] == "start"
+    assert any(ev["type"] == "persona" for ev in events)
+    assert types[-1] == "done"
+
+    persona_events = [ev for ev in events if ev["type"] == "persona"]
+    assert len(persona_events) == 4
+    # Indices are zero-based and contiguous.
+    assert [ev["index"] for ev in persona_events] == [0, 1, 2, 3]
+    # The first persona payload should have a name from the canned stage-2 reply.
+    assert persona_events[0]["persona"]["name"] == "阿英"
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_errors_on_empty_title() -> None:
+    llm = _StubStreamLLM([], [])
+    generator = PersonaGenerator(llm_service=llm)
+    events = [
+        ev
+        async for ev in generator.generate_stream(
+            title="  ",
+            description=None,
+            constraints=None,
+            num_personas=4,
+        )
+    ]
+    assert events == [{"type": "error", "detail": "title is required"}]

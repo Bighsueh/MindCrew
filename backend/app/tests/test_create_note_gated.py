@@ -156,18 +156,20 @@ class TestRawWallNoInterpretation:
         assert outcome.success is True
 
 
-class TestParkBypassesContentGate:
-    async def test_park_allows_anything(self) -> None:
-        # Park bounds = x=2400..2640
+class TestParkRemoved:
+    """Phase 21：Park（孤兒區）概念已移除。原本落在 park 區域座標的便條，
+    現在會被視為「不在任何 active zone」而 reject。"""
+
+    async def test_old_park_coords_now_rejected(self) -> None:
         outcome = await _evaluate_create_gates(
             project_id="00000000-0000-0000-0000-000000000000",  # type: ignore[arg-type]
-            text="做一個解法（測試 park 不擋）",
+            text="做一個解法",
             color="yellow",
             x=2450,
             y=100,
-            sub_phase_id="2.2",  # solution-language phase
+            sub_phase_id="2.2",
             author_type="ai",
             force_publish=False,
         )
-        assert outcome.success is True
-        assert outcome.zone_id == "park"
+        assert outcome.success is False
+        assert outcome.rejection is not None

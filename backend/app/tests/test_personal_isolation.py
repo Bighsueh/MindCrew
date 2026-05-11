@@ -72,9 +72,14 @@ async def _make_teacher(db_session: AsyncSession, user_id: UUID) -> None:
 
 
 async def _create_project(client: AsyncClient, token: str) -> UUID:
+    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD
+
     resp = await client.post(
         "/api/projects",
-        json={"name": "Personal Isolation Test Project"},
+        json={
+            "name": "Personal Isolation Test Project",
+            "personas": VALID_PERSONAS_PAYLOAD,
+        },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 201, resp.text

@@ -44,7 +44,9 @@ export interface CreateProjectRequest {
   description: string
   constraints?: string
   ai_contribution: AIContribution
-  personas?: CrewPersonaAssignment[]
+  // Phase 21: 教師可選 AI 組員人數（1–4），預設 3。Persona 數量必須等於此值。
+  ai_crew_count: number
+  personas: CrewPersonaAssignment[]
 }
 
 export interface GeneratePersonasRequest {

@@ -27,9 +27,15 @@ async def _register(client: AsyncClient, email: str, role: str = "teacher") -> s
 
 
 async def _create_project(client: AsyncClient, token: str, name: str = "Lock Test") -> str:
+    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD
+
     resp = await client.post(
         "/api/projects",
-        json={"name": name, "ai_contribution": "medium"},
+        json={
+            "name": name,
+            "ai_contribution": "medium",
+            "personas": VALID_PERSONAS_PAYLOAD,
+        },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 201, resp.text

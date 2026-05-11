@@ -62,3 +62,4 @@ sidecar/dist/
 backend/.venv/
 backend/.venv-qa/
 frontend/vite.qa.config.ts
+sidecar/.data/

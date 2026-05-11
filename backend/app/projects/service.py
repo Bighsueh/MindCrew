@@ -28,7 +28,14 @@ from app.seats.manager import seat_manager
 
 logger = logging.getLogger(__name__)
 
-SEAT_ROLES = ["supervisor", "crew_1", "crew_2", "crew_3", "crew_4"]
+def _seat_roles_for(ai_crew_count: int) -> list[str]:
+    """Phase 21：依教師選的人數動態產生席位清單。Supervisor 固定一位，crew 從 crew_1 開始連續。"""
+    return ["supervisor"] + [f"crew_{i}" for i in range(1, ai_crew_count + 1)]
+
+
+# Phase 21: 在第一位真人入座前，AI 座位以此狀態存放（不啟動 agent、前端顯示「待加入」）。
+SEAT_STATE_DORMANT = "dormant"
+SEAT_STATE_AI_RUNNING = "ai_running"
 
 
 class ProjectService:
@@ -65,14 +72,17 @@ class ProjectService:
                     )
                 persona_by_role[assignment.seat_role] = payload
 
+        seat_roles = _seat_roles_for(request.ai_crew_count)
         seats: list[Seat] = []
-        for role in SEAT_ROLES:
+        for role in seat_roles:
             seat = Seat(
                 project_id=project.id,
                 seat_role=role,
                 occupant_type="ai",
-                agent_id=f"agent_{role}",
-                state="ai_running",
+                # Phase 21：建立時 AI agents 全部 dormant，agent_id 留空，
+                # 等第一位真人入座才會被 seat_manager 激活。
+                agent_id=None,
+                state=SEAT_STATE_DORMANT,
                 persona=persona_by_role.get(role) if role != "supervisor" else None,
             )
             self.session.add(seat)
@@ -190,15 +200,27 @@ class ProjectService:
                 status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
             )
 
-        seat = await self.repo.get_seat(project_id, request.seat_role)
-        if not seat:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid seat role"
-            )
+        # Supervisor lock 最高優先（Phase 18 規則）。
         if request.seat_role == "supervisor":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Supervisor seat is AI-only and cannot be occupied by humans",
+            )
+
+        all_seats = await self.repo.get_seats(project_id)
+        seat = next(
+            (s for s in all_seats if s.seat_role == request.seat_role),
+            None,
+        )
+        if not seat:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid seat role"
+            )
+        # Phase 21: 一個人類在同一專案僅能佔一個席位。
+        if any(s.user_id == user.id for s in all_seats):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You already occupy a seat in this project",
             )
         if seat.occupant_type == "human":
             raise HTTPException(
@@ -206,8 +228,11 @@ class ProjectService:
                 detail="Seat is already occupied by a human",
             )
 
-        # Delegate to SeatManager: stops AI agent, updates DB/Redis, broadcasts event
-        # Pass our session so the DB update stays within this transaction
+        # Phase 21：偵測「第一位真人入座」事件，
+        # 若是，則由 seat_manager 把 dormant AI 席位陸續激活（supervisor 立即、crew 錯開）。
+        is_first_human = not any(s.occupant_type == "human" for s in all_seats)
+
+        # Delegate to SeatManager: stops AI agent (if any), updates DB/Redis, broadcasts event
         await seat_manager.assign_human(
             project_id=project_id,
             seat_role=request.seat_role,
@@ -217,8 +242,12 @@ class ProjectService:
         )
         await self.session.flush()
 
-        # Ensure all other AI seats have running agents
-        await seat_manager.start_all_agents(project_id)
+        if is_first_human:
+            # 第一位真人 → 把所有 dormant AI 座位激活（含 supervisor + 其他 crew）。
+            await seat_manager.activate_dormant_seats(project_id)
+        else:
+            # 其他真人 → 只確認既有 AI agents 在跑（idempotent）。
+            await seat_manager.start_all_agents(project_id)
 
         # Re-read seat from DB for the response
         await self.session.refresh(seat)
@@ -379,8 +408,10 @@ class ProjectService:
         from app.agents.personas.display import resolve_display_name
 
         persona_payload = getattr(seat, "persona", None)
-        display_name = None
-        if seat.occupant_type == "ai":
+        is_dormant = seat.state == SEAT_STATE_DORMANT
+        display_name: str | None = None
+        # Phase 21：dormant AI 不對外揭露 persona 姓名（前端顯示「待加入」）。
+        if seat.occupant_type == "ai" and not is_dormant:
             display_name = resolve_display_name(seat.seat_role, persona_payload)
         return SeatResponse(
             seat_role=seat.seat_role,
@@ -388,5 +419,7 @@ class ProjectService:
             user_id=seat.user_id,
             agent_id=seat.agent_id,
             display_name=display_name,
+            # 仍把 persona 帶出，讓教師 / 建立者預覽 — 真正切換到 UI 上的「代理中」需要 is_active=True
             persona=persona_payload,
+            is_active=not is_dormant,
         )

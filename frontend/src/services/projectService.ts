@@ -1,4 +1,4 @@
-import api from './api'
+import api, { getAccessToken } from './api'
 import type {
   CreateProjectRequest,
   GeneratePersonasRequest,
@@ -162,6 +162,86 @@ export async function generatePersonas(
     data,
   )
   return response.data.personas
+}
+
+// ── Streaming variant (spec §17.3.1.2) ────────────────────────────────
+
+export type PersonaStreamEvent =
+  | {
+      type: 'stage'
+      stage: 'stakeholder_mapping' | 'persona_instantiation'
+      status: 'start' | 'done'
+      category_count?: number
+    }
+  | { type: 'persona'; index: number; persona: Persona }
+  | { type: 'done'; count: number }
+  | { type: 'error'; detail: string }
+
+interface StreamOptions {
+  signal?: AbortSignal
+  onEvent: (event: PersonaStreamEvent) => void
+}
+
+export async function generatePersonasStream(
+  data: GeneratePersonasRequest,
+  { signal, onEvent }: StreamOptions,
+): Promise<void> {
+  const token = getAccessToken()
+  const response = await fetch('/api/personas/generate/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(data),
+    signal,
+  })
+  if (!response.ok || !response.body) {
+    throw new Error(`SSE 連線失敗（HTTP ${response.status}）`)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      // SSE frames are separated by a blank line.
+      let sep = buffer.indexOf('\n\n')
+      while (sep !== -1) {
+        const frame = buffer.slice(0, sep)
+        buffer = buffer.slice(sep + 2)
+        sep = buffer.indexOf('\n\n')
+        const parsed = parseSseFrame(frame)
+        if (parsed) onEvent(parsed)
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+function parseSseFrame(frame: string): PersonaStreamEvent | null {
+  let eventName = 'message'
+  const dataLines: string[] = []
+  for (const line of frame.split('\n')) {
+    if (line.startsWith('event:')) {
+      eventName = line.slice(6).trim()
+    } else if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart())
+    }
+  }
+  if (dataLines.length === 0) return null
+  let payload: Record<string, unknown>
+  try {
+    payload = JSON.parse(dataLines.join('\n'))
+  } catch {
+    return null
+  }
+  return { type: eventName, ...payload } as PersonaStreamEvent
 }
 
 export async function updateSeatPersona(

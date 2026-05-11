@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from app.canvas.zones import (
     COLORS,
-    PARK_BOUNDS,
     ZONES,
     Bounds,
     get_active_zones,
     get_zone,
-    is_park_zone,
     resolve_zone_by_position,
     zone_allows_color,
 )
@@ -38,27 +36,17 @@ class TestZoneRegistry:
             assert len(zone.allowed_colors) >= 1
             assert all(c in COLORS for c in zone.allowed_colors)
 
-    def test_park_zone_exists(self) -> None:
-        assert "park" in ZONES
-        park = ZONES["park"]
-        assert park.default_bounds == PARK_BOUNDS
+    def test_park_zone_removed(self) -> None:
+        """Phase 21：Park（孤兒區）已移除。"""
+        assert "park" not in ZONES
 
     def test_get_zone(self) -> None:
         z = get_zone("pov_wall")
         assert z.id == "pov_wall"
         assert "no_solution_language" in z.gate_modules
 
-    def test_is_park_zone(self) -> None:
-        assert is_park_zone("park") is True
-        assert is_park_zone("pov_wall") is False
-
 
 class TestActiveZones:
-    def test_park_always_active(self) -> None:
-        for sub_phase in ("1.1a", "2.2", "4.3"):
-            active_ids = {z.id for z in get_active_zones(sub_phase)}
-            assert "park" in active_ids
-
     def test_1_6_has_empathy_quadrants(self) -> None:
         active_ids = {z.id for z in get_active_zones("1.6")}
         assert {"empathy_says", "empathy_thinks", "empathy_does", "empathy_feels"} <= active_ids
@@ -71,10 +59,9 @@ class TestActiveZones:
         active_ids = {z.id for z in get_active_zones("3.2")}
         assert "idea_pool" in active_ids
 
-    def test_unknown_sub_phase_only_park(self) -> None:
-        active_ids = {z.id for z in get_active_zones("99.9")}
-        # 只有 park
-        assert active_ids == {"park"}
+    def test_unknown_sub_phase_returns_empty(self) -> None:
+        """Phase 21：Park 已移除，未知 sub_phase 無 active zone。"""
+        assert get_active_zones("99.9") == []
 
 
 class TestColorRules:
@@ -106,11 +93,10 @@ class TestResolveByPosition:
         z = resolve_zone_by_position(99999, 99999, "2.2")
         assert z is None
 
-    def test_resolve_park(self) -> None:
-        # PARK_BOUNDS x=2400..2640
+    def test_resolve_outside_for_inactive_phase(self) -> None:
+        """Phase 21：Park 已移除，1.1a 的 (2450, 100) 不再落在任何 zone。"""
         z = resolve_zone_by_position(2450, 100, "1.1a")
-        assert z is not None
-        assert z.id == "park"
+        assert z is None
 
     def test_resolve_with_project_override(self) -> None:
         # 自訂 bounds 覆寫 default

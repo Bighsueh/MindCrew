@@ -136,7 +136,7 @@ export function PersonaCard({
       {persona.personality_desc && (
         <div className="flex flex-col gap-1">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-            個性傾向
+            個性特質
           </div>
           <p className="text-sm text-text leading-snug">
             {persona.personality_desc}

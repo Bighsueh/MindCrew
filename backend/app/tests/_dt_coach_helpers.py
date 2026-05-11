@@ -46,9 +46,11 @@ async def register_user(
 
 async def create_project(client: AsyncClient, token: str) -> UUID:
     """建立一個 project（caller 即為 creator）。"""
+    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD
+
     resp = await client.post(
         "/api/projects",
-        json={"name": "DT Coach Test"},
+        json={"name": "DT Coach Test", "personas": VALID_PERSONAS_PAYLOAD},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 201, resp.text
