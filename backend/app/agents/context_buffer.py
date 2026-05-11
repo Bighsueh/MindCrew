@@ -300,6 +300,15 @@ class ContextBuffer:
             except Exception:
                 reveal_queue = []
 
+        # Spec 15 §7: time_budget_used_pct for Supervisor B3/B11
+        time_budget_used_pct = 0.0
+        if current_sub_phase:
+            try:
+                from app.timer.service import TimerService
+                time_budget_used_pct = await TimerService.get_used_pct(self._project_id)
+            except Exception:
+                time_budget_used_pct = 0.0
+
         context: dict = {
             "project_name": project_name,
             "project_description": project_description,
@@ -311,6 +320,7 @@ class ContextBuffer:
             "comm_mode": comm_mode,
             "active_zones": active_zones,
             "reveal_queue": reveal_queue,
+            "time_budget_used_pct": time_budget_used_pct,
             "my_role_status": role_status_value,
             "stage_duration_minutes": stage_duration,
             "seats": seats,

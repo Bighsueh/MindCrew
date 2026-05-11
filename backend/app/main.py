@@ -75,26 +75,40 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Failed to resume agents on startup: %s", exc)
 
-    # Spec 14 A10: Background watcher — silent_rearrange auto-advance
-    watcher_task = None
+    # Spec 14 A10: silent_rearrange auto-advance watcher
+    stability_task = None
     try:
         import asyncio
         from app.canvas.stability_watcher import stability_watcher_loop
-        watcher_task = asyncio.create_task(stability_watcher_loop())
+        stability_task = asyncio.create_task(stability_watcher_loop())
         logger.info("Stability watcher task started")
     except Exception as exc:
         logger.warning("Failed to start stability watcher: %s", exc)
+
+    # Spec 15: Timer warnings + timeout watcher
+    timer_task = None
+    try:
+        import asyncio
+        from app.timer.watcher import timer_watcher_loop
+        timer_task = asyncio.create_task(timer_watcher_loop())
+        logger.info("Timer watcher task started")
+    except Exception as exc:
+        logger.warning("Failed to start timer watcher: %s", exc)
 
     yield
 
     # Shutdown
     try:
         from app.canvas.stability_watcher import stop_stability_watcher
+        from app.timer.watcher import stop_timer_watcher
         await stop_stability_watcher()
-        if watcher_task is not None:
-            watcher_task.cancel()
+        await stop_timer_watcher()
+        if stability_task is not None:
+            stability_task.cancel()
+        if timer_task is not None:
+            timer_task.cancel()
     except Exception as exc:
-        logger.warning("Error stopping stability watcher: %s", exc)
+        logger.warning("Error stopping watcher tasks: %s", exc)
 
     try:
         from app.seats.manager import seat_manager

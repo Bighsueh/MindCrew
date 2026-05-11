@@ -296,6 +296,13 @@ async def advance_sub_phase(
             )
             await session.commit()
 
+        # Spec 15 B5: Start timer for new sub_phase
+        try:
+            from app.timer.service import TimerService
+            await TimerService.start_phase(project_id, to_sub_phase)
+        except Exception as exc:
+            logger.debug("Timer start_phase failed: %s", exc)
+
         # Reset reveal queue / stability timer
         try:
             from app.agents.reveal_queue import reset as reset_reveal, start_reveal_round

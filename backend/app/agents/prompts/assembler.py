@@ -135,16 +135,27 @@ class PromptAssembler:
         # Layer 2 — role (Crew gets base + capability prompt based on seat_role)
         phase_strategy = context.get("phase_strategy")
         if is_supervisor:
-            system_parts.append(SUPERVISOR_ROLE_PROMPT)
-            # Supervisor mode prompt based on phase_strategy
-            if phase_strategy:
-                sup_mode = phase_strategy.get("supervisor_mode", "participant")
-                if sup_mode == "facilitator":
-                    system_parts.append(SUPERVISOR_FACILITATOR_RULES)
-                elif sup_mode == "silent":
-                    system_parts.append(SUPERVISOR_SILENT_RULES)
-                else:  # "participant" (default)
-                    system_parts.append(SUPERVISOR_DISCUSSION_RULES)
+            # Spec 14: 若 supervisor persona router 已決定 A/B persona，
+            # 用 persona base + intervention templates 取代既有 mode rules
+            persona_invocation = context.get("_supervisor_persona_invocation")
+            if persona_invocation:
+                system_parts.append(persona_invocation.base_prompt)
+                if persona_invocation.interventions_block:
+                    system_parts.append(
+                        "## 本回合觸發的介入：\n"
+                        + persona_invocation.interventions_block
+                    )
+            else:
+                # Fall through: 既有 supervisor_mode（facilitator/participant/silent）
+                system_parts.append(SUPERVISOR_ROLE_PROMPT)
+                if phase_strategy:
+                    sup_mode = phase_strategy.get("supervisor_mode", "participant")
+                    if sup_mode == "facilitator":
+                        system_parts.append(SUPERVISOR_FACILITATOR_RULES)
+                    elif sup_mode == "silent":
+                        system_parts.append(SUPERVISOR_SILENT_RULES)
+                    else:  # "participant" (default)
+                        system_parts.append(SUPERVISOR_DISCUSSION_RULES)
         else:
             seat_role = str(role).lower()
             system_parts.append(CREW_ROLE_BASE_PROMPT)
