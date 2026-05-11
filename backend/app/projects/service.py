@@ -244,7 +244,11 @@ class ProjectService:
 
         if is_first_human:
             # 第一位真人 → 把所有 dormant AI 座位激活（含 supervisor + 其他 crew）。
-            await seat_manager.activate_dormant_seats(project_id)
+            # 傳 self.session 進去，讓 supervisor 的同步激活與本次 request 同交易，
+            # 確保測試 fixture（不 commit）也能看到狀態。
+            await seat_manager.activate_dormant_seats(
+                project_id, session=self.session
+            )
         else:
             # 其他真人 → 只確認既有 AI agents 在跑（idempotent）。
             await seat_manager.start_all_agents(project_id)

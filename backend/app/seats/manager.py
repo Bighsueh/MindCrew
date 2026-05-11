@@ -275,14 +275,16 @@ class SeatManager:
         project_id: UUID,
         *,
         crew_stagger_seconds: float = 1.0,
+        session: AsyncSession | None = None,
     ) -> None:
         """Phase 21: 第一位真人入座後，把所有 dormant AI 席位轉為 active。
 
-        - Supervisor 立即啟動（含 greeting）。
+        - Supervisor 立即啟動（含 greeting），使用呼叫端 ``session``（若提供），
+          以便和外層交易共用 visibility（測試 fixture 不 commit 時必要）。
         - 其他 dormant crew seats 在 ``crew_stagger_seconds`` 間距內依序啟動，
-          並在 background task 中執行以避免阻塞 HTTP 回應。
+          並在 background task 中執行（用自己的 session）以避免阻塞 HTTP 回應。
         """
-        async with async_session_factory() as session:
+        if session is not None:
             result = await session.execute(
                 select(Seat).where(
                     Seat.project_id == project_id,
@@ -291,6 +293,16 @@ class SeatManager:
                 )
             )
             dormant_seats = list(result.scalars().all())
+        else:
+            async with async_session_factory() as own_session:
+                result = await own_session.execute(
+                    select(Seat).where(
+                        Seat.project_id == project_id,
+                        Seat.occupant_type == "ai",
+                        Seat.state == "dormant",
+                    )
+                )
+                dormant_seats = list(result.scalars().all())
 
         if not dormant_seats:
             return
@@ -302,12 +314,15 @@ class SeatManager:
         crew_seats.sort(key=lambda s: s.seat_role)  # crew_1, crew_2, ...
 
         if supervisor_seat is not None:
-            await self._promote_dormant_seat(project_id, supervisor_seat.seat_role)
+            await self._promote_dormant_seat(
+                project_id, supervisor_seat.seat_role, session=session
+            )
 
         async def _stagger_crew() -> None:
             for idx, seat in enumerate(crew_seats):
                 await asyncio.sleep(crew_stagger_seconds * (idx + 1))
                 try:
+                    # Background path: 使用自己的 session（外層 request 已結束）。
                     await self._promote_dormant_seat(project_id, seat.seat_role)
                 except Exception as exc:  # pragma: no cover - background safety
                     logger.warning(
@@ -318,13 +333,20 @@ class SeatManager:
             asyncio.create_task(_stagger_crew())
 
     async def _promote_dormant_seat(
-        self, project_id: UUID, seat_role: str
+        self,
+        project_id: UUID,
+        seat_role: str,
+        *,
+        session: AsyncSession | None = None,
     ) -> None:
-        """Flip a single seat from dormant → ai_running, start its agent, and broadcast."""
+        """Flip a single seat from dormant → ai_running, start its agent, and broadcast.
+
+        若提供 ``session`` 則沿用之（不 commit，交給外層）；否則開新 session 並 commit。
+        """
         agent_id = f"agent_{seat_role}"
 
-        async with async_session_factory() as session:
-            result = await session.execute(
+        async def _flip(s: AsyncSession, commit: bool) -> bool:
+            result = await s.execute(
                 select(Seat).where(
                     Seat.project_id == project_id,
                     Seat.seat_role == seat_role,
@@ -332,11 +354,23 @@ class SeatManager:
             )
             seat = result.scalar_one_or_none()
             if seat is None or seat.state != "dormant":
-                return
+                return False
             seat.agent_id = agent_id
             seat.state = "ai_running"
             seat.updated_at = datetime.now(timezone.utc)
-            await session.commit()
+            if commit:
+                await s.commit()
+            else:
+                await s.flush()
+            return True
+
+        if session is not None:
+            if not await _flip(session, commit=False):
+                return
+        else:
+            async with async_session_factory() as own_session:
+                if not await _flip(own_session, commit=True):
+                    return
 
         await self._update_redis_seat(project_id, seat_role, "ai", agent_id)
 
