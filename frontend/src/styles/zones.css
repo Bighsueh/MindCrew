@@ -97,6 +97,18 @@
   animation: vote-land 200ms ease-out;
 }
 
+/* Spec 15: Timer overtime flash */
+@keyframes timer-flash {
+  0%, 100% { box-shadow: 0 2px 8px rgba(0,0,0,0.1), 0 0 0 0 rgba(220, 38, 38, 0.7); }
+  50% { box-shadow: 0 2px 8px rgba(0,0,0,0.1), 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+
+/* Spec 14: Advance vote banner slide down */
+@keyframes slide-down-200 {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
 /* Animation level data attribute — global override */
 [data-anim="off"] * {
   animation: none !important;

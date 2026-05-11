@@ -95,18 +95,32 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Failed to start timer watcher: %s", exc)
 
+    # Spec 14 N2: Crew advance vote watcher
+    crew_vote_task = None
+    try:
+        import asyncio
+        from app.agents.crew_advance_vote_watcher import crew_vote_watcher_loop
+        crew_vote_task = asyncio.create_task(crew_vote_watcher_loop())
+        logger.info("Crew advance vote watcher task started")
+    except Exception as exc:
+        logger.warning("Failed to start crew vote watcher: %s", exc)
+
     yield
 
     # Shutdown
     try:
         from app.canvas.stability_watcher import stop_stability_watcher
         from app.timer.watcher import stop_timer_watcher
+        from app.agents.crew_advance_vote_watcher import stop_crew_vote_watcher
         await stop_stability_watcher()
         await stop_timer_watcher()
+        await stop_crew_vote_watcher()
         if stability_task is not None:
             stability_task.cancel()
         if timer_task is not None:
             timer_task.cancel()
+        if crew_vote_task is not None:
+            crew_vote_task.cancel()
     except Exception as exc:
         logger.warning("Error stopping watcher tasks: %s", exc)
 

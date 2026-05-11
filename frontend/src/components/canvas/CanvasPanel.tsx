@@ -13,6 +13,11 @@ import { ZoneOverlay } from './ZoneOverlay'
 import { ParkSidebar } from './ParkSidebar'
 import { HmwTabBar } from './HmwTabBar'
 import { CommModeIndicator } from './CommModeIndicator'
+// Spec 14 + 15 — Timer + Advance vote
+import { TimerBadge } from '../timer/TimerBadge'
+import { TimerControlPanel } from '../timer/TimerControlPanel'
+import { AdvanceVoteBanner } from '../vote/AdvanceVoteBanner'
+import { useProjectRealtime } from '@/hooks/useProjectRealtime'
 
 interface CanvasPanelProps {
   projectId: string
@@ -22,6 +27,9 @@ interface CanvasPanelProps {
   commMode?: 'silent_write' | 'reveal_round' | 'silent_rearrange' | 'discussion'
   subPhaseName?: string
   nextRevealSeat?: string | null
+  // Spec 14 + 15: teacher mode + current user id
+  isTeacher?: boolean
+  currentUserId?: string
 }
 
 function getYjsWsUrl(): string {
@@ -58,7 +66,11 @@ export function CanvasPanel({
   commMode = 'discussion',
   subPhaseName,
   nextRevealSeat = null,
+  isTeacher = false,
+  currentUserId = '',
 }: CanvasPanelProps) {
+  // Spec 14 + 15: pull timer + vote state
+  const { voteSession } = useProjectRealtime(projectId)
   const [connected, setConnected] = useState(false)
   const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), [])
   const docRef = useRef<Y.Doc | null>(null)
@@ -119,6 +131,17 @@ export function CanvasPanel({
         nextRevealSeat={nextRevealSeat}
       />
       <ParkSidebar notes={[]} />
+      {/* Spec 15: 所有人可見的 timer */}
+      <TimerBadge />
+      {/* Spec 15: 老師限定 timer 控制 */}
+      <TimerControlPanel projectId={projectId} isTeacher={isTeacher} />
+      {/* Spec 14 N2: Crew 推進投票 */}
+      <AdvanceVoteBanner
+        projectId={projectId}
+        isTeacher={isTeacher}
+        currentUserId={currentUserId}
+        session={voteSession}
+      />
     </div>
   )
 }
