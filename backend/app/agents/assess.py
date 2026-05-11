@@ -69,6 +69,25 @@ class AssessEngine:
         supervisor_mode = phase_strategy.get("supervisor_mode", "")
         is_supervisor = "supervisor" in my_seat.lower()
 
+        # Spec 13 — Sticky-Only Strategy: comm_mode gate (highest priority)
+        # 注意：comm_mode 真正的「允許哪些 action」限制在 Act layer 強制（見 act.py），
+        # 這裡只負責 reveal_round 的輪序判斷（必須在 ASSESS 階段就 yield，否則該 agent 會發起無效 LLM 呼叫）。
+        comm_mode = context.get("comm_mode", "discussion")
+
+        if comm_mode == "reveal_round":
+            reveal_queue = context.get("reveal_queue", [])
+            if reveal_queue:
+                next_seat = reveal_queue[0]
+                if my_seat != next_seat:
+                    return AssessResult(
+                        decision="wait",
+                        rule="rule_0_2_reveal_not_my_turn",
+                        details={
+                            "reason": f"揭示輪：等待 {next_seat} 唸出，目前不是你的回合",
+                            "next_seat": next_seat,
+                        },
+                    )
+
         # Rule 0: Strategy Gate — OO 策略下只有被 @mention 的人可行動
         if comm_strategy == "one_by_one" and not is_supervisor:
             last_sender_is_supervisor = False
@@ -82,7 +101,9 @@ class AssessEngine:
                     or "supervisor" in sender_field.lower()
                     or "引導者" in sender_field
                 )
-            am_mentioned = self._is_mentioned(recent_chat, agent_id, my_seat)
+            am_mentioned = self._is_mentioned(
+                recent_chat, agent_id, my_seat, context.get("seats")
+            )
             if not last_sender_is_supervisor and not am_mentioned:
                 return AssessResult(
                     decision="wait",
@@ -111,7 +132,9 @@ class AssessEngine:
             )
 
         # Rule 1: @mention or direct question to this agent
-        if self._is_mentioned(recent_chat, agent_id, my_seat):
+        if self._is_mentioned(
+            recent_chat, agent_id, my_seat, context.get("seats")
+        ):
             return AssessResult(
                 decision="intervene",
                 rule="rule_1_mention",
@@ -395,7 +418,8 @@ class AssessEngine:
     # Private helpers
     # ------------------------------------------------------------------
 
-    # Display name mapping for mention detection
+    # Legacy display name mapping kept for backward compatibility.
+    # Phase 19: persona-based name is preferred via ``context["seats"]``.
     _DISPLAY_NAMES: dict[str, str] = {
         "supervisor": "ai 引導者",
         "crew_1": "ai 同理心專家",
@@ -405,7 +429,11 @@ class AssessEngine:
     }
 
     def _is_mentioned(
-        self, recent_chat: list[dict], agent_id: str, seat_role: str,
+        self,
+        recent_chat: list[dict],
+        agent_id: str,
+        seat_role: str,
+        seats: list[dict] | None = None,
     ) -> bool:
         """Return True if the most recent chat message mentions this agent."""
         if not recent_chat:
@@ -417,10 +445,26 @@ class AssessEngine:
             f"@{seat_role.lower()}",
             seat_role.lower(),
         ]
-        # Also match display name (e.g. "AI 同理心專家")
-        display_name = self._DISPLAY_NAMES.get(seat_role, "")
-        if display_name:
-            targets.append(display_name)
+        # Phase 19: prefer persona.name from seats
+        persona_name = ""
+        if seats:
+            for s in seats:
+                role = s.get("role") or s.get("seat_role")
+                if role == seat_role:
+                    persona = s.get("persona") if isinstance(s, dict) else None
+                    if isinstance(persona, dict):
+                        persona_name = str(persona.get("name", "")).strip().lower()
+                    if not persona_name:
+                        dn = s.get("display_name", "")
+                        if dn:
+                            persona_name = str(dn).lower()
+                    break
+        if persona_name:
+            targets.append(persona_name)
+        # Legacy display name fallback
+        legacy = self._DISPLAY_NAMES.get(seat_role, "")
+        if legacy:
+            targets.append(legacy)
         return any(t in content for t in targets if t.strip("@"))
 
     def _human_typing_recently(self, context: dict) -> bool:

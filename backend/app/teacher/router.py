@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt import get_current_user
 from app.bridge.canvas_ops import canvas_ops
+from app.chat.message_filters import group_only_filter
 from app.db.models.agent_decision_trace import AgentDecisionTrace
 from app.db.models.message import Message
 from app.db.models.project import Project
@@ -151,8 +152,12 @@ async def get_project_record(
     ]
 
     # Message count
+    # spec §8.5：teacher dashboard 統計訊息數**只算 group**；
+    # personal 訊息屬隱私邊界，不入 metric。
     msg_count_result = await session.execute(
-        select(func.count(Message.id)).where(Message.project_id == project_id)
+        select(func.count(Message.id))
+        .where(Message.project_id == project_id)
+        .where(group_only_filter())
     )
     total_messages = msg_count_result.scalar() or 0
 
@@ -430,30 +435,39 @@ async def _build_participation(
     session: AsyncSession, project_id: UUID, seats: list[Seat],
 ) -> ParticipationSummary:
     """Build participation summary from message counts."""
+    # spec §8.5：以下三個統計皆只算 group 訊息，personal 不入 metric。
     # Human message count
     human_msg_result = await session.execute(
-        select(func.count(Message.id)).where(
+        select(func.count(Message.id))
+        .where(
             Message.project_id == project_id,
             Message.sender_type == "human",
         )
+        .where(group_only_filter())
     )
     human_messages = human_msg_result.scalar() or 0
 
     # AI message count
     ai_msg_result = await session.execute(
-        select(func.count(Message.id)).where(
+        select(func.count(Message.id))
+        .where(
             Message.project_id == project_id,
             Message.sender_type == "ai",
         )
+        .where(group_only_filter())
     )
     ai_messages = ai_msg_result.scalar() or 0
 
     # Active members: humans who sent at least one message
+    # 注意：personal 也是 human 發的，但若以 personal 訊息算「有發言」會違反 §8.5；
+    # 故此處同樣只看 group 發言。
     active_result = await session.execute(
-        select(func.count(func.distinct(Message.sender_id))).where(
+        select(func.count(func.distinct(Message.sender_id)))
+        .where(
             Message.project_id == project_id,
             Message.sender_type == "human",
         )
+        .where(group_only_filter())
     )
     active_members = active_result.scalar() or 0
 

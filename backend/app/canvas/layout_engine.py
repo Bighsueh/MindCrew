@@ -49,6 +49,7 @@ _REGION_CENTERS: dict[str, tuple[float, float]] = {
 # ── Regex patterns for `to` string parsing ──
 
 _RE_NEAR = re.compile(r"^near:(.+)$")
+_RE_ABSOLUTE = re.compile(r"^absolute:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$")
 _RE_GRID = re.compile(r"^grid:(\d+),(\d+)$")
 _RE_REGION = re.compile(r"^region:(.+)$")
 _RE_CLUSTER = re.compile(r"^cluster:(.+)$")
@@ -91,6 +92,11 @@ class LayoutEngine:
         """
         gap = SPACING_VALUES.get(spacing, SPACING_VALUES["default"])
         notes_map = {n.id: n for n in notes}
+
+        # absolute:<x>,<y>  (Spec 13 — human drops at exact coord)
+        m = _RE_ABSOLUTE.match(to)
+        if m:
+            return float(m.group(1)), float(m.group(2))
 
         # near:<note_id>
         m = _RE_NEAR.match(to)

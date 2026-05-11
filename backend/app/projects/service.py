@@ -48,12 +48,24 @@ class ProjectService:
         project = Project(
             name=request.name,
             description=request.description,
+            constraints=request.constraints,
             creator_id=user.id,
             ai_contribution=request.ai_contribution,
         )
         project = await self.repo.create(project)
 
-        seats = []
+        # Build persona lookup from request (if supplied)
+        persona_by_role: dict[str, dict] = {}
+        if request.personas:
+            for assignment in request.personas:
+                payload = assignment.persona.model_dump()
+                if hasattr(assignment.persona.lens_affinities, "model_dump"):
+                    payload["lens_affinities"] = (
+                        assignment.persona.lens_affinities.model_dump()
+                    )
+                persona_by_role[assignment.seat_role] = payload
+
+        seats: list[Seat] = []
         for role in SEAT_ROLES:
             seat = Seat(
                 project_id=project.id,
@@ -61,6 +73,7 @@ class ProjectService:
                 occupant_type="ai",
                 agent_id=f"agent_{role}",
                 state="ai_running",
+                persona=persona_by_role.get(role) if role != "supervisor" else None,
             )
             self.session.add(seat)
             seats.append(seat)
@@ -70,6 +83,7 @@ class ProjectService:
             id=project.id,
             name=project.name,
             description=project.description,
+            constraints=project.constraints,
             current_stage=project.current_stage,
             ai_contribution=project.ai_contribution,
             status=project.status,
@@ -111,6 +125,7 @@ class ProjectService:
             id=project.id,
             name=project.name,
             description=project.description,
+            constraints=project.constraints,
             current_stage=project.current_stage,
             ai_contribution=project.ai_contribution,
             status=project.status,
@@ -136,6 +151,8 @@ class ProjectService:
             project.name = request.name
         if request.description is not None:
             project.description = request.description
+        if request.constraints is not None:
+            project.constraints = request.constraints
         if request.ai_contribution is not None:
             project.ai_contribution = request.ai_contribution
         project.updated_at = datetime.now(timezone.utc)
@@ -146,6 +163,7 @@ class ProjectService:
             id=project.id,
             name=project.name,
             description=project.description,
+            constraints=project.constraints,
             current_stage=project.current_stage,
             ai_contribution=project.ai_contribution,
             status=project.status,
@@ -176,6 +194,11 @@ class ProjectService:
         if not seat:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid seat role"
+            )
+        if request.seat_role == "supervisor":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Supervisor seat is AI-only and cannot be occupied by humans",
             )
         if seat.occupant_type == "human":
             raise HTTPException(
@@ -291,13 +314,29 @@ class ProjectService:
         messages = await msg_repo.get_messages(project_id, limit=30)
         canvas_state = await canvas_ops.get_canvas_state(project_id)
 
+        # Cap each chat line at 200 chars so a runaway long message can't blow up the prompt
         chat_text = "\n".join(
-            f"[{m.sender_type}] {m.sender_name}: {m.content}" for m in messages
+            f"[{m.sender_type}] {m.sender_name}: {m.content[:200]}"
+            for m in messages
         ) or "（尚無對話）"
 
-        notes_text = "\n".join(
-            f"- {n.get('content', '')}" for n in canvas_state.get("notes", [])
+        # vLLM context limit is 32K tokens. A long-running project can accumulate
+        # thousands of notes; dumping them all overflows the prompt. Cap to the
+        # most recent 60 notes (max ~120 chars each ≈ 8K tokens worst-case).
+        _NOTE_TEXT_CAP = 120
+        _NOTE_COUNT_CAP = 60
+        all_notes = canvas_state.get("notes", [])
+        recent_notes = all_notes[-_NOTE_COUNT_CAP:] if len(all_notes) > _NOTE_COUNT_CAP else all_notes
+        notes_text_body = "\n".join(
+            f"- {n.get('content', '')[:_NOTE_TEXT_CAP]}" for n in recent_notes
         ) or "（尚無便條紙）"
+        if len(all_notes) > _NOTE_COUNT_CAP:
+            notes_text = (
+                f"（共 {len(all_notes)} 張便條紙，僅顯示最新 {_NOTE_COUNT_CAP} 張）\n"
+                f"{notes_text_body}"
+            )
+        else:
+            notes_text = notes_text_body
 
         user_content = (
             f"目前階段：{project.current_stage}\n\n"
@@ -335,25 +374,19 @@ class ProjectService:
             generated_at=datetime.now(timezone.utc),
         )
 
-    _AI_DISPLAY_NAMES: dict[str, str] = {
-        "supervisor": "AI 引導者",
-        "crew_1": "AI 同理心專家",
-        "crew_2": "AI 結構化專家",
-        "crew_3": "AI 創意專家",
-        "crew_4": "AI 可行性專家",
-    }
-
     @staticmethod
     def _seat_to_response(seat: Seat) -> SeatResponse:
+        from app.agents.personas.display import resolve_display_name
+
+        persona_payload = getattr(seat, "persona", None)
         display_name = None
         if seat.occupant_type == "ai":
-            display_name = ProjectService._AI_DISPLAY_NAMES.get(
-                seat.seat_role, f"AI {seat.seat_role}"
-            )
+            display_name = resolve_display_name(seat.seat_role, persona_payload)
         return SeatResponse(
             seat_role=seat.seat_role,
             occupant_type=seat.occupant_type,
             user_id=seat.user_id,
             agent_id=seat.agent_id,
             display_name=display_name,
+            persona=persona_payload,
         )

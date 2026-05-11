@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Eye, LogIn, MessageSquare, Bot, Users, Clock, TrendingUp,
-  TrendingDown, Minus, Send, Settings2, AlertCircle,
+  TrendingDown, Minus, Send, Settings2, AlertCircle, FastForward,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Button } from '../common/Button'
@@ -10,7 +10,8 @@ import { Modal } from '../common/Modal'
 import { PhaseIndicator } from '../common/PhaseIndicator'
 import { formatDuration } from '../../utils/formatters'
 import { sendHint, updateAIContribution } from '../../services/teacherService'
-import type { ProjectMonitorItem, AIContribution } from '../../types/models'
+import { advanceStage } from '../../services/projectService'
+import type { ProjectMonitorItem, AIContribution, DTStage } from '../../types/models'
 
 interface ProjectMonitorCardProps {
   project: ProjectMonitorItem
@@ -36,13 +37,31 @@ const AI_LEVEL_LABELS: Record<AIContribution, string> = {
   high: '高',
 }
 
+const STAGE_LABELS: Record<DTStage, string> = {
+  discover: 'Discover · 發現',
+  define: 'Define · 定義',
+  develop: 'Develop · 發展',
+  deliver: 'Deliver · 交付',
+  completed: '已完成',
+}
+
+const NEXT_STAGE: Partial<Record<DTStage, DTStage>> = {
+  discover: 'define',
+  define: 'develop',
+  develop: 'deliver',
+  deliver: 'completed',
+}
+
 export function ProjectMonitorCard({ project, onRefresh }: ProjectMonitorCardProps) {
   const navigate = useNavigate()
   const [showHintModal, setShowHintModal] = useState(false)
   const [showAIModal, setShowAIModal] = useState(false)
+  const [showAdvanceModal, setShowAdvanceModal] = useState(false)
   const [hintContent, setHintContent] = useState('')
   const [isSendingHint, setIsSendingHint] = useState(false)
   const [isUpdatingAI, setIsUpdatingAI] = useState(false)
+  const [isAdvancing, setIsAdvancing] = useState(false)
+  const [advanceError, setAdvanceError] = useState<string | null>(null)
 
   const { evaluation_score, participation, ai_activity, alerts } = project
   const hasAlerts = alerts.length > 0
@@ -57,6 +76,26 @@ export function ProjectMonitorCard({ project, onRefresh }: ProjectMonitorCardPro
       setShowHintModal(false)
     } finally {
       setIsSendingHint(false)
+    }
+  }
+
+  const handleForceAdvance = async () => {
+    const next = NEXT_STAGE[project.current_stage as DTStage]
+    if (!next) return
+    setIsAdvancing(true)
+    setAdvanceError(null)
+    try {
+      await advanceStage(project.id, {
+        from: project.current_stage,
+        to: next,
+      })
+      setShowAdvanceModal(false)
+      onRefresh()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '推進階段失敗'
+      setAdvanceError(message)
+    } finally {
+      setIsAdvancing(false)
     }
   }
 
@@ -170,7 +209,7 @@ export function ProjectMonitorCard({ project, onRefresh }: ProjectMonitorCardPro
         )}
 
         {/* Action buttons */}
-        <div className="grid grid-cols-4 gap-1.5">
+        <div className="grid grid-cols-5 gap-1.5">
           <Button
             size="sm"
             variant="ghost"
@@ -211,6 +250,20 @@ export function ProjectMonitorCard({ project, onRefresh }: ProjectMonitorCardPro
             <Settings2 size={13} />
             <span className="hidden sm:inline">AI</span>
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="gap-1 text-xs px-1"
+            onClick={() => {
+              setAdvanceError(null)
+              setShowAdvanceModal(true)
+            }}
+            title="強制推進階段"
+            disabled={!NEXT_STAGE[project.current_stage as DTStage]}
+          >
+            <FastForward size={13} />
+            <span className="hidden sm:inline">推進</span>
+          </Button>
         </div>
       </div>
 
@@ -238,6 +291,59 @@ export function ProjectMonitorCard({ project, onRefresh }: ProjectMonitorCardPro
               disabled={!hintContent.trim()}
             >
               發送
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Force advance modal */}
+      <Modal
+        isOpen={showAdvanceModal}
+        onClose={() => setShowAdvanceModal(false)}
+        title="強制推進階段"
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-text-muted">
+            這會立即推進 <strong className="text-text">{project.name}</strong> 的階段，覆蓋 AI 自動評估。組長席位永遠由 AI 擔任，因此只有你（教師）可以手動推進。
+          </p>
+          <div className="rounded-lg bg-bg p-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-text-muted">目前</span>
+              <span className="font-medium text-text">
+                {STAGE_LABELS[project.current_stage as DTStage]}
+              </span>
+            </div>
+            <div className="my-2 h-px bg-border-light" />
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-text-muted">推進至</span>
+              <span className="font-semibold text-primary">
+                {(() => {
+                  const next = NEXT_STAGE[project.current_stage as DTStage]
+                  return next ? STAGE_LABELS[next] : '— 已是最後階段 —'
+                })()}
+              </span>
+            </div>
+          </div>
+          {advanceError && (
+            <div className="rounded-md bg-error/10 px-3 py-2 text-xs text-error">
+              {advanceError}
+            </div>
+          )}
+          <div className="flex gap-3">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => setShowAdvanceModal(false)}
+            >
+              取消
+            </Button>
+            <Button
+              className="flex-1"
+              isLoading={isAdvancing}
+              onClick={handleForceAdvance}
+              disabled={!NEXT_STAGE[project.current_stage as DTStage]}
+            >
+              確認推進
             </Button>
           </div>
         </div>

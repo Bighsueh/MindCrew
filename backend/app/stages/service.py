@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bridge.canvas_ops import canvas_ops
 from app.db.models.project import Project
-from app.db.models.seat import Seat
 from app.db.models.stage_history import StageHistory
+from app.db.models.user import User
 from app.events.bus import event_bus
 from app.events.types import MicroPhaseChangedEvent, StageChangedEvent
 from app.stages.micro_phase_repository import MicroPhaseHistoryRepository
@@ -96,8 +96,12 @@ class StageService:
                 detail=f"Invalid transition: '{current}' → '{to_stage}'. Expected '{expected_next}'",
             )
 
-        # Canvas snapshot
-        canvas_snapshot = await canvas_ops.get_canvas_state(project_id)
+        # Canvas snapshot (Phase 16: use get_canvas_snapshot for full data)
+        try:
+            from app.canvas.tools_perception import get_canvas_snapshot
+            canvas_snapshot = await get_canvas_snapshot(project_id)
+        except Exception:
+            canvas_snapshot = await canvas_ops.get_canvas_state(project_id)
 
         # Duration: time since last stage_history entry or project creation
         duration_seconds = await self._compute_duration(project_id, project.created_at)
@@ -308,21 +312,33 @@ class StageService:
         return project
 
     async def _assert_supervisor(self, project_id: UUID, user_id: UUID) -> None:
-        """Raise 403 if user does not occupy the supervisor seat."""
-        result = await self.session.execute(
-            select(Seat).where(
-                Seat.project_id == project_id,
-                Seat.seat_role == "supervisor",
-                Seat.occupant_type == "human",
-                Seat.user_id == user_id,
-            )
+        """Raise 403 unless the caller is allowed to manually advance the stage.
+
+        Since the Supervisor seat is AI-only (no human can occupy it), the only
+        humans permitted to manually advance are teachers/admins who created the
+        project. All other manual triggers must be denied — AI agents advance
+        through internal evaluator paths, not this HTTP endpoint.
+        """
+        user_result = await self.session.execute(
+            select(User).where(User.id == user_id)
         )
-        seat = result.scalar_one_or_none()
-        if seat is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only the human supervisor may advance the stage",
+        user = user_result.scalar_one_or_none()
+        if user is not None and user.role in ("teacher", "admin"):
+            project_result = await self.session.execute(
+                select(Project).where(Project.id == project_id)
             )
+            project = project_result.scalar_one_or_none()
+            if project is not None and project.creator_id == user.id:
+                return
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Stage advancement is restricted: the Supervisor seat is "
+                "AI-only, and only the project's teacher/admin creator may "
+                "force-advance manually."
+            ),
+        )
 
     async def _compute_duration(
         self, project_id: UUID, project_created_at: datetime

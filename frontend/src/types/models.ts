@@ -30,8 +30,35 @@ export interface MicroPhaseHistoryEntry {
 }
 export type ProjectStatus = 'active' | 'completed' | 'archived'
 export type SeatRole = 'supervisor' | 'crew_1' | 'crew_2' | 'crew_3' | 'crew_4'
+export type CrewSeatRole = Exclude<SeatRole, 'supervisor'>
 export type OccupantType = 'human' | 'ai'
 export type SenderType = 'human' | 'ai' | 'system'
+
+// ── Persona system (Phase 19) ──────────────────────────────────────────────
+
+export type PersonalityAxis = 'contrarian' | 'balanced' | 'supportive'
+
+export interface LensAffinities {
+  empathy: number
+  structure: number
+  creativity: number
+  feasibility: number
+}
+
+export interface Persona {
+  name: string
+  role: string
+  expertise: string
+  personality_axis: PersonalityAxis
+  personality_desc: string
+  backstory: string
+  lens_affinities: LensAffinities
+}
+
+export interface CrewPersonaAssignment {
+  seat_role: CrewSeatRole
+  persona: Persona
+}
 
 export interface User {
   id: string
@@ -50,6 +77,7 @@ export interface Seat {
   user_id?: string | null
   agent_id?: string | null
   display_name?: string
+  persona?: Persona | null
   state: string
   joined_at?: string | null
   updated_at: string
@@ -64,6 +92,7 @@ export interface Project {
   id: string
   name: string
   description?: string
+  constraints?: string
   creator_id: string
   current_stage: DTStage
   current_micro_phase?: MicroPhaseId
@@ -96,6 +125,8 @@ export interface Message {
   content: string
   stage: DTStage
   created_at: string
+  /** chat_id: `${project_id}:group` 或 `${project_id}:personal:${user_id}`，NULL 視為 group。 */
+  chat_id?: string
 }
 
 export interface StageInfo {

@@ -1,39 +1,49 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Tldraw, TLRecord, TLComponents, createTLStore, defaultShapeUtils } from '@tldraw/tldraw'
+import { Tldraw, TLComponents, createTLStore, defaultShapeUtils } from '@tldraw/tldraw'
 import '@tldraw/tldraw/tldraw.css'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 import type { DTStage } from '../../types/models'
 import { MiniToolbar } from './MiniToolbar'
 import { ZoomControls } from './ZoomControls'
-import { NoteAuthorLabels } from './NoteAuthorLabels'
+import { NoteAuthorOverlay } from './NoteAuthorOverlay'
+import { AnimatedYjsBridge } from './AnimatedYjsBridge'
+// Phase 17 Stream B (Spec 13) — Sticky-Only Strategy overlays
+import { ZoneOverlay } from './ZoneOverlay'
+import { ParkSidebar } from './ParkSidebar'
+import { HmwTabBar } from './HmwTabBar'
+import { CommModeIndicator } from './CommModeIndicator'
+// Phase 17 Stream B (Spec 14 + 15) — Timer + Advance vote
+import { TimerBadge } from '../timer/TimerBadge'
+import { TimerControlPanel } from '../timer/TimerControlPanel'
+import { AdvanceVoteBanner } from '../vote/AdvanceVoteBanner'
+import { useProjectRealtime } from '@/hooks/useProjectRealtime'
+// Phase 20 — Empty state for the start-action UX
+import { CanvasEmptyState, type StartActionStage } from './CanvasEmptyState'
 
 interface CanvasPanelProps {
   projectId: string
   currentStage?: DTStage
+  // Phase 17 Stream B: parent injects current sub_phase + comm_mode
+  subPhase?: string | null
+  commMode?: 'silent_write' | 'reveal_round' | 'silent_rearrange' | 'discussion'
+  subPhaseName?: string
+  nextRevealSeat?: string | null
+  // Phase 17 Stream B: teacher mode + current user id for vote / timer
+  isTeacher?: boolean
+  currentUserId?: string
+  // Phase 20: EmptyState action callback. Stable string actionId.
+  onEmptyStateAction?: (actionId: string) => void
+  // Phase 20: notify parent when shape count changes (for EmptyState toggle / tour)
+  onShapeCountChange?: (count: number) => void
+  // Phase 20: parent override for EmptyState visibility; fallback = shapeCount === 0
+  emptyStateVisible?: boolean
 }
 
-// Map sidecar color names to tldraw's TLDefaultColorStyle values
-const COLOR_MAP: Record<string, string> = {
-  yellow: 'yellow',
-  blue: 'blue',
-  green: 'green',
-  red: 'red',
-  orange: 'orange',
-  violet: 'violet',
-  pink: 'light-red',
-  purple: 'light-violet',
-}
-
-function toTldrawColor(color: unknown): string {
-  if (typeof color !== 'string') return 'yellow'
-  return COLOR_MAP[color] ?? 'yellow'
-}
-
-// Generate tldraw-compatible fractional index keys (base-62: 0-9A-Za-z)
-const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-function toIndexKey(n: number): string {
-  return `a${BASE62[n % BASE62.length]}`
+// Phase 20: narrow DTStage to the 4 stages the EmptyState recognises (matches STAGE_ACTIONS keys)
+function asStartActionStage(s: DTStage | undefined): StartActionStage {
+  if (s === 'discover' || s === 'define' || s === 'develop' || s === 'deliver') return s
+  return 'discover'
 }
 
 function getYjsWsUrl(): string {
@@ -63,13 +73,34 @@ const STAGE_BG: Record<string, string> = {
   deliver: 'bg-[#faf0e6]',
 }
 
-export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
+export function CanvasPanel({
+  projectId,
+  currentStage,
+  // Phase 17 Stream B
+  subPhase = null,
+  commMode = 'discussion',
+  subPhaseName,
+  nextRevealSeat = null,
+  isTeacher = false,
+  currentUserId = '',
+  // Phase 20
+  onEmptyStateAction,
+  onShapeCountChange,
+  emptyStateVisible,
+}: CanvasPanelProps) {
+  // Phase 17 Stream B (Spec 14 + 15): pull timer + vote state
+  const { voteSession } = useProjectRealtime(projectId)
   const [connected, setConnected] = useState(false)
   const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), [])
+  const docRef = useRef<Y.Doc | null>(null)
   const providerRef = useRef<WebsocketProvider | null>(null)
+  const [shapesMap, setShapesMap] = useState<Y.Map<unknown> | null>(null)
+  // Phase 20: track shape count for EmptyState visibility fallback
+  const [shapeCount, setShapeCount] = useState(0)
 
   useEffect(() => {
     const doc = new Y.Doc()
+    docRef.current = doc
     const wsUrl = getYjsWsUrl()
     const provider = new WebsocketProvider(wsUrl, projectId, doc)
     providerRef.current = provider
@@ -79,69 +110,32 @@ export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
     }
     provider.on('status', onStatus)
 
-    // Sync Yjs shapes map → tldraw store
-    const shapesMap = doc.getMap('shapes')
-
-    const syncToStore = () => {
-      try {
-        const records: TLRecord[] = []
-        let idx = 0
-        shapesMap.forEach((value: unknown, key: string) => {
-          const shape = value as Record<string, unknown>
-          if (!shape || typeof shape !== 'object') return
-
-          const id = key.startsWith('shape:') ? key : `shape:${key}`
-
-          records.push({
-            id: id as TLRecord['id'],
-            typeName: 'shape',
-            type: 'note',
-            x: (shape.x as number) || 100 + idx * 30,
-            y: (shape.y as number) || 100 + idx * 30,
-            rotation: 0,
-            parentId: 'page:page' as TLRecord['id'],
-            index: toIndexKey(idx),
-            isLocked: false,
-            opacity: 1,
-            meta: { author: (shape.author as string) || '' },
-            props: {
-              text: (shape.content as string) || '',
-              color: toTldrawColor(shape.color),
-              size: 'm' as const,
-              font: 'sans' as const,
-              align: 'middle' as const,
-              verticalAlign: 'middle' as const,
-              growY: 0,
-              fontSizeAdjustment: 0,
-              url: '',
-              scale: 1,
-            },
-          } as unknown as TLRecord)
-          idx++
-        })
-
-        if (records.length > 0) {
-          store.mergeRemoteChanges(() => {
-            store.put(records)
-          })
-        }
-      } catch (err) {
-        console.warn('Failed to sync Yjs shapes to tldraw:', err)
-      }
-    }
-
-    shapesMap.observe(syncToStore)
-    syncToStore()
+    setShapesMap(doc.getMap('shapes'))
 
     return () => {
-      shapesMap.unobserve(syncToStore)
+      setShapesMap(null)
       provider.off('status', onStatus)
       provider.disconnect()
       provider.destroy()
       doc.destroy()
+      docRef.current = null
       providerRef.current = null
     }
-  }, [projectId, store])
+  }, [projectId])
+
+  // Phase 20: subscribe to tldraw store for shape-count changes (used by EmptyState).
+  // Deliberately outside <Tldraw> children because tldraw renders children twice.
+  useEffect(() => {
+    const update = () => {
+      const records = store.allRecords()
+      const next = records.filter((r) => r.typeName === 'shape').length
+      setShapeCount(next)
+      onShapeCountChange?.(next)
+    }
+    update()
+    const unlisten = store.listen(update, { source: 'all', scope: 'document' })
+    return unlisten
+  }, [store, onShapeCountChange])
 
   const stageBg = currentStage ? STAGE_BG[currentStage] ?? '' : ''
 
@@ -157,10 +151,42 @@ export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
         inferDarkMode={false}
         components={TLDRAW_COMPONENTS}
       >
+        <AnimatedYjsBridge shapesMap={shapesMap} store={store} />
         <MiniToolbar />
         <ZoomControls />
-        <NoteAuthorLabels />
+        <NoteAuthorOverlay />
+        {/* Phase 17 Stream B (Spec 13): zone overlay. Camera coords passthrough — store internal aligns. */}
+        <ZoneOverlay cameraX={0} cameraY={0} cameraZ={1} />
       </Tldraw>
+      {/* Phase 17 Stream B (Spec 13) overlays — outside Tldraw to avoid double-render */}
+      <HmwTabBar />
+      <CommModeIndicator
+        subPhase={subPhase}
+        commMode={commMode}
+        subPhaseName={subPhaseName}
+        nextRevealSeat={nextRevealSeat}
+      />
+      <ParkSidebar notes={[]} />
+      {/* Phase 17 Stream B (Spec 15): everyone-visible timer */}
+      <TimerBadge />
+      {/* Phase 17 Stream B (Spec 15): teacher-only timer control */}
+      <TimerControlPanel projectId={projectId} isTeacher={isTeacher} />
+      {/* Phase 17 Stream B (Spec 14 N2): Crew advance vote */}
+      <AdvanceVoteBanner
+        projectId={projectId}
+        isTeacher={isTeacher}
+        currentUserId={currentUserId}
+        session={voteSession}
+      />
+      {/* Phase 20: EmptyState must be a <Tldraw> sibling, not a child (tldraw double-renders children).
+          Only mount when parent registered onEmptyStateAction, to avoid surprising pre-wired callers. */}
+      {onEmptyStateAction !== undefined && (
+        <CanvasEmptyState
+          stage={asStartActionStage(currentStage)}
+          visible={emptyStateVisible ?? shapeCount === 0}
+          onActionClick={onEmptyStateAction}
+        />
+      )}
     </div>
   )
 }

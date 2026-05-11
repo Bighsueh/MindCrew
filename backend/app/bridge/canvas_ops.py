@@ -145,6 +145,40 @@ class CanvasOps:
             logger.warning("batch_update_coordinates failed: %s", exc)
             return False
 
+    async def staggered_update_coordinates(
+        self,
+        project_id: UUID,
+        updates: list[dict[str, Any]],
+        stagger_ms: int = 150,
+        moving_by: str | None = None,
+    ) -> bool:
+        """Update note coordinates one-by-one with stagger delays.
+
+        The sidecar applies each update in its own Yjs transaction with
+        setTimeout delays, creating a sequential animation effect on the
+        frontend. If moving_by is provided, sets a _moving_by metadata field
+        on each note during movement for visual lock indication.
+        """
+        if not updates:
+            return True
+        client = _get_client()
+        payload: dict[str, Any] = {
+            "updates": updates,
+            "stagger_ms": stagger_ms,
+        }
+        if moving_by:
+            payload["moving_by"] = moving_by
+        try:
+            resp = await client.post(
+                f"/api/projects/{project_id}/staggered-update-coordinates",
+                json=payload,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as exc:
+            logger.warning("staggered_update_coordinates failed: %s", exc)
+            return False
+
     async def get_canvas_state(self, project_id: UUID) -> dict[str, Any]:
         """Get canvas state from sidecar (spec §2.1 format)."""
         client = _get_client()

@@ -18,6 +18,18 @@ def _verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 
 
+async def _verify_password_async(password: str, hashed: str) -> bool:
+    """Run bcrypt verification in a thread so it doesn't block the event loop.
+
+    bcrypt.checkpw is CPU-bound (~50-100ms). When the server is under load
+    (many active agent loops), running it synchronously on the asyncio loop
+    starves health-checks and other coroutines, which surfaces as intermittent
+    HTTP 500 on /api/auth/login during peak agent activity.
+    """
+    import asyncio
+    return await asyncio.to_thread(_verify_password, password, hashed)
+
+
 class AuthService:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -53,7 +65,7 @@ class AuthService:
             select(User).where(User.email == request.email)
         )
         user = result.scalar_one_or_none()
-        if not user or not _verify_password(request.password, user.password_hash):
+        if not user or not await _verify_password_async(request.password, user.password_hash):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",

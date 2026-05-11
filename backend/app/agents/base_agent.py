@@ -90,6 +90,10 @@ class BaseAgent:
 
         # Guard against concurrent evaluations (race condition fix)
         self._evaluation_in_progress = False
+        # Keep a strong reference to the background evaluation task so the
+        # GC can't collect it mid-run (asyncio fire-and-forget anti-pattern fix).
+        # Symptom without this: "coroutine ignored GeneratorExit" + "Task was destroyed but it is pending"
+        self._evaluation_task: asyncio.Task | None = None
 
         # Human Presence Gate — created in start() to ensure a running event loop
         self._presence_event: asyncio.Event | None = None
@@ -163,6 +167,11 @@ class BaseAgent:
         self._running = False
         if self._stop_event is not None:
             self._stop_event.set()  # Unblock if waiting on presence gate
+        # Cancel any in-flight background evaluation task so it doesn't
+        # outlive the agent loop and trigger "Task was destroyed but it is pending".
+        task = self._evaluation_task
+        if task is not None and not task.done():
+            task.cancel()
 
     @property
     def running(self) -> bool:
@@ -265,6 +274,23 @@ class BaseAgent:
                         )
                     return
 
+        # Spec 14: Supervisor persona router — 決定本回合是 A/B 哪支發話
+        if "supervisor" in self._seat_role.lower():
+            try:
+                from app.agents.supervisor.router import select_supervisor_persona
+                decision = await select_supervisor_persona(self._project_id, context)
+                if decision.persona is not None:
+                    context["_supervisor_persona_invocation"] = decision.persona.invocation
+                    logger.info(
+                        "Supervisor router: project=%s persona=%s triggers=%s pending_a=%d",
+                        self._project_id,
+                        decision.persona.persona,
+                        decision.persona.trigger_ids,
+                        decision.pending_a_queue_size,
+                    )
+            except Exception:
+                logger.debug("Supervisor router failed (non-fatal)", exc_info=True)
+
         # Check if another agent is currently acting
         another_acting = agent_coordinator.is_agent_acting(self._project_id)
         is_all_ai = all(s.get("type") == "ai" for s in context.get("seats", []))
@@ -304,7 +330,11 @@ class BaseAgent:
             if should_eval and not self._evaluation_in_progress:
                 logger.info("Triggering stage evaluation for %s", self._project_id)
                 self._evaluation_in_progress = True
-                asyncio.create_task(self._run_evaluation(context))
+                # Store the task so it isn't GC'd before completion.
+                # The done_callback clears the reference once finished.
+                task = asyncio.create_task(self._run_evaluation(context))
+                self._evaluation_task = task
+                task.add_done_callback(lambda _t: setattr(self, "_evaluation_task", None))
 
         if assess_result.decision in ("wait", "observe"):
             return
@@ -399,6 +429,10 @@ class BaseAgent:
                 current_stage=context.get("current_stage", "discover"),
                 think_result=think_result,
                 assess_result=assess_result,
+                micro_phase=context.get("current_micro_phase"),
+                role_status=context.get("my_role_status", "normal"),
+                sub_phase=context.get("current_sub_phase"),
+                comm_mode=context.get("comm_mode", "discussion"),
             )
 
             # Record this action in context buffer for self-awareness
@@ -440,6 +474,9 @@ class BaseAgent:
                 eval_result.passed,
                 eval_result.action_taken,
             )
+        except asyncio.CancelledError:
+            # Expected during shutdown — re-raise so asyncio finalises cleanly.
+            raise
         except Exception as exc:
             logger.error("Stage evaluation error: %s", exc)
         finally:

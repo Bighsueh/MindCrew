@@ -20,6 +20,8 @@ export interface WSChatMessagePayload {
   content: string
   stage?: DTStage
   timestamp: string
+  /** chat_id：`${project_id}:group` | `${project_id}:personal:${user_id}`，缺省視為 group。 */
+  chat_id?: string
 }
 
 export interface WSTypingPayload {
@@ -88,7 +90,8 @@ export interface WSMessage {
 // Client → Server messages
 export interface WSSendChatMessage {
   type: 'chat_message'
-  payload: { content: string }
+  /** chat_id 缺省時，後端 default 視為 `${project_id}:group`。 */
+  payload: { content: string; chat_id?: string }
 }
 
 export interface WSSendTypingStart {

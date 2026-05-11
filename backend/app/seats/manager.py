@@ -69,6 +69,10 @@ class SeatManager:
         If `session` is provided (e.g. from the service layer), it is used
         for the DB update to preserve transactional consistency in tests.
         """
+        if seat_role == "supervisor":
+            raise ValueError(
+                "Supervisor seat is AI-only and cannot be assigned to a human"
+            )
         key = (project_id, seat_role)
 
         # 0: Mark Blackboard intention as inactive (§7.7)
@@ -88,8 +92,9 @@ class SeatManager:
         # 4. Update Redis seat state
         await self._update_redis_seat(project_id, seat_role, "human", str(user_id))
 
-        # 5. Broadcast
-        ai_display_name = self._role_to_display_name(seat_role)
+        # 5. Broadcast — pull persona for accurate display name
+        persona = await self._fetch_seat_persona(project_id, seat_role)
+        ai_display_name = self._role_to_display_name(seat_role, persona)
         event = SeatChangedEvent(
             project_id=project_id,
             seat_role=seat_role,
@@ -167,8 +172,9 @@ class SeatManager:
         # 2. Update Redis
         await self._update_redis_seat(project_id, seat_role, "ai", agent_id)
 
-        # 3. Broadcast
-        ai_display_name = self._role_to_display_name(seat_role)
+        # 3. Broadcast — pull persona for accurate display name
+        persona = await self._fetch_seat_persona(project_id, seat_role)
+        ai_display_name = self._role_to_display_name(seat_role, persona)
         event = SeatChangedEvent(
             project_id=project_id,
             seat_role=seat_role,
@@ -227,6 +233,27 @@ class SeatManager:
         """Return the running BaseAgent instance, if any."""
         return self._agents.get((project_id, seat_role))
 
+    async def restart_agent(
+        self, project_id: UUID, seat_role: str
+    ) -> None:
+        """Stop and re-start the agent for a seat (e.g. after persona update)."""
+        key = (project_id, seat_role)
+        if key in self._agents:
+            await self._stop_agent(project_id, seat_role)
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(Seat).where(
+                    Seat.project_id == project_id,
+                    Seat.seat_role == seat_role,
+                )
+            )
+            seat = result.scalar_one_or_none()
+        if seat is None or seat.occupant_type != "ai":
+            return
+        agent_id = seat.agent_id or f"agent_{seat_role}"
+        self._restart_counts.pop(key, None)
+        await self._start_agent(project_id, seat_role, agent_id)
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -281,7 +308,8 @@ class SeatManager:
         # Resolve ai_contribution from project
         ai_contribution = await self._get_ai_contribution(project_id)
         is_supervisor = seat_role == "supervisor"
-        agent_name = self._role_to_display_name(seat_role)
+        persona = await self._fetch_seat_persona(project_id, seat_role)
+        agent_name = self._role_to_display_name(seat_role, persona)
 
         agent = BaseAgent(
             project_id=project_id,
@@ -400,7 +428,8 @@ class SeatManager:
             build_supervisor_progress_summary,
         )
 
-        agent_name = self._role_to_display_name(seat_role)
+        persona = await self._fetch_seat_persona(project_id, seat_role)
+        agent_name = self._role_to_display_name(seat_role, persona)
         await self._publish_chat(
             project_id, agent_id, agent_name, "我來接手了！讓我先看看目前的進度…"
         )
@@ -544,15 +573,42 @@ class SeatManager:
             )
 
     @staticmethod
-    def _role_to_display_name(seat_role: str) -> str:
-        mapping = {
-            "supervisor": "AI 引導者",
-            "crew_1": "AI 同理心專家",
-            "crew_2": "AI 結構化專家",
-            "crew_3": "AI 創意專家",
-            "crew_4": "AI 可行性專家",
-        }
-        return mapping.get(seat_role, f"AI {seat_role}")
+    def _role_to_display_name(seat_role: str, persona: dict | None = None) -> str:
+        """Resolve display name with persona-aware lookup (Phase 19).
+
+        ``persona`` is the JSONB payload stored on the seat. When supplied
+        the persona's name takes precedence over legacy capability labels.
+        """
+        from app.agents.personas.display import resolve_display_name
+
+        return resolve_display_name(seat_role, persona)
+
+    async def _fetch_seat_persona(
+        self, project_id: UUID, seat_role: str
+    ) -> dict | None:
+        """Read seat.persona JSONB from DB. Returns None on miss/error."""
+        try:
+            from app.db.models.seat import Seat
+
+            async with async_session_factory() as session:
+                result = await session.execute(
+                    select(Seat).where(
+                        Seat.project_id == project_id,
+                        Seat.seat_role == seat_role,
+                    )
+                )
+                seat = result.scalar_one_or_none()
+                if seat is None:
+                    return None
+                return getattr(seat, "persona", None)
+        except Exception as exc:
+            logger.debug(
+                "Failed to fetch persona for %s/%s: %s",
+                project_id,
+                seat_role,
+                exc,
+            )
+            return None
 
 
 # Singleton instance

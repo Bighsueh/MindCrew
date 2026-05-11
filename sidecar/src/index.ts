@@ -10,7 +10,7 @@ import { getOrCreateDoc, getOrCreateDocSync } from './yjs-utils.js'
 const PORT = parseInt(process.env.SIDECAR_PORT || '4000', 10)
 
 const app = express()
-app.use(express.json())
+app.use(express.json({ limit: '10mb' }))
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })

@@ -1,77 +1,112 @@
-import { useEffect, useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useProjectStore } from '../../stores/projectStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useSeatStore } from '../../stores/seatStore'
 import { useStageStore } from '../../stores/stageStore'
 import { useAuthStore } from '../../stores/authStore'
-import { useWebSocket } from '../../hooks/useWebSocket'
 import { advanceStage, leaveProject, getStage } from '../../services/projectService'
 import { DoubleDiamondProgress } from '../../components/progress/DoubleDiamondProgress'
 import { ConnectionBanner } from '../../components/workspace/ConnectionBanner'
 import { SeatBar } from '../../components/workspace/SeatBar'
 import { ChatPanel } from '../../components/chat/ChatPanel'
+import { ChatDock } from '../../components/chat/ChatDock'
 import { CanvasPanel } from '../../components/canvas/CanvasPanel'
+// Phase 19 — Dynamic AI persona panel
+import { ProjectPersonasPanel } from '../../components/persona/ProjectPersonasPanel'
+// Phase 20 — MindCrew-Design UI surface
+import { StageHintBar } from '../../components/workspace/StageHintBar'
+import {
+  AdvanceStageConfirm,
+  type DTStage as AdvanceDTStage,
+} from '../../components/workspace/AdvanceStageConfirm'
+import { FirstRunTour } from '../../components/workspace/FirstRunTour'
+import { StartActionsPopover } from '../../components/workspace/StartActionsPopover'
 import { Button } from '../../components/common/Button'
-import { Modal } from '../../components/common/Modal'
 import { Loading } from '../../components/common/Loading'
-import { MessageCircle } from 'lucide-react'
+import { MessageCircle, Users } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import type { WSMessage, WSChatMessagePayload, WSTypingPayload, WSStageChangedPayload, WSSeatChangedPayload, WSMicroPhaseChangedPayload } from '../../types/ws'
-import type { Message, DTStage, MicroPhaseId } from '../../types/models'
+import type { ChatKind } from '../../stores/chatStore'
+import type { DTStage, MicroPhaseId, Seat } from '../../types/models'
+import type { StartActionStage } from '../../components/canvas/CanvasEmptyState'
+import { useWorkspaceWS } from './useWorkspaceWS'
+import { useWorkspaceCoachState } from './useWorkspaceCoachState'
+import { useStageOrchestration } from './useStageOrchestration'
 
+// 階段推進對應表：給「推進到下一階段」按鈕使用。
 const NEXT_STAGE: Partial<Record<DTStage, DTStage>> = {
   discover: 'define',
   define: 'develop',
   develop: 'deliver',
 }
 
+// 把 DTStage 收斂成 StartActionsPopover 認得的 4 階段。
+function asStartActionStage(s: DTStage): StartActionStage {
+  if (s === 'discover' || s === 'define' || s === 'develop' || s === 'deliver') return s
+  return 'discover'
+}
+
+// FirstRunTour 步驟定義；selector 必須與下方 DOM 上的 data-tour 屬性對齊。
+const TOUR_STEPS = [
+  { id: 'stage', selector: '[data-tour="stage"]', caption: '目前階段與目標' },
+  { id: 'canvas', selector: '[data-tour="canvas"]', caption: '團隊白板' },
+  {
+    id: 'chat-fab',
+    selector: '[data-tour="chat-fab"]',
+    caption: '群組聊天室與 DT 教練個人助理',
+  },
+]
+
+// mobile 三 tab 的識別字串
+type MobileTab = 'canvas' | 'group' | 'personal'
+
 export function WorkspacePage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
   const { currentProject, fetchProject } = useProjectStore()
-  const { addMessage, unreadCount, incrementUnread, resetUnread } = useChatStore()
-  const { seats, setSeats, updateSeat } = useSeatStore()
-  const { currentStage, currentMicroPhase, setCurrentStage, setCurrentMicroPhase } = useStageStore()
+  const loadHistory = useChatStore((s) => s.loadHistory)
+  const { seats, setSeats } = useSeatStore()
+  const { currentStage, currentMicroPhase, setCurrentStage, setCurrentMicroPhase } =
+    useStageStore()
   const { user } = useAuthStore()
 
   const [showAdvanceModal, setShowAdvanceModal] = useState(false)
+  const [showPersonasPanel, setShowPersonasPanel] = useState(false)
   const [isAdvancing, setIsAdvancing] = useState(false)
-  const [wsError, setWsError] = useState(false)
-  const [activeTab, setActiveTab] = useState<'canvas' | 'chat'>('canvas')
-  const [chatOpen, setChatOpen] = useState(true)
-  const chatOpenRef = useRef(chatOpen)
-  chatOpenRef.current = chatOpen
+  const [activeTab, setActiveTab] = useState<MobileTab>('canvas')
+  // 當前在前景的聊天 channel；由 ChatDock onActiveChange 回報。
+  const [activeChannel, setActiveChannel] = useState<ChatKind | null>(null)
+  // 觸發 ChatDock 重新初始化以切到 personal channel 的計數（最小變動方案）。
+  const [dockOpenNonce, setDockOpenNonce] = useState(0)
+  const [dockInitialOpen, setDockInitialOpen] = useState<ChatKind | null>(null)
 
-  const [chatWidth, setChatWidth] = useState(380)
-  const isResizing = useRef(false)
+  // 衍生狀態：SeatBar 需要的 typing / preview / recentSpeaker
+  const coachState = useWorkspaceCoachState({ seats })
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    isResizing.current = true
-    const startX = e.clientX
-    const startWidth = chatWidth
+  // Stage orchestration：banner / popover / chip flash / shapeCount
+  const orchestration = useStageOrchestration({ currentStage })
 
-    const onMove = (ev: MouseEvent) => {
-      if (!isResizing.current) return
-      const delta = startX - ev.clientX
-      const next = Math.min(Math.max(startWidth + delta, 280), window.innerWidth * 0.6)
-      setChatWidth(next)
-    }
-    const onUp = () => {
-      isResizing.current = false
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
-    }
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  }, [chatWidth])
+  // WS：chat_id 路由 + stage / seat / micro_phase handler
+  const { wsStatus, sendWS, wsError } = useWorkspaceWS({
+    projectId: id,
+    currentStage,
+    activeChannel,
+    onChatMessage: (kind, message) => {
+      if (kind === 'group') coachState.markRecentSpeaker(message)
+    },
+  })
 
+  // ── 載入 project 與 group 歷史 ──
   useEffect(() => {
     if (id) fetchProject(id)
   }, [id, fetchProject])
 
+  useEffect(() => {
+    if (id) loadHistory(id, 'group')
+  }, [id, loadHistory])
+
+  // ── project 載入完成 → 套用 seats / stage / microPhase ──
   useEffect(() => {
     if (currentProject) {
       if (currentProject.seats) setSeats(currentProject.seats)
@@ -82,81 +117,22 @@ export function WorkspacePage() {
     }
   }, [currentProject, setSeats, setCurrentStage, setCurrentMicroPhase])
 
-  // Fetch micro phase from /stage API as fallback (project detail may not include it)
+  // microPhase fallback：舊後端可能沒回，從 /stage 補拿。
   useEffect(() => {
     if (id && !currentMicroPhase) {
-      getStage(id).then((stageInfo) => {
-        if (stageInfo.current_micro_phase) {
-          setCurrentMicroPhase(stageInfo.current_micro_phase as MicroPhaseId)
-        }
-      }).catch(() => { /* ignore — old backend may not support this */ })
+      getStage(id)
+        .then((stageInfo) => {
+          if (stageInfo.current_micro_phase) {
+            setCurrentMicroPhase(stageInfo.current_micro_phase as MicroPhaseId)
+          }
+        })
+        .catch(() => {
+          /* ignore — old backend may not support this */
+        })
     }
   }, [id, currentMicroPhase, setCurrentMicroPhase])
 
-  const handleWSMessage = useCallback(
-    (msg: WSMessage) => {
-      switch (msg.type) {
-        case 'chat_message': {
-          const p = msg.payload as WSChatMessagePayload
-          const message: Message = {
-            id: p.id ?? crypto.randomUUID(),
-            project_id: id!,
-            sender_type: p.sender_type,
-            sender_id: p.sender_id,
-            sender_name: p.sender_name,
-            content: p.content,
-            stage: (p.stage ?? currentStage) as DTStage,
-            created_at: p.timestamp,
-          }
-          addMessage(message)
-          if (!chatOpenRef.current) incrementUnread()
-          break
-        }
-        case 'typing_indicator': {
-          const p = msg.payload as WSTypingPayload
-          useChatStore.getState().setTyping(p.user_name, p.is_typing)
-          break
-        }
-        case 'stage_changed': {
-          const p = msg.payload as WSStageChangedPayload
-          setCurrentStage(p.to)
-          useProjectStore.getState().updateCurrentProject({ current_stage: p.to })
-          break
-        }
-        case 'seat_changed': {
-          const p = msg.payload as WSSeatChangedPayload
-          updateSeat(p.seat_role, {
-            occupant_type: p.current.occupant_type,
-            user_id: p.current.user_id ?? null,
-            agent_id: p.current.agent_id ?? null,
-            display_name: p.current.display_name,
-          })
-          break
-        }
-        case 'micro_phase_changed': {
-          const p = msg.payload as WSMicroPhaseChangedPayload
-          useStageStore.getState().setCurrentMicroPhase(p.to as MicroPhaseId)
-          break
-        }
-      }
-    },
-    [id, currentStage, addMessage, incrementUnread, setCurrentStage, updateSeat],
-  )
-
-  // In dev mode, connect directly to the backend (Vite's WS proxy is unreliable)
-  const wsUrl = id
-    ? import.meta.env.DEV
-      ? `ws://localhost:8000/ws/project/${id}`
-      : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/project/${id}`
-    : ''
-
-  const { status: wsStatus, send: sendWS } = useWebSocket(wsUrl, {
-    onMessage: handleWSMessage,
-    onClose: () => setWsError(true),
-    onOpen: () => setWsError(false),
-    enabled: !!id,
-  })
-
+  // ── 權限與存取控管 ──
   const myCurrentSeat = seats.find(
     (s) => s.occupant_type === 'human' && s.user_id === user?.id,
   )
@@ -164,7 +140,20 @@ export function WorkspacePage() {
   const isSupervisor = myCurrentSeat?.seat_role === 'supervisor'
   const nextStage = NEXT_STAGE[currentStage]
 
-  const handleAdvanceStage = async () => {
+  const hasAccess =
+    currentProject &&
+    user &&
+    (currentProject.creator_id === user.id ||
+      currentProject.seats?.some((s) => s.user_id === user.id))
+
+  useEffect(() => {
+    if (currentProject && user && !hasAccess) {
+      navigate(`/projects/${id}/lobby`, { replace: true })
+    }
+  }, [currentProject, user, hasAccess, id, navigate])
+
+  // ── 推進階段 ──
+  const handleAdvanceStage = useCallback(async () => {
     if (!id || !nextStage) return
     setIsAdvancing(true)
     try {
@@ -172,31 +161,57 @@ export function WorkspacePage() {
       setCurrentStage(nextStage)
       setShowAdvanceModal(false)
     } catch {
-      // ignore — WS will broadcast the change if it happens
+      // ignore — WS 會廣播階段變更
     } finally {
       setIsAdvancing(false)
     }
-  }
+  }, [id, nextStage, currentStage, setCurrentStage])
 
-  const handleLeave = async () => {
+  const handleLeave = useCallback(async () => {
     if (!id) return
     try {
       await leaveProject(id)
     } finally {
       navigate(`/projects/${id}/lobby`)
     }
-  }
+  }, [id, navigate])
 
-  const hasAccess = currentProject && user && (
-    currentProject.creator_id === user.id ||
-    currentProject.seats?.some(s => s.user_id === user.id)
+  // ── EmptyState 動作 ──
+  // 任一動作目前皆為「閃 chip + 關 popover」的 UX placeholder；後續 phase 才接入實際後端流程。
+  const handleEmptyStateAction = useCallback(
+    (_actionId: string) => {
+      orchestration.flashStartChip()
+      orchestration.closeStartPopover()
+    },
+    [orchestration],
   )
 
-  useEffect(() => {
-    if (currentProject && user && !hasAccess) {
-      navigate(`/projects/${id}/lobby`, { replace: true })
-    }
-  }, [currentProject, user, hasAccess, id, navigate])
+  const handleStartChipClick = useCallback(() => {
+    orchestration.openStartPopover()
+  }, [orchestration])
+
+  // ── SeatBar：點 AI 座位 → 切到個人助理 channel ──
+  const handleDirectMessage = useCallback((_seat: Seat) => {
+    setDockInitialOpen('personal')
+    setDockOpenNonce((n) => n + 1)
+  }, [])
+
+  // ── EmptyState banner 是否顯示（CanvasPanel 用） ──
+  const bannerVisible = useMemo(
+    () =>
+      !orchestration.bannerDismissedStages.has(currentStage) &&
+      orchestration.shapeCount === 0,
+    [orchestration.bannerDismissedStages, orchestration.shapeCount, currentStage],
+  )
+
+  const handleShapeCountChange = useCallback(
+    (count: number) => {
+      orchestration.setShapeCount(count)
+      // 第一張便利貼出現 → 閃一次「請 AI 起頭」chip 提醒可進入下一步
+      if (count === 1) orchestration.flashStartChip()
+    },
+    [orchestration],
+  )
 
   if (!currentProject) {
     return <Loading fullScreen text="載入工作區…" />
@@ -207,6 +222,7 @@ export function WorkspacePage() {
   }
 
   const showBanner = wsStatus === 'disconnected' || wsStatus === 'failed' || wsError
+  const startStage = asStartActionStage(currentStage)
 
   return (
     <div className="flex h-screen flex-col bg-bg overflow-hidden">
@@ -216,113 +232,136 @@ export function WorkspacePage() {
       )}
 
       {/* DT Progress bar */}
-      <header className="flex-shrink-0 border-b border-border bg-surface px-4 py-2">
+      <header
+        data-tour="stage"
+        className="flex-shrink-0 border-b border-border bg-surface px-4 py-2"
+      >
         <div className="flex items-center gap-4">
-          <span className="text-sm text-text-muted whitespace-nowrap">{currentProject.name}</span>
+          <span className="text-sm text-text-muted whitespace-nowrap">
+            {currentProject.name}
+          </span>
           <div className="flex-1 min-w-0 flex justify-center">
-            <DoubleDiamondProgress currentStage={currentStage} currentMicroPhase={currentMicroPhase ?? undefined} />
+            <DoubleDiamondProgress
+              currentStage={currentStage}
+              currentMicroPhase={currentMicroPhase ?? undefined}
+            />
           </div>
         </div>
       </header>
 
+      {/* Stage hint bar：目標、任務、起頭 chip */}
+      <StageHintBar
+        stage={currentStage}
+        projectId={id!}
+        onStartWithAiClick={handleStartChipClick}
+        startChipFlashKey={orchestration.startChipFlashKey}
+      />
+
       {/* Main content area */}
       <div className="relative flex-1 overflow-hidden">
-        {/* Mobile: tabs */}
+        {/* Mobile: 三 tab（白板 / 群組聊天室 / 個人助理） */}
         <div className="flex md:hidden flex-col h-full overflow-hidden">
           <div className="flex border-b border-border bg-surface">
-            <button
-              className={cn(
-                'flex-1 py-2 text-sm font-medium border-b-2 transition-colors',
-                activeTab === 'canvas'
-                  ? 'border-accent text-accent'
-                  : 'border-transparent text-text-muted',
-              )}
+            <MobileTabButton
+              active={activeTab === 'canvas'}
               onClick={() => setActiveTab('canvas')}
-            >
-              白板
-            </button>
-            <button
-              className={cn(
-                'flex-1 py-2 text-sm font-medium border-b-2 transition-colors',
-                activeTab === 'chat'
-                  ? 'border-accent text-accent'
-                  : 'border-transparent text-text-muted',
-              )}
-              onClick={() => setActiveTab('chat')}
-            >
-              聊天室
-            </button>
+              label="白板"
+            />
+            <MobileTabButton
+              active={activeTab === 'group'}
+              onClick={() => setActiveTab('group')}
+              label="群組聊天室"
+            />
+            <MobileTabButton
+              active={activeTab === 'personal'}
+              onClick={() => setActiveTab('personal')}
+              label="個人助理"
+            />
           </div>
           <div className="flex-1 overflow-hidden">
-            {activeTab === 'canvas' ? (
-              <CanvasPanel projectId={id!} currentStage={currentStage} />
-            ) : (
-              <ChatPanel projectId={id!} sendWS={sendWS} />
+            {activeTab === 'canvas' && (
+              <div data-tour="canvas" className="h-full">
+                <CanvasPanel
+                  projectId={id!}
+                  currentStage={currentStage}
+                  emptyStateVisible={bannerVisible}
+                  onShapeCountChange={handleShapeCountChange}
+                  onEmptyStateAction={handleEmptyStateAction}
+                />
+              </div>
+            )}
+            {activeTab === 'group' && (
+              <ChatPanel
+                projectId={id!}
+                sendWS={sendWS}
+                kind="group"
+                disabled={isObserver}
+              />
+            )}
+            {activeTab === 'personal' && user && (
+              <ChatPanel
+                projectId={id!}
+                sendWS={sendWS}
+                kind="personal"
+                chatId={`${id}:personal:${user.id}`}
+                title="個人助理"
+                inputPlaceholder="與個人助理對話…"
+              />
             )}
           </div>
         </div>
 
-        {/* Tablet/Desktop: fullwidth canvas + floating chat */}
+        {/* Tablet/Desktop：全寬 canvas + ChatDock 浮動聊天 */}
         <div className="hidden md:block h-full relative overflow-hidden">
-          <CanvasPanel projectId={id!} currentStage={currentStage} />
-
-          {/* Floating chat panel */}
-          <div
-            className={cn(
-              'absolute top-3 right-3 bottom-3 z-30',
-              'overflow-hidden rounded-xl shadow-xl border border-border',
-              'transition-transform duration-300 ease-out',
-              'motion-reduce:transition-none',
-              chatOpen ? 'translate-x-0' : 'translate-x-[calc(100%+12px)]',
-            )}
-            style={{ width: chatWidth }}
-          >
-            {/* Resize handle */}
-            <div
-              className="absolute left-0 top-0 bottom-0 z-10 w-1.5 cursor-col-resize hover:bg-primary/20 active:bg-primary/30 transition-colors"
-              onMouseDown={handleResizeStart}
+          <div data-tour="canvas" className="h-full">
+            <CanvasPanel
+              projectId={id!}
+              currentStage={currentStage}
+              emptyStateVisible={bannerVisible}
+              onShapeCountChange={handleShapeCountChange}
+              onEmptyStateAction={handleEmptyStateAction}
             />
-            <ChatPanel projectId={id!} sendWS={sendWS} disabled={isObserver} onClose={() => setChatOpen(false)} />
           </div>
 
-          {/* Toggle button: visible when chat is collapsed */}
-          <button
-            className={cn(
-              'absolute bottom-6 right-4 z-40',
-              'flex items-center gap-2 rounded-full px-4 py-2.5',
-              'bg-accent text-white shadow-lg',
-              'hover:bg-accent/90 cursor-pointer',
-              'transition-all duration-300 ease-out',
-              'motion-reduce:transition-none',
-              chatOpen
-                ? 'opacity-0 pointer-events-none scale-90'
-                : 'opacity-100 scale-100',
-            )}
-            onClick={() => { setChatOpen(true); resetUnread() }}
-            aria-label="開啟聊天室"
-          >
-            <MessageCircle size={18} />
-            <span className="text-sm font-medium">聊天室</span>
-            {unreadCount > 0 && (
-              <span className="flex items-center justify-center min-w-[1.25rem] h-5 rounded-full bg-error px-1.5 text-xs font-bold text-white">
-                {unreadCount > 99 ? '99+' : unreadCount}
-              </span>
-            )}
-          </button>
+          {user && (
+            <ChatDock
+              key={dockOpenNonce}
+              projectId={id!}
+              currentUserId={user.id}
+              sendWS={sendWS}
+              initialOpen={dockInitialOpen}
+              groupDisabled={isObserver}
+              onActiveChange={setActiveChannel}
+            />
+          )}
         </div>
       </div>
 
-      {/* Seat status bar */}
+      {/* Seat status bar；overflow-x-visible 避免 SeatPopover 被裁切（spec §6 trade-off） */}
       <footer className="flex-shrink-0 border-t border-border bg-surface px-4 py-2">
-        <div className="flex items-center gap-2 overflow-x-auto">
-          <SeatBar seats={seats} currentUserId={user?.id} />
+        <div className="flex items-center gap-2 overflow-x-visible">
+          <SeatBar
+            seats={seats}
+            currentUserId={user?.id}
+            typingNames={coachState.typingNames}
+            recentSpeaker={coachState.recentSpeaker}
+            seatPreviews={coachState.seatPreviews}
+            onDirectMessage={handleDirectMessage}
+          />
 
           <div className="ml-auto flex items-center gap-2">
-            {isSupervisor && nextStage && (
+            {currentProject?.creator_id === user?.id && (
               <Button
+                variant="ghost"
                 size="sm"
-                onClick={() => setShowAdvanceModal(true)}
+                onClick={() => setShowPersonasPanel(true)}
               >
+                <Users size={14} />
+                AI 隊友
+              </Button>
+            )}
+            {isSupervisor && nextStage && (
+              <Button size="sm" onClick={() => setShowAdvanceModal(true)}>
                 推進到 {nextStage}
               </Button>
             )}
@@ -333,36 +372,61 @@ export function WorkspacePage() {
         </div>
       </footer>
 
-      {/* Advance stage confirmation modal */}
-      <Modal
-        isOpen={showAdvanceModal}
-        onClose={() => setShowAdvanceModal(false)}
-        title="推進階段確認"
-      >
-        <div className="flex flex-col gap-4">
-          <p className="text-sm text-text-muted">
-            確定要將專案推進到{' '}
-            <span className="font-semibold text-primary">{nextStage}</span>{' '}
-            階段嗎？前一階段的白板產出會自動儲存快照。
-          </p>
-          <div className="flex gap-3">
-            <Button
-              variant="secondary"
-              className="flex-1"
-              onClick={() => setShowAdvanceModal(false)}
-            >
-              取消
-            </Button>
-            <Button
-              className="flex-1"
-              isLoading={isAdvancing}
-              onClick={handleAdvanceStage}
-            >
-              確認推進
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      {/* Phase 20: Advance stage confirmation (replaces old Modal-based UI from Phase 19) */}
+      <AdvanceStageConfirm
+        open={showAdvanceModal}
+        currentStage={
+          (currentStage === 'completed' ? 'deliver' : currentStage) as AdvanceDTStage
+        }
+        onConfirm={handleAdvanceStage}
+        onCancel={() => setShowAdvanceModal(false)}
+        isAdvancing={isAdvancing}
+      />
+
+      {/* Phase 20: 起手式 popover, anchored on the StageHintBar 「起頭」chip */}
+      <StartActionsPopover
+        open={orchestration.startPopoverOpen}
+        stage={startStage}
+        anchorSelector="[data-startwith-anchor]"
+        onActionClick={handleEmptyStateAction}
+        onClose={orchestration.closeStartPopover}
+      />
+
+      {/* Phase 20: First-run tour — dot + caption */}
+      <FirstRunTour storageKey={`workspace-tour-${id}`} steps={TOUR_STEPS} />
+
+      {/* Phase 19: AI persona management (creator only) */}
+      {showPersonasPanel && currentProject && (
+        <ProjectPersonasPanel
+          isOpen={showPersonasPanel}
+          projectId={currentProject.id}
+          seats={seats}
+          onClose={() => setShowPersonasPanel(false)}
+          onUpdated={(updatedSeat) => updateSeat(updatedSeat.seat_role, updatedSeat)}
+        />
+      )}
     </div>
+  )
+}
+
+interface MobileTabButtonProps {
+  active: boolean
+  onClick: () => void
+  label: string
+}
+
+function MobileTabButton({ active, onClick, label }: MobileTabButtonProps) {
+  return (
+    <button
+      className={cn(
+        'flex-1 py-2 text-sm font-medium border-b-2 transition-colors',
+        active
+          ? 'border-accent text-accent'
+          : 'border-transparent text-text-muted',
+      )}
+      onClick={onClick}
+    >
+      {label}
+    </button>
   )
 }

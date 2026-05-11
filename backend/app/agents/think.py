@@ -24,6 +24,13 @@ _VALID_ACTION_TYPES = {
     "tidy_area",
     "set_directive",
     "no_action",
+    # Spec 13 — Supervisor only
+    "draw_zone",
+    "draw_template",
+    # Spec 13 — Voting (criteria-gated)
+    "open_vote",
+    "cast_vote",
+    "close_vote",
 }
 
 # Text fields that must be converted to Traditional Chinese
@@ -106,6 +113,22 @@ class ThinkEngine:
         On JSON parse failure, falls back to no_action.
         """
         messages = self._assembler.assemble(context)
+
+        # Guard: truncate user message if total prompt is too long for model
+        # Rough estimate: 1 CJK char ≈ 2 tokens, 1 ASCII word ≈ 1.3 tokens
+        _MAX_PROMPT_CHARS = 12000  # ~24K tokens, leaves room for max_tokens output
+        total_chars = sum(len(m.get("content", "")) for m in messages)
+        if total_chars > _MAX_PROMPT_CHARS and len(messages) >= 2:
+            excess = total_chars - _MAX_PROMPT_CHARS
+            user_msg = messages[-1]
+            content = user_msg.get("content", "")
+            if len(content) > excess + 200:
+                messages[-1] = {
+                    **user_msg,
+                    "content": content[: len(content) - excess - 100] + "\n\n（上下文已截短以符合模型限制）",
+                }
+                logger.info("Prompt truncated: removed %d chars from user message", excess + 100)
+
         prompt_text = json.dumps(messages, ensure_ascii=False)
 
         start_ms = int(time.time() * 1000)

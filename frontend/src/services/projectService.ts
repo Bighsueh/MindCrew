@@ -1,15 +1,21 @@
 import api from './api'
 import type {
   CreateProjectRequest,
+  GeneratePersonasRequest,
+  GeneratePersonasResponse,
   JoinProjectRequest,
   JoinProjectResponse,
   AdvanceStageRequest,
   AdvanceStageResponse,
   MessagesResponse,
+  UpdateSeatPersonaRequest,
 } from '../types/api'
 import type {
+  CrewSeatRole,
+  Persona,
   Project,
   ProjectListItem,
+  Seat,
   StageInfo,
   StageHistoryEntry,
   MicroPhaseHistoryEntry,
@@ -20,6 +26,37 @@ import type {
 
 export async function createProject(data: CreateProjectRequest): Promise<Project> {
   const response = await api.post<Project>('/projects', data)
+  return response.data
+}
+
+// Spec 13: 強制送出便條（人類限定）
+export interface CreateNoteForceResponse {
+  success: boolean
+  note_id?: string
+  zone_id?: string
+  gate_violation?: Record<string, unknown>
+  rejection?: {
+    reason_zh: string
+    rule_module: string
+    rule_name: string
+    matched_text?: string
+  }
+}
+
+export async function createNoteForcePublish(
+  projectId: string,
+  payload: {
+    text: string
+    color: string
+    x: number
+    y: number
+    sub_phase_id: string
+  },
+): Promise<CreateNoteForceResponse> {
+  const response = await api.post<CreateNoteForceResponse>(
+    `/projects/${projectId}/canvas/notes`,
+    { ...payload, force_publish: true },
+  )
   return response.data
 }
 
@@ -67,13 +104,21 @@ export async function getStageHistory(id: string): Promise<StageHistoryEntry[]> 
   return response.data
 }
 
+export interface GetMessagesOptions {
+  limit?: number
+  before?: string
+  /** 指定要載入的 chat_id；缺省時後端視為 `${id}:group`。 */
+  chatId?: string
+}
+
 export async function getMessages(
   id: string,
-  limit = 50,
-  before?: string,
+  options: GetMessagesOptions = {},
 ): Promise<MessagesResponse> {
+  const { limit = 50, before, chatId } = options
   const params: Record<string, string | number> = { limit }
   if (before) params.before = before
+  if (chatId) params.chat_id = chatId
   const response = await api.get<MessagesResponse>(`/projects/${id}/messages`, { params })
   return response.data
 }
@@ -103,6 +148,31 @@ export async function getAgentTraces(
   const response = await api.get<{ traces: AgentTrace[]; has_more: boolean }>(
     `/projects/${id}/agent-traces`,
     { params },
+  )
+  return response.data
+}
+
+// ── Persona system (Phase 19) ────────────────────────────────────────────
+
+export async function generatePersonas(
+  data: GeneratePersonasRequest,
+): Promise<Persona[]> {
+  const response = await api.post<GeneratePersonasResponse>(
+    '/personas/generate',
+    data,
+  )
+  return response.data.personas
+}
+
+export async function updateSeatPersona(
+  projectId: string,
+  seatRole: CrewSeatRole,
+  persona: Persona,
+): Promise<Seat> {
+  const body: UpdateSeatPersonaRequest = { persona }
+  const response = await api.patch<Seat>(
+    `/projects/${projectId}/seats/${seatRole}/persona`,
+    body,
   )
   return response.data
 }

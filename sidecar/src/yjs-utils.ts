@@ -74,6 +74,7 @@ export interface NoteShape {
   height: number
   groupId: string | null
   createdAt: string
+  _moving_by?: string
 }
 
 export interface NoteGroup {
@@ -608,6 +609,57 @@ export function batchUpdateCoordinates(
       shapes.set(u.id, { ...note, x: u.x, y: u.y })
     }
   })
+  return true
+}
+
+/**
+ * Update a single note's coordinates in its own Yjs transaction.
+ * Used by staggered updates for one-by-one animation effect.
+ *
+ * If movingBy is provided, sets _moving_by metadata on the shape
+ * and clears it after clearDelayMs (default 400ms).
+ */
+export function updateSingleNoteCoordinates(
+  projectId: string,
+  id: string,
+  x: number,
+  y: number,
+  movingBy?: string,
+  clearDelayMs: number = 400
+): boolean {
+  const doc = getDoc(projectId)
+  if (!doc) return false
+  const shapes = getShapesMap(doc)
+  const note = shapes.get(id)
+  if (!note) return false
+
+  doc.transact(() => {
+    const updated: NoteShape = { ...note, x, y }
+    if (movingBy) {
+      updated._moving_by = movingBy
+    } else {
+      delete updated._moving_by
+    }
+    shapes.set(id, updated)
+  })
+
+  // Clear _moving_by after delay
+  if (movingBy) {
+    setTimeout(() => {
+      const currentDoc = getDoc(projectId)
+      if (!currentDoc) return
+      const currentShapes = getShapesMap(currentDoc)
+      const current = currentShapes.get(id)
+      if (!current || !current._moving_by) return
+
+      currentDoc.transact(() => {
+        const cleaned: NoteShape = { ...current }
+        delete cleaned._moving_by
+        currentShapes.set(id, cleaned)
+      })
+    }, clearDelayMs)
+  }
+
   return true
 }
 

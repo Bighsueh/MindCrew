@@ -12,6 +12,7 @@ import {
   getCanvasState,
   getCanvasStateFull,
   batchUpdateCoordinates,
+  updateSingleNoteCoordinates,
 } from './yjs-utils.js'
 
 export const canvasRouter = Router()
@@ -179,4 +180,32 @@ canvasRouter.post('/projects/:id/batch-update-coordinates', (req: Request, res: 
     return
   }
   res.json({ message: 'Coordinates updated', count: updates.length })
+})
+
+// POST /api/projects/:id/staggered-update-coordinates — one-by-one with delays
+canvasRouter.post('/projects/:id/staggered-update-coordinates', (req: Request, res: Response) => {
+  const { id } = req.params
+  const { updates, stagger_ms = 150, moving_by } = req.body
+
+  if (!Array.isArray(updates) || updates.length === 0) {
+    res.status(400).json({ detail: 'updates array is required and must not be empty' })
+    return
+  }
+
+  for (const u of updates) {
+    if (!u.id || typeof u.x !== 'number' || typeof u.y !== 'number') {
+      res.status(400).json({ detail: 'Each update must have id, x, y' })
+      return
+    }
+  }
+
+  // Apply updates one by one with stagger delays (non-blocking)
+  updates.forEach((u: { id: string; x: number; y: number }, i: number) => {
+    setTimeout(() => {
+      updateSingleNoteCoordinates(id, u.id, u.x, u.y, moving_by)
+    }, i * stagger_ms)
+  })
+
+  // Respond immediately — updates are applied asynchronously
+  res.json({ message: 'Staggered updates scheduled', count: updates.length, stagger_ms })
 })

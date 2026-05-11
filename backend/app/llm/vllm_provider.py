@@ -28,14 +28,15 @@ class VLLMProvider(LLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 1024,
     ) -> LLMResponse:
-        """Send a chat completion request, with a hard timeout."""
+        """Send a streaming chat completion request, with a hard timeout."""
         try:
-            response = await asyncio.wait_for(
+            stream = await asyncio.wait_for(
                 self._client.chat.completions.create(
                     model=self._model,
                     messages=messages,  # type: ignore[arg-type]
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    stream=True,
                 ),
                 timeout=self._timeout,
             )
@@ -43,18 +44,36 @@ class VLLMProvider(LLMProvider):
             logger.warning("vLLM chat_completion timed out after %ss", self._timeout)
             raise
 
-        choice = response.choices[0]
-        usage = response.usage
+        chunks: list[str] = []
+        finish_reason = "stop"
+        model = self._model
+        usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+
+        try:
+            async for chunk in stream:
+                if chunk.model:
+                    model = chunk.model
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        chunks.append(delta.content)
+                    if chunk.choices[0].finish_reason:
+                        finish_reason = chunk.choices[0].finish_reason
+                if chunk.usage:
+                    usage = TokenUsage(
+                        prompt_tokens=chunk.usage.prompt_tokens,
+                        completion_tokens=chunk.usage.completion_tokens,
+                        total_tokens=chunk.usage.total_tokens,
+                    )
+        except asyncio.TimeoutError:
+            logger.warning("vLLM streaming timed out after %ss", self._timeout)
+            raise
 
         return LLMResponse(
-            content=choice.message.content or "",
-            usage=TokenUsage(
-                prompt_tokens=usage.prompt_tokens if usage else 0,
-                completion_tokens=usage.completion_tokens if usage else 0,
-                total_tokens=usage.total_tokens if usage else 0,
-            ),
-            model=response.model,
-            finish_reason=choice.finish_reason or "stop",
+            content="".join(chunks),
+            usage=usage,
+            model=model,
+            finish_reason=finish_reason,
         )
 
     async def health_check(self) -> bool:

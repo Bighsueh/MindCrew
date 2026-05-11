@@ -12,11 +12,14 @@ def _now_iso() -> str:
 
 @dataclass
 class ChatMessageEvent:
+    # spec/13-personal-chat.md §6.3：新增 ``chat_id`` 欄位以支援個人聊天路由。
+    # ``chat_id is None`` 視為 group（向下相容既有 caller）。
     project_id: UUID
     sender_id: str
     sender_type: str
     sender_name: str
     content: str
+    chat_id: str | None = None
     timestamp: str = field(default_factory=_now_iso)
     id: str = field(default_factory=lambda: str(uuid4()))
 
@@ -29,6 +32,9 @@ class ChatMessageEvent:
             "type": self.type,
             "payload": {
                 "id": self.id,
+                # 個人聊天透過 WS forwarder 依 chat_id 過濾收件人；
+                # 群組訊息保持 chat_id=None（前端視為 group）。
+                "chat_id": self.chat_id,
                 "sender_id": self.sender_id,
                 "sender_type": self.sender_type,
                 "sender_name": self.sender_name,

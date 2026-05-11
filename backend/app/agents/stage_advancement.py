@@ -116,11 +116,20 @@ async def advance_stage(
                 .values(**update_values)
             )
 
+            # Capture canvas snapshot (Phase 16: fix NULL snapshot for AI-triggered transitions)
+            canvas_snapshot = None
+            try:
+                from app.canvas.tools_perception import get_canvas_snapshot
+                canvas_snapshot = await get_canvas_snapshot(project_id)
+            except Exception:
+                pass
+
             sh = StageHistory(
                 project_id=project_id,
                 from_stage=current_stage,
                 to_stage=next_stage,
                 triggered_by="ai_evaluator",
+                canvas_snapshot=canvas_snapshot,
             )
             session.add(sh)
             await session.commit()
@@ -138,6 +147,8 @@ async def advance_stage(
 
         if blackboard:
             await blackboard.clear_stage(next_stage)
+
+        # Spec 13: Organization Turn 已廢除。Canvas 整理改由 silent_rearrange 模式自然完成。
 
         logger.info(
             "Project %s advanced: %s → %s",
@@ -226,15 +237,7 @@ async def advance_micro_phase(
         except Exception as exc:
             logger.warning("Failed to announce micro phase transition: %s", exc)
 
-        # Auto-tidy on convergence phase transitions (Phase 14: uses tidy_area)
-        _AUTO_TIDY_PHASES: set[str] = {"1.3", "3.2"}
-        if to_phase in _AUTO_TIDY_PHASES:
-            try:
-                from app.canvas.tools_manipulation import tool_tidy_area
-                await tool_tidy_area(project_id, scope="all", strategy="align_grid")
-                logger.info("Auto-tidy applied for phase %s", to_phase)
-            except Exception as exc:
-                logger.warning("Auto-tidy failed for phase %s: %s", to_phase, exc)
+        # Spec 13: Organization Turn 已廢除。Canvas 整理改由 silent_rearrange 模式自然完成。
 
         logger.info(
             "Project %s micro phase advanced: %s → %s",
@@ -246,3 +249,163 @@ async def advance_micro_phase(
     except Exception as exc:
         logger.error("Failed to advance micro phase: %s", exc)
         return "micro_advance_failed"
+
+
+# ---------------------------------------------------------------------------
+# Spec 13 — Sub-phase advancement
+# ---------------------------------------------------------------------------
+
+async def advance_sub_phase(
+    project_id: UUID,
+    agent_id: str,
+    from_sub_phase: str | None,
+    to_sub_phase: str,
+    skip_deliverable_check: bool = False,
+) -> str:
+    """Update project.current_sub_phase and broadcast.
+
+    Spec 14 A9: 推進前先檢查 from_sub_phase 的 deliverables_required 是否達成。
+    teacher 強制推進可傳 skip_deliverable_check=True。
+
+    Also clears reveal queue + resets stability timer when entering a new sub-phase.
+    """
+    # Spec 14 A9: Deliverable check
+    if from_sub_phase and not skip_deliverable_check:
+        try:
+            from app.stages.deliverables import check_deliverables
+            check = await check_deliverables(project_id, from_sub_phase)
+            if not check.passed:
+                logger.info(
+                    "Sub-phase advance blocked project=%s from=%s missing=%s",
+                    project_id, from_sub_phase, check.missing,
+                )
+                return f"sub_advance_blocked:{'; '.join(check.missing)}"
+        except Exception as exc:
+            logger.warning("Deliverable check raised %s — proceed", exc)
+
+    try:
+        async with async_session_factory() as session:
+            from sqlalchemy import update
+            from app.db.models.project import Project
+
+            now = datetime.now(timezone.utc)
+            await session.execute(
+                update(Project)
+                .where(Project.id == project_id)
+                .values(current_sub_phase=to_sub_phase, updated_at=now)
+            )
+            await session.commit()
+
+        # Spec 15 B5: Start timer for new sub_phase
+        try:
+            from app.timer.service import TimerService
+            await TimerService.start_phase(project_id, to_sub_phase)
+        except Exception as exc:
+            logger.debug("Timer start_phase failed: %s", exc)
+
+        # Reset reveal queue / stability timer
+        try:
+            from app.agents.reveal_queue import reset as reset_reveal, start_reveal_round
+            from app.canvas.stability_detector import reset as reset_stability
+            await reset_reveal(project_id)
+            await reset_stability(project_id)
+
+            # Spec 14 A11: 進入 reveal_round comm_mode 自動啟動輪序
+            try:
+                from app.stages.sub_phases import get_sub_phase as _gsp
+                target_sp = _gsp(to_sub_phase)
+                if target_sp.comm_modes and target_sp.comm_modes[0] == "reveal_round":
+                    seat_order = await _load_seat_order_for_reveal(project_id)
+                    if seat_order:
+                        await start_reveal_round(
+                            project_id, seat_order, to_sub_phase,
+                        )
+                        logger.info(
+                            "Reveal round started project=%s seats=%s",
+                            project_id, seat_order,
+                        )
+            except Exception as exc:
+                logger.debug("Auto-start reveal round failed: %s", exc)
+        except Exception as exc:
+            logger.debug("Reset reveal/stability failed: %s", exc)
+
+        # Broadcast SubPhaseChangedEvent if available
+        try:
+            from app.events.types import SubPhaseChangedEvent  # type: ignore[attr-defined]
+            from app.events.bus import event_bus
+            event = SubPhaseChangedEvent(  # type: ignore[call-arg]
+                project_id=project_id,
+                from_sub_phase=from_sub_phase,
+                to_sub_phase=to_sub_phase,
+                triggered_by=agent_id,
+            )
+            await event_bus.publish(event)
+        except (ImportError, AttributeError):
+            # Event type not yet defined; OK
+            pass
+
+        # Announce in chat
+        try:
+            from app.stages.sub_phases import get_sub_phase
+            from app.events.types import ChatMessageEvent
+            from app.events.bus import event_bus as _eb
+            from app.chinese.converter import chinese_converter
+
+            try:
+                sp = get_sub_phase(to_sub_phase)
+                name = sp.name_zh
+            except KeyError:
+                name = to_sub_phase
+
+            announcement = chinese_converter.convert(
+                f"進入 sub-phase「{name}」（{to_sub_phase}）。"
+            )
+            chat_event = ChatMessageEvent(
+                project_id=project_id,
+                sender_id=agent_id,
+                sender_type="ai",
+                sender_name="Supervisor",
+                content=announcement,
+            )
+            await _eb.publish(chat_event)
+        except Exception as exc:
+            logger.debug("Sub-phase announcement failed: %s", exc)
+
+        logger.info(
+            "Sub-phase advanced project=%s %s → %s",
+            project_id, from_sub_phase, to_sub_phase,
+        )
+        return f"sub_advanced_to_{to_sub_phase}"
+    except Exception as exc:
+        logger.error("Failed to advance sub_phase: %s", exc)
+        return "sub_advance_failed"
+
+
+async def _load_seat_order_for_reveal(project_id: UUID) -> list[str]:
+    """Spec 14 A11: 載入該 project 的 seat 順序（supervisor 後 crew_1..4）。
+
+    Reveal round 順序：supervisor 開頭，後 crew_1, crew_2, crew_3, crew_4。
+    """
+    from sqlalchemy import select
+    from app.db.models.seat import Seat
+
+    async with async_session_factory() as session:
+        rows = await session.execute(
+            select(Seat).where(Seat.project_id == project_id)
+        )
+        seats = rows.scalars().all()
+
+    # Filter ai seats only (人類 reveal 不從 queue 強制)
+    ai_seats = [s.seat_role for s in seats if s.occupant_type == "ai"]
+    # Sort: supervisor first, then crew_N by numeric suffix
+    def _sort_key(role: str) -> tuple[int, int]:
+        if role == "supervisor":
+            return (0, 0)
+        if role.startswith("crew_"):
+            try:
+                return (1, int(role.split("_")[1]))
+            except (IndexError, ValueError):
+                return (2, 0)
+        return (3, 0)
+
+    return sorted(ai_seats, key=_sort_key)

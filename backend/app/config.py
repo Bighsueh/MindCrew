@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # LLM
     LLM_PROVIDER: str = "vllm"
     VLLM_BASE_URL: str = "https://vllm.example.com/v1"
-    VLLM_MODEL_NAME: str = "openai/gpt-oss-20b"
+    VLLM_MODEL_NAME: str = "/models/gemma-4-26B-A4B-it"
     VLLM_API_KEY: str = "dummy"
 
     # LLM Fallback

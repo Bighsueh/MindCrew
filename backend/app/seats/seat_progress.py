@@ -35,6 +35,7 @@ async def build_regular_progress_summary(project_id: UUID) -> str:
     """
     try:
         from app.bridge.canvas_ops import canvas_ops
+        from app.chat.message_filters import group_only_filter
         from app.db.models.message import Message
         from app.db.models.project import Project
 
@@ -47,9 +48,12 @@ async def build_regular_progress_summary(project_id: UUID) -> str:
                 return "（無法取得專案資訊）"
             stage = project.current_stage
 
+            # spec §9.1：Supervisor handoff / progress summary 是 agent 看的內容，
+            # 不能混入任何 personal chat 訊息，因此一律過濾為 group only。
             msg_result = await session.execute(
                 select(Message)
                 .where(Message.project_id == project_id)
+                .where(group_only_filter())
                 .order_by(desc(Message.created_at))
                 .limit(10)
             )
@@ -74,6 +78,7 @@ async def build_supervisor_progress_summary(project_id: UUID) -> str:
     """
     try:
         from app.bridge.canvas_ops import canvas_ops
+        from app.chat.message_filters import group_only_filter
         from app.db.models.message import Message
         from app.db.models.project import Project
         from app.db.models.stage_evaluation_log import StageEvaluationLog
@@ -133,9 +138,11 @@ async def build_supervisor_progress_summary(project_id: UUID) -> str:
             )
 
             # Recent chat for topic
+            # spec §9.1：同上，Supervisor 看到的進度摘要不得包含 personal。
             msg_result = await session.execute(
                 select(Message)
                 .where(Message.project_id == project_id)
+                .where(group_only_filter())
                 .order_by(desc(Message.created_at))
                 .limit(10)
             )
