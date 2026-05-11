@@ -90,6 +90,10 @@ class BaseAgent:
 
         # Guard against concurrent evaluations (race condition fix)
         self._evaluation_in_progress = False
+        # Keep a strong reference to the background evaluation task so the
+        # GC can't collect it mid-run (asyncio fire-and-forget anti-pattern fix).
+        # Symptom without this: "coroutine ignored GeneratorExit" + "Task was destroyed but it is pending"
+        self._evaluation_task: asyncio.Task | None = None
 
         # Human Presence Gate — created in start() to ensure a running event loop
         self._presence_event: asyncio.Event | None = None
@@ -163,6 +167,11 @@ class BaseAgent:
         self._running = False
         if self._stop_event is not None:
             self._stop_event.set()  # Unblock if waiting on presence gate
+        # Cancel any in-flight background evaluation task so it doesn't
+        # outlive the agent loop and trigger "Task was destroyed but it is pending".
+        task = self._evaluation_task
+        if task is not None and not task.done():
+            task.cancel()
 
     @property
     def running(self) -> bool:
@@ -304,7 +313,11 @@ class BaseAgent:
             if should_eval and not self._evaluation_in_progress:
                 logger.info("Triggering stage evaluation for %s", self._project_id)
                 self._evaluation_in_progress = True
-                asyncio.create_task(self._run_evaluation(context))
+                # Store the task so it isn't GC'd before completion.
+                # The done_callback clears the reference once finished.
+                task = asyncio.create_task(self._run_evaluation(context))
+                self._evaluation_task = task
+                task.add_done_callback(lambda _t: setattr(self, "_evaluation_task", None))
 
         if assess_result.decision in ("wait", "observe"):
             return
@@ -440,6 +453,9 @@ class BaseAgent:
                 eval_result.passed,
                 eval_result.action_taken,
             )
+        except asyncio.CancelledError:
+            # Expected during shutdown — re-raise so asyncio finalises cleanly.
+            raise
         except Exception as exc:
             logger.error("Stage evaluation error: %s", exc)
         finally:
