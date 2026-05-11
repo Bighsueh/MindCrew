@@ -69,6 +69,10 @@ class SeatManager:
         If `session` is provided (e.g. from the service layer), it is used
         for the DB update to preserve transactional consistency in tests.
         """
+        if seat_role == "supervisor":
+            raise ValueError(
+                "Supervisor seat is AI-only and cannot be assigned to a human"
+            )
         key = (project_id, seat_role)
 
         # 0: Mark Blackboard intention as inactive (§7.7)
