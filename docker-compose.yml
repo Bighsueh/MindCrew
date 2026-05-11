@@ -53,6 +53,16 @@ services:
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://embedding.example.com/v1}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-8B}
       SIDECAR_URL: http://sidecar:4000
+      # Neutralize host-injected proxy env (OrbStack injects IPv6 CIDR into NO_PROXY
+      # which httpx cannot parse → InvalidURL "Invalid port: 'b51a:cc66:f0::'")
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      no_proxy: ""
+      all_proxy: ""
     ports:
       - "8000:8000"
     depends_on:

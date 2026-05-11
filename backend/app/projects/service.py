@@ -291,13 +291,29 @@ class ProjectService:
         messages = await msg_repo.get_messages(project_id, limit=30)
         canvas_state = await canvas_ops.get_canvas_state(project_id)
 
+        # Cap each chat line at 200 chars so a runaway long message can't blow up the prompt
         chat_text = "\n".join(
-            f"[{m.sender_type}] {m.sender_name}: {m.content}" for m in messages
+            f"[{m.sender_type}] {m.sender_name}: {m.content[:200]}"
+            for m in messages
         ) or "（尚無對話）"
 
-        notes_text = "\n".join(
-            f"- {n.get('content', '')}" for n in canvas_state.get("notes", [])
+        # vLLM context limit is 32K tokens. A long-running project can accumulate
+        # thousands of notes; dumping them all overflows the prompt. Cap to the
+        # most recent 60 notes (max ~120 chars each ≈ 8K tokens worst-case).
+        _NOTE_TEXT_CAP = 120
+        _NOTE_COUNT_CAP = 60
+        all_notes = canvas_state.get("notes", [])
+        recent_notes = all_notes[-_NOTE_COUNT_CAP:] if len(all_notes) > _NOTE_COUNT_CAP else all_notes
+        notes_text_body = "\n".join(
+            f"- {n.get('content', '')[:_NOTE_TEXT_CAP]}" for n in recent_notes
         ) or "（尚無便條紙）"
+        if len(all_notes) > _NOTE_COUNT_CAP:
+            notes_text = (
+                f"（共 {len(all_notes)} 張便條紙，僅顯示最新 {_NOTE_COUNT_CAP} 張）\n"
+                f"{notes_text_body}"
+            )
+        else:
+            notes_text = notes_text_body
 
         user_content = (
             f"目前階段：{project.current_stage}\n\n"
