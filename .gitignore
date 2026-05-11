@@ -60,3 +60,5 @@ sidecar/dist/
 
 # Backend virtual env (explicit)
 backend/.venv/
+backend/.venv-qa/
+frontend/vite.qa.config.ts

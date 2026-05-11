@@ -67,13 +67,21 @@ export async function getStageHistory(id: string): Promise<StageHistoryEntry[]> 
   return response.data
 }
 
+export interface GetMessagesOptions {
+  limit?: number
+  before?: string
+  /** 指定要載入的 chat_id；缺省時後端視為 `${id}:group`。 */
+  chatId?: string
+}
+
 export async function getMessages(
   id: string,
-  limit = 50,
-  before?: string,
+  options: GetMessagesOptions = {},
 ): Promise<MessagesResponse> {
+  const { limit = 50, before, chatId } = options
   const params: Record<string, string | number> = { limit }
   if (before) params.before = before
+  if (chatId) params.chat_id = chatId
   const response = await api.get<MessagesResponse>(`/projects/${id}/messages`, { params })
   return response.data
 }

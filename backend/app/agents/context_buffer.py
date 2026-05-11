@@ -494,11 +494,15 @@ class ContextBuffer:
             return result
 
         # Fall back to DB
+        # spec §9.1：agent context **嚴禁** 看到 personal 訊息，
+        # 因此透過 ``group_only_filter()`` 統一過濾。
         async with async_session_factory() as session:
+            from app.chat.message_filters import group_only_filter
             from app.db.models.message import Message
             rows = await session.execute(
                 select(Message)
                 .where(Message.project_id == self._project_id)
+                .where(group_only_filter())
                 .order_by(Message.created_at.desc(), Message.id.desc())
                 .limit(_CHAT_LIMIT)
             )

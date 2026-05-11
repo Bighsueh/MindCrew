@@ -8,10 +8,23 @@ import { MiniToolbar } from './MiniToolbar'
 import { ZoomControls } from './ZoomControls'
 import { NoteAuthorOverlay } from './NoteAuthorOverlay'
 import { AnimatedYjsBridge } from './AnimatedYjsBridge'
+import { CanvasEmptyState, type StartActionStage } from './CanvasEmptyState'
 
 interface CanvasPanelProps {
   projectId: string
   currentStage?: DTStage
+  /** 透傳給 EmptyState 的動作回呼。actionId 是穩定字串。 */
+  onEmptyStateAction?: (actionId: string) => void
+  /** 白板 shape 數量變動時通知父層，父層可據此控制 EmptyState 顯示／教學動畫等。 */
+  onShapeCountChange?: (count: number) => void
+  /** 父層強制控制 banner 是否顯示；未提供時 fallback 為 shape 數量為 0。 */
+  emptyStateVisible?: boolean
+}
+
+// 將 DTStage 收斂成 EmptyState 認得的 4 階段（與 STAGE_ACTIONS key 對齊）
+function asStartActionStage(s: DTStage | undefined): StartActionStage {
+  if (s === 'discover' || s === 'define' || s === 'develop' || s === 'deliver') return s
+  return 'discover'
 }
 
 function getYjsWsUrl(): string {
@@ -41,12 +54,20 @@ const STAGE_BG: Record<string, string> = {
   deliver: 'bg-[#faf0e6]',
 }
 
-export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
+export function CanvasPanel({
+  projectId,
+  currentStage,
+  onEmptyStateAction,
+  onShapeCountChange,
+  emptyStateVisible,
+}: CanvasPanelProps) {
   const [connected, setConnected] = useState(false)
   const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), [])
   const docRef = useRef<Y.Doc | null>(null)
   const providerRef = useRef<WebsocketProvider | null>(null)
   const [shapesMap, setShapesMap] = useState<Y.Map<unknown> | null>(null)
+  // 追蹤白板上 shape 數量；用於決定 EmptyState 是否顯示（fallback 條件）
+  const [shapeCount, setShapeCount] = useState(0)
 
   useEffect(() => {
     const doc = new Y.Doc()
@@ -73,6 +94,20 @@ export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
     }
   }, [projectId])
 
+  // 訂閱 tldraw store 的 shape 數量變化（用於 EmptyState 顯示判斷）。
+  // 注意：故意不放在 <Tldraw> children 內，因為 tldraw 會 render children 兩次。
+  useEffect(() => {
+    const update = () => {
+      const records = store.allRecords()
+      const next = records.filter((r) => r.typeName === 'shape').length
+      setShapeCount(next)
+      onShapeCountChange?.(next)
+    }
+    update()
+    const unlisten = store.listen(update, { source: 'all', scope: 'document' })
+    return unlisten
+  }, [store, onShapeCountChange])
+
   const stageBg = currentStage ? STAGE_BG[currentStage] ?? '' : ''
 
   return (
@@ -92,6 +127,15 @@ export function CanvasPanel({ projectId, currentStage }: CanvasPanelProps) {
         <ZoomControls />
         <NoteAuthorOverlay />
       </Tldraw>
+      {/* EmptyState 必須是 <Tldraw> 的 sibling，不能放進 children（tldraw 會雙重渲染）。
+          只有當父層註冊 onEmptyStateAction 時才掛載，避免在未連線 wire 時干擾既有畫面。 */}
+      {onEmptyStateAction !== undefined && (
+        <CanvasEmptyState
+          stage={asStartActionStage(currentStage)}
+          visible={emptyStateVisible ?? shapeCount === 0}
+          onActionClick={onEmptyStateAction}
+        />
+      )}
     </div>
   )
 }

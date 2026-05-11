@@ -96,6 +96,8 @@ export interface Message {
   content: string
   stage: DTStage
   created_at: string
+  /** chat_id: `${project_id}:group` 或 `${project_id}:personal:${user_id}`，NULL 視為 group。 */
+  chat_id?: string
 }
 
 export interface StageInfo {

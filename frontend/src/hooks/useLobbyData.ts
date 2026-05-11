@@ -74,7 +74,7 @@ export function useLobbyData(projectId: string | undefined): LobbyData {
       setIsDataLoading(true)
       try {
         const [messagesRes, stageRes, historyRes, canvasRes] = await Promise.allSettled([
-          getMessages(projectId, MAX_PREVIEW_MESSAGES),
+          getMessages(projectId, { limit: MAX_PREVIEW_MESSAGES }),
           getStage(projectId),
           getStageHistory(projectId),
           getCanvasState(projectId),
@@ -169,7 +169,7 @@ export function useLobbyData(projectId: string | undefined): LobbyData {
 
   const wsUrl = projectId
     ? import.meta.env.DEV
-      ? `ws://localhost:8000/ws/project/${projectId}`
+      ? `${import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000'}/ws/project/${projectId}`
       : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/project/${projectId}`
     : ''
 

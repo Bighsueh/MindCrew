@@ -15,6 +15,9 @@ class MessageResponse(BaseModel):
     content: str
     stage: str
     created_at: datetime
+    # chat_id：群組訊息可能為 None（向下相容既有 row）或 ``{pid}:group``；
+    # 個人訊息為 ``{pid}:personal:{user_id}``。詳見 specs/13-personal-chat.md §4.3。
+    chat_id: str | None = None
 
     model_config = {"from_attributes": True}
 
