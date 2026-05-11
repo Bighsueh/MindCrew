@@ -274,6 +274,23 @@ class BaseAgent:
                         )
                     return
 
+        # Spec 14: Supervisor persona router — 決定本回合是 A/B 哪支發話
+        if "supervisor" in self._seat_role.lower():
+            try:
+                from app.agents.supervisor.router import select_supervisor_persona
+                decision = await select_supervisor_persona(self._project_id, context)
+                if decision.persona is not None:
+                    context["_supervisor_persona_invocation"] = decision.persona.invocation
+                    logger.info(
+                        "Supervisor router: project=%s persona=%s triggers=%s pending_a=%d",
+                        self._project_id,
+                        decision.persona.persona,
+                        decision.persona.trigger_ids,
+                        decision.pending_a_queue_size,
+                    )
+            except Exception:
+                logger.debug("Supervisor router failed (non-fatal)", exc_info=True)
+
         # Check if another agent is currently acting
         another_acting = agent_coordinator.is_agent_acting(self._project_id)
         is_all_ai = all(s.get("type") == "ai" for s in context.get("seats", []))
@@ -412,6 +429,10 @@ class BaseAgent:
                 current_stage=context.get("current_stage", "discover"),
                 think_result=think_result,
                 assess_result=assess_result,
+                micro_phase=context.get("current_micro_phase"),
+                role_status=context.get("my_role_status", "normal"),
+                sub_phase=context.get("current_sub_phase"),
+                comm_mode=context.get("comm_mode", "discussion"),
             )
 
             # Record this action in context buffer for self-awareness

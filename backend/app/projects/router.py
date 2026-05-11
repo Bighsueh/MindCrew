@@ -134,3 +134,170 @@ async def leave_project(
 ) -> dict:
     service = ProjectService(session)
     return await service.leave_project(project_id, current_user)
+
+
+# ---------------------------------------------------------------------------
+# Spec 13 — 人類強制送出便條（force_publish）
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel, Field
+
+
+class HumanNoteRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    color: str = Field("yellow", pattern="^(yellow|pink|blue|green)$")
+    x: float
+    y: float
+    sub_phase_id: str = Field(..., max_length=8)
+    force_publish: bool = False
+
+
+@router.post("/{project_id}/canvas/notes")
+async def human_create_note(
+    project_id: UUID,
+    payload: HumanNoteRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Human-facing create_note endpoint with Spec 13 gates + force_publish support."""
+    from app.canvas.tools_manipulation import tool_create_note
+
+    result = await tool_create_note(
+        project_id=project_id,
+        text=payload.text,
+        color=payload.color,
+        position=f"absolute:{payload.x},{payload.y}",
+        author_id=str(current_user.id),
+        author_name=current_user.display_name,
+        author_type="human",
+        sub_phase_id=payload.sub_phase_id,
+        force_publish=payload.force_publish,
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Spec 14 N2: Crew Advance Vote endpoints
+# ---------------------------------------------------------------------------
+
+
+class AdvanceVoteCastRequest(BaseModel):
+    choice: str = Field(..., pattern="^(approve|reject|abstain)$")
+
+
+@router.get("/{project_id}/advance-vote")
+async def get_advance_vote(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    from app.agents.crew_advance_vote import get_open_session
+    session = await get_open_session(project_id)
+    return {"session": session}
+
+
+@router.post("/{project_id}/advance-vote/cast")
+async def cast_advance_vote(
+    project_id: UUID,
+    payload: AdvanceVoteCastRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    from app.agents.crew_advance_vote import cast_vote
+    result = await cast_vote(
+        project_id=project_id,
+        voter_id=str(current_user.id),
+        voter_name=current_user.display_name,
+        choice=payload.choice,  # type: ignore[arg-type]
+    )
+    if result is None:
+        return {"success": False, "error": "no open vote"}
+    return {
+        "success": True,
+        "outcome": result.outcome,
+        "approve": result.approve_count,
+        "reject": result.reject_count,
+        "abstain": result.abstain_count,
+    }
+
+
+@router.post("/{project_id}/advance-vote/cancel")
+async def cancel_advance_vote(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Teacher only — cancel an in-progress vote."""
+    from app.agents.crew_advance_vote import cancel_vote
+    ok = await cancel_vote(project_id, cancelled_by=str(current_user.id))
+    return {"success": ok}
+
+
+# ---------------------------------------------------------------------------
+# Spec 15: Timer control endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{project_id}/timer")
+async def get_timer_state(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    from app.timer.service import TimerService
+    from app.timer.calculator import get_phase_budget_seconds
+
+    state = await TimerService.get_state(project_id)
+    config = await TimerService.get_config(project_id)
+    if state is None or config is None:
+        return {"available": False}
+
+    budget = 0
+    used_pct = 0.0
+    used_seconds = 0
+    if state.current_sub_phase:
+        budget = get_phase_budget_seconds(config, state.current_sub_phase)
+        used_seconds = TimerService._compute_used_seconds(state)
+        if budget > 0:
+            used_pct = used_seconds / budget * 100
+
+    return {
+        "available": True,
+        "current_sub_phase": state.current_sub_phase,
+        "budget_seconds": budget,
+        "used_seconds": used_seconds,
+        "used_pct": used_pct,
+        "paused": state.is_paused(),
+        "config": config.model_dump(),
+        "state": state.model_dump(),
+    }
+
+
+@router.post("/{project_id}/timer/pause")
+async def timer_pause(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    from app.timer.service import TimerService
+    new_state = await TimerService.pause(project_id)
+    return {"success": new_state is not None, "state": new_state.model_dump() if new_state else None}
+
+
+@router.post("/{project_id}/timer/resume")
+async def timer_resume(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    from app.timer.service import TimerService
+    new_state = await TimerService.resume(project_id)
+    return {"success": new_state is not None, "state": new_state.model_dump() if new_state else None}
+
+
+class TimerExtendRequest(BaseModel):
+    additional_minutes: int = Field(..., ge=1, le=60)
+
+
+@router.post("/{project_id}/timer/extend")
+async def timer_extend(
+    project_id: UUID,
+    payload: TimerExtendRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    from app.timer.service import TimerService
+    new_config = await TimerService.extend(project_id, payload.additional_minutes)
+    return {"success": new_config is not None}

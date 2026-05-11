@@ -1,9 +1,10 @@
 """Phase Strategy — 每個 Micro Phase 的溝通配置。
 
-取代靜態 Round Orchestrator，定義三個維度：
+取代靜態 Round Orchestrator，定義四個維度：
 - comm_strategy: 溝通策略（OO/ST/SS）
 - comm_goal: 溝通目標（合作/辯論/競爭）
 - supervisor_mode: Supervisor 行為模式（facilitator/participant/silent）
+- comm_mode: Sticky-Only 互動模式（silent_write / reveal_round / silent_rearrange / discussion）— Spec 13
 """
 
 from __future__ import annotations
@@ -23,6 +24,9 @@ class PhaseStrategy:
     suppressed: list[str] = field(default_factory=list)
     summarize_interval: int = 0  # Supervisor 每隔 N 則新訊息做一次摘要（SS 策略用）
     max_rounds_before_eval: int = 10  # 最大輪數後強制觸發評估
+    # Spec 13: Sticky-Only Strategy 互動模式預設值
+    # 多數現有 micro_phase 預設為 discussion（向下相容）；具體 sub-phase 的 comm_mode 由 SubPhase 決定
+    comm_mode: str = "discussion"
 
 
 PHASE_STRATEGIES: dict[str, PhaseStrategy] = {

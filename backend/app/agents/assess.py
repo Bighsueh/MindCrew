@@ -69,6 +69,25 @@ class AssessEngine:
         supervisor_mode = phase_strategy.get("supervisor_mode", "")
         is_supervisor = "supervisor" in my_seat.lower()
 
+        # Spec 13 — Sticky-Only Strategy: comm_mode gate (highest priority)
+        # 注意：comm_mode 真正的「允許哪些 action」限制在 Act layer 強制（見 act.py），
+        # 這裡只負責 reveal_round 的輪序判斷（必須在 ASSESS 階段就 yield，否則該 agent 會發起無效 LLM 呼叫）。
+        comm_mode = context.get("comm_mode", "discussion")
+
+        if comm_mode == "reveal_round":
+            reveal_queue = context.get("reveal_queue", [])
+            if reveal_queue:
+                next_seat = reveal_queue[0]
+                if my_seat != next_seat:
+                    return AssessResult(
+                        decision="wait",
+                        rule="rule_0_2_reveal_not_my_turn",
+                        details={
+                            "reason": f"揭示輪：等待 {next_seat} 唸出，目前不是你的回合",
+                            "next_seat": next_seat,
+                        },
+                    )
+
         # Rule 0: Strategy Gate — OO 策略下只有被 @mention 的人可行動
         if comm_strategy == "one_by_one" and not is_supervisor:
             last_sender_is_supervisor = False
