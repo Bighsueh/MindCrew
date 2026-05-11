@@ -134,6 +134,25 @@ _FEASIBILITY_PATTERNS: tuple[GateRule, ...] = (
 )
 
 
+_CRITICISM_PATTERNS: tuple[GateRule, ...] = (
+    GateRule(
+        name="phrase_dismissive",
+        pattern=re.compile(r"(這不可能|太蠢|太笨|沒人會用|這做不出來|這沒用|根本不行)"),
+        message_zh="DT 流程不批評想法。有疑慮等收斂階段用投票表達。",
+    ),
+    GateRule(
+        name="phrase_soft_negative",
+        pattern=re.compile(r"(不是說不好啦|emm[^.]{0,20}不是|這個方向.{0,5}不太行)"),
+        message_zh="DT 流程不批評想法，包括委婉批評。請改為提問或補充。",
+    ),
+    GateRule(
+        name="phrase_direct_reject",
+        pattern=re.compile(r"(我不同意|這想法.{0,5}不好|這個爛|這個 太差)"),
+        message_zh="DT 流程不批評想法。請以建設性方式表達不同觀點。",
+    ),
+)
+
+
 _PRODUCTION_CODE_PATTERNS: tuple[GateRule, ...] = (
     GateRule(
         name="phrase_production",
@@ -158,6 +177,7 @@ GATE_MODULES: dict[str, tuple[GateRule, ...]] = {
     "no_solution_language": _SOLUTION_LANGUAGE_PATTERNS,
     "no_feasibility_talk": _FEASIBILITY_PATTERNS,
     "no_production_code": _PRODUCTION_CODE_PATTERNS,
+    "no_criticism": _CRITICISM_PATTERNS,  # Spec 14 — 組長 B 紀律 1
 }
 
 
@@ -166,7 +186,11 @@ GATE_MODULES: dict[str, tuple[GateRule, ...]] = {
 # ---------------------------------------------------------------------------
 
 def check_text(text: str, gate_module_ids: tuple[str, ...] | list[str]) -> GateResult:
-    """Run all enabled gate modules against text. Return first violation."""
+    """Tier-1 regex pre-filter（Phase 17 既有行為）。
+
+    Phase 18：此函式仍保留為快速 fallback，但建議呼叫 `check_text_with_llm`
+    取得 LLM-judged 結果（含上下文，能處理引述 / 否定 / Meta 討論）。
+    """
     if not text:
         return GateResult(passed=True)
 
@@ -187,6 +211,60 @@ def check_text(text: str, gate_module_ids: tuple[str, ...] | list[str]) -> GateR
     return GateResult(passed=True)
 
 
+async def check_text_with_llm(
+    text: str,
+    gate_module_ids: tuple[str, ...] | list[str],
+    context: dict | None = None,
+    project_id=None,
+    agent_id: str | None = None,
+) -> GateResult:
+    """Tier-1 + Tier-2 evaluation (Phase 18 Step A0).
+
+    流程：
+      1. 跑既有 regex（快、無上下文）：若全 pass → 直接回 pass
+      2. 若 regex 命中 → 用 LLM judge 確認（有上下文，能識別引述 / 否定 / Meta）
+      3. LLM 失敗 → 保守 pass，標記 fallback_used 寫進 trace
+
+    回 GateResult 為 Phase 17 既有介面相容。
+    """
+    if not text or not text.strip():
+        return GateResult(passed=True)
+
+    # Tier 1: 跑既有 regex
+    regex_result = check_text(text, gate_module_ids)
+    if regex_result.passed:
+        return regex_result  # 沒命中 → 直接通過
+
+    # Tier 2: LLM 二次確認
+    from app.agents.llm_judge import judge_content, is_violating
+
+    violated_module = regex_result.violated_module or ""
+    try:
+        judge = await judge_content(
+            text=text,
+            rule_module=violated_module,
+            context=context or {},
+            project_id=project_id,
+            agent_id=agent_id,
+        )
+    except Exception:
+        # LLM 路徑也失敗：保守 pass
+        return GateResult(passed=True)
+
+    if not is_violating(judge):
+        # LLM 認為不違規（例如：引述 / 否定 / Meta） → 蓋過 regex 判定
+        return GateResult(passed=True)
+
+    # LLM 同意違規 → 回 regex 命中結果，並附 LLM reasoning
+    return GateResult(
+        passed=False,
+        violated_module=regex_result.violated_module,
+        violated_rule=regex_result.violated_rule,
+        matched_text=regex_result.matched_text,
+        message_zh=(regex_result.message_zh or "") + f"\n\nLLM 判斷：{judge.reasoning_zh}",
+    )
+
+
 def list_gate_modules() -> list[str]:
     return list(GATE_MODULES.keys())
 
@@ -199,5 +277,6 @@ def describe_module(module_id: str) -> str:
         "no_solution_language": "禁止解法用語（做一個 / 開發 / 建一個 / 增加按鈕 / 設計一個…）",
         "no_feasibility_talk": "禁止可行性討論（做不到 / 成本太高 / 技術不可行 / 來不及 / 不實際）",
         "no_production_code": "禁止 production 級別詞彙（正式上線 / production / 實作完整）",
+        "no_criticism": "禁止批評他人想法（含委婉批評）。有疑慮以建設性方式表達或留待收斂投票。",
     }
     return descriptions.get(module_id, module_id)

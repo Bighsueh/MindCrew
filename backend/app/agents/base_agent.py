@@ -399,6 +399,10 @@ class BaseAgent:
                 current_stage=context.get("current_stage", "discover"),
                 think_result=think_result,
                 assess_result=assess_result,
+                micro_phase=context.get("current_micro_phase"),
+                role_status=context.get("my_role_status", "normal"),
+                sub_phase=context.get("current_sub_phase"),
+                comm_mode=context.get("comm_mode", "discussion"),
             )
 
             # Record this action in context buffer for self-awareness

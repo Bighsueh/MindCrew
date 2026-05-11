@@ -115,13 +115,12 @@ async def execute_canvas_tool(
         spacing = action.get("spacing", "default")
 
         if not to:
-            # Fallback: old-style move_note with target_group
             target_group = action.get("target_group")
             if target_group:
                 to = f"cluster:{target_group}"
             else:
                 logger.warning("move_note: no 'to' or 'target_group' specified")
-                return
+                return {"success": False, "error": "missing_destination"}
 
         result = await tool_move_note(
             project_id=project_id,
@@ -134,6 +133,7 @@ async def execute_canvas_tool(
             "Agent %s move_note project=%s note=%s to=%s ok=%s",
             agent_id, project_id, note_id, to, result.get("success"),
         )
+        return result
 
     elif op_type == "edit_note":
         note_id = action.get("note_id", "")
@@ -147,6 +147,7 @@ async def execute_canvas_tool(
             "Agent %s edit_note project=%s note=%s ok=%s",
             agent_id, project_id, note_id, ok,
         )
+        return {"success": bool(ok), "note_id": note_id}
 
     elif op_type == "delete_note":
         note_id = action.get("note_id", "")
@@ -155,13 +156,13 @@ async def execute_canvas_tool(
             note_id=note_id,
         )
         if ok:
-            # Invalidate semantic cache on delete
             from app.canvas.analyzer import get_spatial_analyzer
             await get_spatial_analyzer().invalidate_semantic_cache(project_id)
         logger.info(
             "Agent %s delete_note project=%s note=%s ok=%s",
             agent_id, project_id, note_id, ok,
         )
+        return {"success": bool(ok), "note_id": note_id}
 
     elif op_type == "arrange_notes":
         note_ids = action.get("note_ids", [])
@@ -179,12 +180,12 @@ async def execute_canvas_tool(
             spacing=spacing,
             label=label,
         )
-        # Update last tidy time for ASSESS Rule X
         await _update_last_tidy_ts(project_id)
         logger.info(
             "Agent %s arrange_notes project=%s count=%d layout=%s ok=%s",
             agent_id, project_id, len(note_ids), layout, result.get("success"),
         )
+        return result
 
     elif op_type == "swap_notes":
         result = await tool_swap_notes(
@@ -196,6 +197,7 @@ async def execute_canvas_tool(
             "Agent %s swap_notes project=%s ok=%s",
             agent_id, project_id, result.get("success"),
         )
+        return result
 
     elif op_type == "tidy_area":
         scope = action.get("scope", "all")
@@ -212,6 +214,7 @@ async def execute_canvas_tool(
             "Agent %s tidy_area project=%s scope=%s strategy=%s ok=%s",
             agent_id, project_id, scope, strategy, result.get("success"),
         )
+        return result
 
     elif op_type == "draw_zone":
         zone_id = action.get("zone_id", "")
@@ -248,8 +251,6 @@ async def execute_canvas_tool(
     else:
         logger.warning("Unknown canvas op type: %s", op_type)
         return {"success": False, "error": f"unknown_op:{op_type}"}
-
-    return {"success": True}
 
 
 def _cn(text: str) -> str:

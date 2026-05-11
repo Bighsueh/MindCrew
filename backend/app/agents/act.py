@@ -60,6 +60,7 @@ class ActEngine:
         micro_phase: str | None = None,
         role_status: str = "normal",
         sub_phase: str | None = None,
+        comm_mode: str = "discussion",
     ) -> ActResult:
         """Execute a list of actions from the ThinkEngine.
 
@@ -71,7 +72,7 @@ class ActEngine:
         5. Record DecisionTrace to DB
         """
         result = ActResult()
-        legal, illegal = self._validate_actions(actions)
+        legal, illegal = self._validate_actions(actions, comm_mode=comm_mode)
         result.skipped_actions.extend(illegal)
 
         if not legal:
@@ -114,26 +115,51 @@ class ActEngine:
     # Private helpers
     # ------------------------------------------------------------------
 
+    # Spec 13 — comm_mode action whitelist
+    _COMM_MODE_ALLOWED: dict[str, frozenset[str]] = {
+        "silent_write": frozenset({"create_note", "no_action"}),
+        "silent_rearrange": frozenset({"move_note", "swap_notes", "no_action"}),
+        "reveal_round": frozenset({"chat_message", "create_note", "no_action"}),
+        "discussion": frozenset(),  # 空集 = 全部允許
+    }
+
     def _validate_actions(
-        self, actions: list[dict]
+        self, actions: list[dict], comm_mode: str = "discussion",
     ) -> tuple[list[dict], list[dict]]:
         """Separate legal from illegal actions.
 
-        Crew agents cannot execute supervisor-only actions.
+        Two layers:
+          1. Crew cannot execute supervisor-only actions
+          2. Spec 13 comm_mode action whitelist (silent_write only allows create_note, etc.)
         """
         legal: list[dict] = []
         illegal: list[dict] = []
+        allowed = self._COMM_MODE_ALLOWED.get(comm_mode, frozenset())
         for action in actions:
             action_type = action.get("type", "")
+
+            # Layer 1: supervisor-only
             if not self._is_supervisor and action_type in _SUPERVISOR_ONLY_ACTIONS:
                 logger.warning(
                     "Crew agent %s attempted supervisor-only action %s — blocked",
-                    self._agent_id,
-                    action_type,
+                    self._agent_id, action_type,
                 )
-                illegal.append({**action, "_blocked_reason": "crew不能執行advance-stage"})
-            else:
-                legal.append(action)
+                illegal.append({**action, "_blocked_reason": "crew不能執行supervisor-only動作"})
+                continue
+
+            # Layer 2: comm_mode whitelist (empty allowed = discussion = no restriction)
+            if allowed and action_type not in allowed:
+                logger.info(
+                    "Agent %s action %s blocked by comm_mode=%s",
+                    self._agent_id, action_type, comm_mode,
+                )
+                illegal.append({
+                    **action,
+                    "_blocked_reason": f"comm_mode={comm_mode} 不允許 {action_type}",
+                })
+                continue
+
+            legal.append(action)
         return legal, illegal
 
     async def _execute_single(

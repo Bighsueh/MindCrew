@@ -15,7 +15,7 @@ from uuid import UUID
 
 from app.bridge.canvas_ops import canvas_ops
 from app.canvas.analyzer import get_spatial_analyzer
-from app.canvas.content_gate import check_text
+from app.canvas.content_gate import check_text, check_text_with_llm
 from app.canvas.layout_engine import CoordinateUpdate, get_layout_engine
 from app.canvas.text_templates import validate_template
 from app.canvas.zone_registry import (
@@ -304,7 +304,13 @@ async def _evaluate_create_gates(
     # Park 區跳過 content gate（孤兒收容所），其他套用 zone + sub_phase 合併規則
     if zone.id != "park":
         all_modules = tuple(set(zone.gate_modules) | set(sub_phase.gate_modules))
-        gate_result = check_text(text, all_modules)
+        # Spec 14: 使用 LLM-judged 兩層評估（regex 預過濾 + LLM 確認，能識別引述/否定/Meta）
+        gate_result = await check_text_with_llm(
+            text,
+            all_modules,
+            context={"sub_phase": sub_phase_id, "zone": zone.id},
+            project_id=project_id,
+        )
         if not gate_result.passed:
             violation_metadata = None
             if author_type == "human" and force_publish:
