@@ -35,9 +35,9 @@ class TestRegistryIntegrity:
         # Phase 1: 1.1a/b/c/d + 1.2/1.3/1.4/1.5/1.6 = 9
         # Phase 2: 2.1-2.7 = 7
         # Phase 3: 3.1-3.4 = 4
-        # Phase 4: 4.1a-f + 4.2 + 4.3 = 8
-        # Total = 28
-        assert len(SUB_PHASE_ORDER) == 28
+        # Phase 4: 4.1a-f + 4.1f.v2 + 4.2 + 4.3 = 9 (Spec 14 A8)
+        # Total = 29
+        assert len(SUB_PHASE_ORDER) == 29
 
     def test_all_comm_modes_are_valid(self) -> None:
         for sp in SUB_PHASES.values():

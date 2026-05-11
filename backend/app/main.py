@@ -75,9 +75,27 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Failed to resume agents on startup: %s", exc)
 
+    # Spec 14 A10: Background watcher — silent_rearrange auto-advance
+    watcher_task = None
+    try:
+        import asyncio
+        from app.canvas.stability_watcher import stability_watcher_loop
+        watcher_task = asyncio.create_task(stability_watcher_loop())
+        logger.info("Stability watcher task started")
+    except Exception as exc:
+        logger.warning("Failed to start stability watcher: %s", exc)
+
     yield
 
     # Shutdown
+    try:
+        from app.canvas.stability_watcher import stop_stability_watcher
+        await stop_stability_watcher()
+        if watcher_task is not None:
+            watcher_task.cancel()
+    except Exception as exc:
+        logger.warning("Error stopping stability watcher: %s", exc)
+
     try:
         from app.seats.manager import seat_manager
 

@@ -17,7 +17,7 @@ from app.bridge.canvas_ops import canvas_ops
 from app.canvas.analyzer import get_spatial_analyzer
 from app.canvas.content_gate import check_text, check_text_with_llm
 from app.canvas.layout_engine import CoordinateUpdate, get_layout_engine
-from app.canvas.text_templates import validate_template
+from app.canvas.text_templates import validate_template, validate_template_with_canvas
 from app.canvas.zone_registry import (
     get_all_zones_for_project,
     get_zone_bounds,
@@ -337,7 +337,8 @@ async def _evaluate_create_gates(
     # Step 5: Template check (only if zone has a template requirement and text non-empty)
     if zone.templates:
         for template_id in zone.templates:
-            tpl_result = validate_template(text, template_id)
+            # Spec 14 N4: 使用 canvas-aware 版本驗證 cite id 存在性
+            tpl_result = await validate_template_with_canvas(text, template_id, project_id)
             if not tpl_result.passed:
                 violation_metadata = None
                 if author_type == "human" and force_publish:

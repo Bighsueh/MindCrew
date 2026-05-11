@@ -24,6 +24,17 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
+class DeliverableRequirement:
+    """Spec 14 A9: 推進下一 sub-phase 前的產出物檢查。"""
+
+    zone_id: str                  # 必須有便條的 zone
+    min_count: int = 1            # 至少 N 張便條
+    template_id: str | None = None  # 若指定，便條必須符合該 template
+    color: str | None = None      # 若指定，便條須為該色
+    description_zh: str = ""      # advance 失敗時的提示
+
+
+@dataclass(frozen=True)
 class SubPhase:
     """單一 sub-phase 配置。"""
 
@@ -37,6 +48,8 @@ class SubPhase:
     stability_timeout_seconds: int = 30
     gate_modules: tuple[str, ...] = ()
     templates: tuple[str, ...] = ()
+    # Spec 14 A9: deliverable check for advance gate
+    deliverables_required: tuple[DeliverableRequirement, ...] = ()
     # 互動模式轉換訊號（依序）：
     # - "count":      target_count 達到
     # - "all_revealed":  reveal_round 所有人都唸完
@@ -100,6 +113,15 @@ SUB_PHASES: dict[str, SubPhase] = {
         comm_modes=("discussion",),
         zones=("scope_zone",),
         templates=("scope_rationale",),
+        # Spec 14 A2/G7: 沒寫 scope_rationale 不准進 1.2
+        deliverables_required=(
+            DeliverableRequirement(
+                zone_id="scope_zone",
+                min_count=1,
+                template_id="scope_rationale",
+                description_zh="必須寫至少 1 張 Scope rationale 便條（納入/排除/理由）",
+            ),
+        ),
     ),
     "1.2": SubPhase(
         id="1.2",
@@ -220,6 +242,16 @@ SUB_PHASES: dict[str, SubPhase] = {
         zones=("hmw_dock",),
         templates=("hmw",),
         gate_modules=("no_solution_language",),
+        # Spec 14 A9/G8: 沒對應 HMW 不准進 Phase 3
+        deliverables_required=(
+            DeliverableRequirement(
+                zone_id="hmw_dock",
+                min_count=1,
+                template_id="hmw",
+                color="blue",
+                description_zh="每張當選 POV 必須對應一張 Blue HMW",
+            ),
+        ),
     ),
 
     # ── Phase 3 Develop ──────────────────────────────────────────
@@ -298,6 +330,15 @@ SUB_PHASES: dict[str, SubPhase] = {
         comm_modes=("discussion",),
         zones=("hypothesis_wall",),
         templates=("hypothesis",),
+        # Spec 14 A12: Hypothesis 必須在 Task Ticket 之前完成
+        deliverables_required=(
+            DeliverableRequirement(
+                zone_id="hypothesis_wall",
+                min_count=1,
+                template_id="hypothesis",
+                description_zh="必須先寫 Hypothesis（含成功/失敗條件），才能寫 Task Ticket",
+            ),
+        ),
     ),
     "4.1e": SubPhase(
         id="4.1e",
@@ -312,10 +353,22 @@ SUB_PHASES: dict[str, SubPhase] = {
         id="4.1f",
         parent_micro_phase="4.1",
         macro_stage="deliver",
-        name_zh="雛形製作（low-fidelity first）",
+        name_zh="雛形製作 v1（low-fidelity first）",
         comm_modes=("discussion",),
         zones=("prototype_zone",),
+        # Spec 14 A8: v1 強制 low-fi
         gate_modules=("no_production_code",),
+    ),
+    # Spec 14 A8: v2+ 允許 high-fi，但需在 4-1d 闡明理由便條
+    "4.1f.v2": SubPhase(
+        id="4.1f.v2",
+        parent_micro_phase="4.1",
+        macro_stage="deliver",
+        name_zh="雛形製作 v2+（可 high-fidelity，須闡明理由）",
+        comm_modes=("discussion",),
+        zones=("prototype_zone",),
+        # v2 開放 production_code，但 advance gate 會檢查 hypothesis 是否說明 high-fi 必要性
+        gate_modules=(),
     ),
     "4.2": SubPhase(
         id="4.2",
@@ -324,6 +377,15 @@ SUB_PHASES: dict[str, SubPhase] = {
         name_zh="內部 Debrief",
         comm_modes=("discussion",),
         zones=("debrief_q1", "debrief_q2", "debrief_q3"),
+        # Spec 14 A14: 三題各至少 1 張答案便條
+        deliverables_required=(
+            DeliverableRequirement(zone_id="debrief_q1", min_count=1,
+                description_zh="Q1 信念更新：至少 1 張答案"),
+            DeliverableRequirement(zone_id="debrief_q2", min_count=1,
+                description_zh="Q2 回應檢查：至少 1 張答案"),
+            DeliverableRequirement(zone_id="debrief_q3", min_count=1,
+                description_zh="Q3 回溯反省：至少 1 張答案"),
+        ),
     ),
     "4.3": SubPhase(
         id="4.3",
@@ -343,7 +405,7 @@ SUB_PHASE_ORDER: tuple[str, ...] = (
     "1.2", "1.3", "1.4", "1.5", "1.6",
     "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7",
     "3.1", "3.2", "3.3", "3.4",
-    "4.1a", "4.1b", "4.1c", "4.1d", "4.1e", "4.1f",
+    "4.1a", "4.1b", "4.1c", "4.1d", "4.1e", "4.1f", "4.1f.v2",
     "4.2", "4.3",
 )
 

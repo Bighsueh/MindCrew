@@ -260,11 +260,29 @@ async def advance_sub_phase(
     agent_id: str,
     from_sub_phase: str | None,
     to_sub_phase: str,
+    skip_deliverable_check: bool = False,
 ) -> str:
     """Update project.current_sub_phase and broadcast.
 
+    Spec 14 A9: 推進前先檢查 from_sub_phase 的 deliverables_required 是否達成。
+    teacher 強制推進可傳 skip_deliverable_check=True。
+
     Also clears reveal queue + resets stability timer when entering a new sub-phase.
     """
+    # Spec 14 A9: Deliverable check
+    if from_sub_phase and not skip_deliverable_check:
+        try:
+            from app.stages.deliverables import check_deliverables
+            check = await check_deliverables(project_id, from_sub_phase)
+            if not check.passed:
+                logger.info(
+                    "Sub-phase advance blocked project=%s from=%s missing=%s",
+                    project_id, from_sub_phase, check.missing,
+                )
+                return f"sub_advance_blocked:{'; '.join(check.missing)}"
+        except Exception as exc:
+            logger.warning("Deliverable check raised %s — proceed", exc)
+
     try:
         async with async_session_factory() as session:
             from sqlalchemy import update
@@ -280,10 +298,27 @@ async def advance_sub_phase(
 
         # Reset reveal queue / stability timer
         try:
-            from app.agents.reveal_queue import reset as reset_reveal
+            from app.agents.reveal_queue import reset as reset_reveal, start_reveal_round
             from app.canvas.stability_detector import reset as reset_stability
             await reset_reveal(project_id)
             await reset_stability(project_id)
+
+            # Spec 14 A11: 進入 reveal_round comm_mode 自動啟動輪序
+            try:
+                from app.stages.sub_phases import get_sub_phase as _gsp
+                target_sp = _gsp(to_sub_phase)
+                if target_sp.comm_modes and target_sp.comm_modes[0] == "reveal_round":
+                    seat_order = await _load_seat_order_for_reveal(project_id)
+                    if seat_order:
+                        await start_reveal_round(
+                            project_id, seat_order, to_sub_phase,
+                        )
+                        logger.info(
+                            "Reveal round started project=%s seats=%s",
+                            project_id, seat_order,
+                        )
+            except Exception as exc:
+                logger.debug("Auto-start reveal round failed: %s", exc)
         except Exception as exc:
             logger.debug("Reset reveal/stability failed: %s", exc)
 
@@ -337,3 +372,33 @@ async def advance_sub_phase(
     except Exception as exc:
         logger.error("Failed to advance sub_phase: %s", exc)
         return "sub_advance_failed"
+
+
+async def _load_seat_order_for_reveal(project_id: UUID) -> list[str]:
+    """Spec 14 A11: 載入該 project 的 seat 順序（supervisor 後 crew_1..4）。
+
+    Reveal round 順序：supervisor 開頭，後 crew_1, crew_2, crew_3, crew_4。
+    """
+    from sqlalchemy import select
+    from app.db.models.seat import Seat
+
+    async with async_session_factory() as session:
+        rows = await session.execute(
+            select(Seat).where(Seat.project_id == project_id)
+        )
+        seats = rows.scalars().all()
+
+    # Filter ai seats only (人類 reveal 不從 queue 強制)
+    ai_seats = [s.seat_role for s in seats if s.occupant_type == "ai"]
+    # Sort: supervisor first, then crew_N by numeric suffix
+    def _sort_key(role: str) -> tuple[int, int]:
+        if role == "supervisor":
+            return (0, 0)
+        if role.startswith("crew_"):
+            try:
+                return (1, int(role.split("_")[1]))
+            except (IndexError, ValueError):
+                return (2, 0)
+        return (3, 0)
+
+    return sorted(ai_seats, key=_sort_key)

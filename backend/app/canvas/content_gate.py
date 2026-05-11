@@ -84,8 +84,13 @@ _SOLUTION_LANGUAGE_PATTERNS: tuple[GateRule, ...] = (
     ),
     GateRule(
         name="english_solution_verb",
-        pattern=re.compile(r"\b(build|ship|implement|develop|deploy|launch)\b", re.IGNORECASE),
-        message_zh="Define 階段不可用解法動詞（build/ship/implement…）。聚焦在問題定義。",
+        # Spec 14 A7: 英文擴充 — make/design/create 在「a/an + noun」上下文視為動詞
+        pattern=re.compile(
+            r"\b(build|ship|implement|develop|deploy|launch|"
+            r"(make|design|create)\s+(a|an|the))\b",
+            re.IGNORECASE,
+        ),
+        message_zh="Define 階段不可用解法動詞（build/ship/make a/design a/create a…）。聚焦在問題定義。",
     ),
     GateRule(
         name="phrase_add_feature",
@@ -130,6 +135,22 @@ _FEASIBILITY_PATTERNS: tuple[GateRule, ...] = (
         name="phrase_unrealistic",
         pattern=re.compile(r"(不實際|不切實際|太理想化)"),
         message_zh="Develop 階段歡迎瘋狂想法。請先寫下，篩選留到後面。",
+    ),
+    # Spec 14 A6: 疑問句也算可行性討論
+    GateRule(
+        name="question_can_do",
+        pattern=re.compile(r"(這能做嗎|這做得到嗎|可以做嗎|這可行嗎)[?？]?"),
+        message_zh="禁止可行性提問。Develop 階段先發散，可行性等收斂。",
+    ),
+    GateRule(
+        name="question_how_long",
+        pattern=re.compile(r"(這要多久|多久能做|要花多少時間)[?？]?"),
+        message_zh="時間估算屬於可行性，等 Phase 4-1(a) 再討論。",
+    ),
+    GateRule(
+        name="question_how_much",
+        pattern=re.compile(r"(這要多少錢|多少預算|多少成本)[?？]?"),
+        message_zh="成本估算屬於可行性，等 Phase 4-1(a) 再討論。",
     ),
 )
 

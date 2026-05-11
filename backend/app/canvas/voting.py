@@ -42,6 +42,7 @@ _CANDIDATE_ZONE_FOR_PHASE: dict[str, str] = {
 }
 
 MIN_CANDIDATES = 3
+MIN_CRITERIA = 3  # Spec 14 A7: 投票前需 3–5 條準則
 DOT_SIZE = 24  # pixels — small visual dot
 
 
@@ -130,10 +131,13 @@ async def open_vote(
             candidate_count += 1
             candidate_ids.append(note.id)
 
-    if criteria_count < 1:
+    if criteria_count < MIN_CRITERIA:
         return VoteOpenResult(
             success=False,
-            error_zh="開投票前需先建立 ≥ 1 張 Green 收斂準則便條",
+            error_zh=(
+                f"開投票前需先建立 ≥ {MIN_CRITERIA} 張 Green 收斂準則便條"
+                f"（目前 {criteria_count}）"
+            ),
             criteria_count=criteria_count,
             candidate_count=candidate_count,
         )
