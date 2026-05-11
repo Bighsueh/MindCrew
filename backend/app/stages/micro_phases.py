@@ -1,16 +1,47 @@
+"""Micro-phase definitions and state-machine helpers.
+
+Phase 19 refactor: Each micro-phase declares a ``needed_lens`` and a set of
+``suppressed_lenses``. Concrete seat assignment is resolved at runtime by
+:func:`app.agents.personas.resolver.resolve_protagonist_seat` against the
+project's actual personas. This decouples DT phase strategy from the
+legacy ``crew_1=empathy`` hardcoding.
+
+Backward compatibility:
+- ``get_role_status`` accepts an optional ``seats`` list. When omitted,
+  it falls back to the legacy 4-capability personas so existing call
+  sites and tests continue to work without modification.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Iterable
+
+from app.agents.personas.lens import CognitiveLens
+from app.agents.personas.models import build_fallback_personas
+from app.agents.personas.resolver import (
+    resolve_protagonist_seat,
+    resolve_suppressed_seats,
+)
 
 
 @dataclass(frozen=True)
 class MicroPhase:
+    """A single Design Thinking micro-phase.
+
+    Attributes:
+        id: e.g. "1.1"
+        macro_stage: discover | define | develop | deliver
+        name_zh / name_en: human-readable labels
+        needed_lens: the cognitive lens that should lead this phase (or None)
+        suppressed_lenses: lenses that should be muted this phase
+    """
+
     id: str
     macro_stage: str
     name_zh: str
     name_en: str
-    protagonist: str | None
-    suppressed: tuple[str, ...]
+    needed_lens: CognitiveLens | None
+    suppressed_lenses: tuple[CognitiveLens, ...]
 
 
 MICRO_PHASES: dict[str, MicroPhase] = {
@@ -19,96 +50,100 @@ MICRO_PHASES: dict[str, MicroPhase] = {
         macro_stage="discover",
         name_zh="暖場與經驗分享",
         name_en="warm-up-and-experience-sharing",
-        protagonist="crew_1",
-        suppressed=("crew_2", "crew_4"),
+        needed_lens=CognitiveLens.EMPATHY,
+        suppressed_lenses=(CognitiveLens.STRUCTURE, CognitiveLens.FEASIBILITY),
     ),
     "1.2": MicroPhase(
         id="1.2",
         macro_stage="discover",
         name_zh="視角擴展",
         name_en="perspective-expansion",
-        protagonist=None,
-        suppressed=("crew_2",),
+        needed_lens=None,
+        suppressed_lenses=(CognitiveLens.STRUCTURE,),
     ),
     "1.3": MicroPhase(
         id="1.3",
         macro_stage="discover",
         name_zh="同理心收斂",
         name_en="empathy-convergence",
-        protagonist="crew_2",
-        suppressed=(),
+        needed_lens=CognitiveLens.STRUCTURE,
+        suppressed_lenses=(),
     ),
     "2.1": MicroPhase(
         id="2.1",
         macro_stage="define",
         name_zh="使用者旅程追蹤",
         name_en="user-journey-tracking",
-        protagonist="crew_2",
-        suppressed=(),
+        needed_lens=CognitiveLens.STRUCTURE,
+        suppressed_lenses=(),
     ),
     "2.2": MicroPhase(
         id="2.2",
         macro_stage="define",
         name_zh="洞察萃取與矛盾發掘",
         name_en="insight-extraction-and-tension-discovery",
-        protagonist="crew_2",
-        suppressed=(),
+        needed_lens=CognitiveLens.STRUCTURE,
+        suppressed_lenses=(),
     ),
     "2.3": MicroPhase(
         id="2.3",
         macro_stage="define",
         name_zh="HMW 問題陳述",
         name_en="hmw-problem-statement",
-        protagonist=None,
-        suppressed=(),
+        needed_lens=None,
+        suppressed_lenses=(),
     ),
     "3.1": MicroPhase(
         id="3.1",
         macro_stage="develop",
         name_zh="規則建立與大量發散",
         name_en="rule-setting-and-mass-divergence",
-        protagonist="crew_3",
-        suppressed=("crew_2", "crew_4"),
+        needed_lens=CognitiveLens.CREATIVITY,
+        suppressed_lenses=(CognitiveLens.STRUCTURE, CognitiveLens.FEASIBILITY),
     ),
     "3.2": MicroPhase(
         id="3.2",
         macro_stage="develop",
         name_zh="概念分群與合併",
         name_en="concept-clustering-and-merging",
-        protagonist="crew_2",
-        suppressed=("crew_1", "crew_3", "crew_4"),
+        needed_lens=CognitiveLens.STRUCTURE,
+        suppressed_lenses=(
+            CognitiveLens.EMPATHY,
+            CognitiveLens.CREATIVITY,
+            CognitiveLens.FEASIBILITY,
+        ),
     ),
     "3.3": MicroPhase(
         id="3.3",
         macro_stage="develop",
         name_zh="評估收斂與方案選定",
         name_en="evaluation-convergence-and-solution-selection",
-        protagonist="crew_4",
-        suppressed=(),
+        needed_lens=CognitiveLens.FEASIBILITY,
+        suppressed_lenses=(),
     ),
     "4.1": MicroPhase(
         id="4.1",
         macro_stage="deliver",
         name_zh="原型規劃與快速製作",
         name_en="prototype-planning-and-rapid-making",
-        protagonist="crew_4",
-        suppressed=(),
+        needed_lens=CognitiveLens.FEASIBILITY,
+        suppressed_lenses=(),
     ),
     "4.2": MicroPhase(
         id="4.2",
         macro_stage="deliver",
         name_zh="測試設計",
         name_en="test-design",
-        protagonist="crew_2",
-        suppressed=("crew_3",),
+        needed_lens=CognitiveLens.STRUCTURE,
+        suppressed_lenses=(CognitiveLens.CREATIVITY,),
     ),
     "4.3": MicroPhase(
         id="4.3",
         macro_stage="deliver",
         name_zh="模擬測試與學習迭代",
         name_en="simulated-testing-and-learning-iteration",
-        protagonist="crew_1",
-        suppressed=(),
+        needed_lens=CognitiveLens.EMPATHY,
+        suppressed_lenses=(),
     ),
 }
 
@@ -173,23 +208,63 @@ def is_backtrack(from_id: str, to_id: str) -> bool:
     return to_idx < from_idx
 
 
-def get_role_status(phase_id: str, seat_role: str) -> str:
-    """Returns 'protagonist', 'suppressed', or 'normal' for a given seat_role in a given phase.
+# ---------------------------------------------------------------------------
+# Role-status resolution (lens-based)
+# ---------------------------------------------------------------------------
 
-    Supervisor is always 'normal' (supervisor has its own behavior rules).
+def _legacy_fallback_seats() -> list[dict[str, Any]]:
+    """Build legacy seats from fallback personas (crew_1..crew_4)."""
+    fallbacks = build_fallback_personas()
+    seats: list[dict[str, Any]] = [
+        {"seat_role": "supervisor", "occupant_type": "ai", "persona": None}
+    ]
+    for seat_role, persona in fallbacks.items():
+        from app.agents.personas.models import persona_to_dict
+        seats.append(
+            {
+                "seat_role": seat_role,
+                "occupant_type": "ai",
+                "persona": persona_to_dict(persona) if persona else None,
+            }
+        )
+    return seats
+
+
+def get_role_status(
+    phase_id: str,
+    seat_role: str,
+    seats: Iterable[Any] | None = None,
+) -> str:
+    """Return 'protagonist', 'suppressed', or 'normal' for a seat in a phase.
+
+    Supervisor is always 'normal' (supervisor has its own behaviour rules).
+
+    Args:
+        phase_id: micro-phase id (e.g. "1.1")
+        seat_role: seat to evaluate (e.g. "crew_2")
+        seats: project seats with personas. If omitted, falls back to legacy
+            crew_1..crew_4 capability personas (used by tests and code paths
+            that pre-date Phase 19).
     """
     phase = MICRO_PHASES[phase_id]
     if seat_role == "supervisor":
         return "normal"
-    if phase.protagonist == seat_role:
+    resolved_seats = list(seats) if seats is not None else _legacy_fallback_seats()
+    protagonist_role = resolve_protagonist_seat(resolved_seats, phase.needed_lens)
+    if protagonist_role == seat_role:
         return "protagonist"
-    if seat_role in phase.suppressed:
+    suppressed = resolve_suppressed_seats(
+        resolved_seats,
+        phase.suppressed_lenses,
+        protect_seat=protagonist_role,
+    )
+    if seat_role in suppressed:
         return "suppressed"
     return "normal"
 
 
 def is_macro_boundary(from_id: str, to_id: str) -> bool:
-    """True if the transition crosses macro phase boundaries. E.g., '1.3'->'2.1' = True."""
+    """True if the transition crosses macro phase boundaries."""
     return get_macro_stage(from_id) != get_macro_stage(to_id)
 
 

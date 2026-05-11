@@ -136,11 +136,28 @@ class StageEvaluator:
         project_name: str = context.get("project_name", "")
         project_description: str = context.get("project_description", "")
 
-        # Track if any Crew responded since last guidance (for dedup)
+        # Track if any Crew responded since last guidance (for dedup).
+        # Phase 19: also recognise persona display names (any AI seat that is
+        # not the supervisor counts as a crew response).
         if not self._crew_responded_since_guidance:
+            crew_names: list[str] = ["crew", "同理心", "結構化", "創意", "可行性"]
+            for s in seats:
+                role = s.get("role") or s.get("seat_role")
+                if not role or role == "supervisor":
+                    continue
+                if s.get("type") != "ai" and s.get("occupant_type") != "ai":
+                    continue
+                persona = s.get("persona") if isinstance(s, dict) else None
+                if isinstance(persona, dict):
+                    name = str(persona.get("name", "")).strip().lower()
+                    if name:
+                        crew_names.append(name)
+                dn = s.get("display_name") or ""
+                if dn:
+                    crew_names.append(str(dn).lower())
             for msg in recent_chat[-5:]:
                 sender = msg.get("sender", "").lower()
-                if any(r in sender for r in ("crew", "同理心", "結構化", "創意", "可行性")):
+                if any(r in sender for r in crew_names):
                     self._crew_responded_since_guidance = True
                     break
 

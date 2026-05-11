@@ -241,3 +241,85 @@ PEER_INTERACTION_PROMPT: str = """\
 
 # Backward compatible alias
 CREW_ROLE_PROMPT: str = CREW_ROLE_BASE_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# Persona-based role prompt (Phase 19)
+# ---------------------------------------------------------------------------
+
+_PERSONALITY_RULES: dict[str, str] = {
+    "contrarian": (
+        "你的個性偏向 **挑戰者**。當團隊在快速達成共識時，你必須有意識地"
+        "提出反向觀點或質疑前提。不為反對而反對，但你的角色是讓團隊「再想一次」。"
+    ),
+    "balanced": (
+        "你的個性偏向 **平衡型**。你會根據情境決定要支持還是挑戰，"
+        "傾向把不同立場整合，避免讓討論過度傾斜。"
+    ),
+    "supportive": (
+        "你的個性偏向 **共建者**。你善於延伸他人觀點、把對方的點子拍得更高，"
+        "你不主動唱反調，但會把矛盾轉化成建設性的補充。"
+    ),
+}
+
+
+def _lens_strength_label(score: float) -> str:
+    """Map an affinity score (0..1) to a human label."""
+    if score >= 0.75:
+        return "強"
+    if score >= 0.45:
+        return "中"
+    return "弱"
+
+
+def render_persona_prompt(persona_payload: dict | None) -> str:
+    """Render a per-project AI persona into a Layer-2 role prompt.
+
+    Returns an empty string if ``persona_payload`` is missing or invalid.
+    Callers should fall back to ``CREW_CAPABILITY_PROMPTS`` in that case.
+    """
+    from app.agents.personas.models import persona_from_dict
+
+    persona = persona_from_dict(persona_payload)
+    if persona is None:
+        return ""
+
+    affinities = persona.lens_affinities
+    lens_lines = [
+        f"- 同理心 (empathy)：{_lens_strength_label(affinities.empathy)}"
+        f"（{affinities.empathy:.2f}）",
+        f"- 結構化 (structure)：{_lens_strength_label(affinities.structure)}"
+        f"（{affinities.structure:.2f}）",
+        f"- 創意 (creativity)：{_lens_strength_label(affinities.creativity)}"
+        f"（{affinities.creativity:.2f}）",
+        f"- 可行性 (feasibility)：{_lens_strength_label(affinities.feasibility)}"
+        f"（{affinities.feasibility:.2f}）",
+    ]
+    axis_rule = _PERSONALITY_RULES.get(
+        persona.personality_axis.value, _PERSONALITY_RULES["balanced"]
+    )
+
+    sections: list[str] = [
+        f"你的身分是「{persona.name}」，{persona.role}。"
+        "你以這個身分加入這場設計思考工作坊，作為團隊中的 Crew 成員。",
+    ]
+    if persona.backstory:
+        sections.append(f"【你的背景】\n{persona.backstory}")
+    sections.append(f"【你的專長範圍】\n{persona.expertise}")
+    sections.append(
+        "【你的認知透鏡傾向】\n"
+        + "\n".join(lens_lines)
+        + "\n\n當階段需要的視角與你的強項對齊時，你應該主動拉動討論；"
+        "當階段需要的視角不是你的強項時，請尊重專長更高的隊友，自己保持輔助。"
+    )
+    sections.append("【你的個性】\n" + axis_rule)
+    if persona.personality_desc:
+        sections.append(f"【典型發言模式】\n{persona.personality_desc}")
+    sections.append(
+        "【共通鐵則】\n"
+        "- 永遠從你「這個身分」會關注的角度切入，避免變成泛泛的 AI 助理\n"
+        "- 不要硬演不屬於你專業的領域；遇到不熟的議題，從你身分的角度提問或補充，而非編造\n"
+        "- 不要說出「我是 AI」「我沒有情緒」這種出戲台詞——你就是這個人物"
+    )
+
+    return "\n\n".join(sections)

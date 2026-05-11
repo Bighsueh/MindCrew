@@ -5,7 +5,8 @@
 
 每個 micro phase 包含三組資料：
 - MICRO_PHASE_SUPERVISOR_PROMPTS: Supervisor 的方向性指引
-- MICRO_PHASE_CREW_OVERRIDES: 每位 crew 成員（crew_1..crew_4）的行為覆蓋
+- MICRO_PHASE_LENS_OVERRIDES: 每種認知透鏡（empathy/structure/creativity/feasibility）
+  在該步驟的行為覆蓋。執行期由 ``persona.dominant_lens`` 解析。
 - ARTIFACT_CONSTRUCTION_GUIDES: 本步驟要如何用便條紙建構產出物
 
 共 12 個 micro phase：
@@ -13,9 +14,15 @@
   Define:   2.1 / 2.2 / 2.3
   Develop:  3.1 / 3.2 / 3.3
   Deliver:  4.1 / 4.2 / 4.3
+
+Phase 19: 鍵值從 seat_role（crew_1..crew_4）換成 CognitiveLens 的字串值
+（"empathy" / "structure" / "creativity" / "feasibility"）。
+``MICRO_PHASE_CREW_OVERRIDES`` 保留為 legacy alias，僅供尚未升級的測試使用。
 """
 
 from __future__ import annotations
+
+from app.agents.personas.lens import CognitiveLens
 
 # ---------------------------------------------------------------------------
 # Supervisor direction prompts
@@ -80,85 +87,110 @@ review 時邀請同理心成員從 Persona 角度給第一反應。""",
 }
 
 # ---------------------------------------------------------------------------
-# Per-crew behaviour overrides
+# Per-lens behaviour overrides (Phase 19)
 # Keys: "1.1" … "4.3"
-# Sub-keys: "crew_1" (同理心) / "crew_2" (結構化) / "crew_3" (創意) / "crew_4" (可行性)
+# Sub-keys: CognitiveLens 值 "empathy" / "structure" / "creativity" / "feasibility"
 # ---------------------------------------------------------------------------
 
-MICRO_PHASE_CREW_OVERRIDES: dict[str, dict[str, str]] = {
+MICRO_PHASE_LENS_OVERRIDES: dict[str, dict[str, str]] = {
     "1.1": {
-        "crew_1": "追問每個分享的情緒與脈絡：感受、動機、場景細節。不要替分享者下結論。",
-        "crew_2": "聆聽，在心裡辨認模式。禁止分類、整理、提架構。",
-        "crew_3": "用類比和聯想幫團隊拓展視野。不要帶偏主題。",
-        "crew_4": "聆聽為主，偶爾追問頻率和規模。禁止評估、提限制。",
+        "empathy": "追問每個分享的情緒與脈絡：感受、動機、場景細節。不要替分享者下結論。",
+        "structure": "聆聽，在心裡辨認模式。禁止分類、整理、提架構。",
+        "creativity": "用類比和聯想幫團隊拓展視野。不要帶偏主題。",
+        "feasibility": "聆聽為主，偶爾追問頻率和規模。禁止評估、提限制。",
     },
     "1.2": {
-        "crew_1": "為新使用者群體代言，補充情緒層面。保持基於觀察而非假設。",
-        "crew_2": "開始標記矛盾資訊（只標記不解決）。禁止分組。",
-        "crew_3": "提供反事實、極端假設、跨領域類比。不要脫離主題太遠。",
-        "crew_4": "補充可觀察的行為指標或頻率資訊。禁止做可行性判斷。",
+        "empathy": "為新使用者群體代言，補充情緒層面。保持基於觀察而非假設。",
+        "structure": "開始標記矛盾資訊（只標記不解決）。禁止分組。",
+        "creativity": "提供反事實、極端假設、跨領域類比。不要脫離主題太遠。",
+        "feasibility": "補充可觀察的行為指標或頻率資訊。禁止做可行性判斷。",
     },
     "1.3": {
-        "crew_1": "確保 Persona 有血有肉：語錄來自觀察而非編造。不要讓 Persona 變成統計數據。",
-        "crew_2": "主導分組邏輯，處理歸類爭議。不要過度細分。",
-        "crew_3": "幫助命名和語錄，讓 Persona 生動有記憶點。不要虛構不存在的特徵。",
-        "crew_4": "提供規模感：哪類使用者佔多數。不要用數字蓋掉質性洞察。",
+        "empathy": "確保 Persona 有血有肉：語錄來自觀察而非編造。不要讓 Persona 變成統計數據。",
+        "structure": "主導分組邏輯，處理歸類爭議。不要過度細分。",
+        "creativity": "幫助命名和語錄，讓 Persona 生動有記憶點。不要虛構不存在的特徵。",
+        "feasibility": "提供規模感：哪類使用者佔多數。不要用數字蓋掉質性洞察。",
     },
     "2.1": {
-        "crew_1": "追蹤每個觸點的情緒線：期待→焦慮→放棄的變化。不替 Persona 決定感受，回到觀察。",
-        "crew_2": "主導時間線結構，確保步驟完整不遺漏。不要過度拆解成太多步驟。",
-        "crew_3": "質疑「理所當然」的步驟：有沒有不必要但被迫存在的？禁止在此階段提解法。",
-        "crew_4": "追問現有解法為何沒用。禁止提新解法。",
+        "empathy": "追蹤每個觸點的情緒線：期待→焦慮→放棄的變化。不替 Persona 決定感受，回到觀察。",
+        "structure": "主導時間線結構，確保步驟完整不遺漏。不要過度拆解成太多步驟。",
+        "creativity": "質疑「理所當然」的步驟：有沒有不必要但被迫存在的？禁止在此階段提解法。",
+        "feasibility": "追問現有解法為何沒用。禁止提新解法。",
     },
     "2.2": {
-        "crew_1": "區分表層需求和深層需求。不要臆測超出觀察範圍的事。",
-        "crew_2": "驅動矛盾識別和溯因推理，畫出因果連線。避免過度簡化矛盾。",
-        "crew_3": "提供 reframing 視角：「如果問題不是 X 而是 Y？」。禁止跳到解法。",
-        "crew_4": "補充現有解法失敗的結構性原因。禁止在此階段提新方案。",
+        "empathy": "區分表層需求和深層需求。不要臆測超出觀察範圍的事。",
+        "structure": "驅動矛盾識別和溯因推理，畫出因果連線。避免過度簡化矛盾。",
+        "creativity": "提供 reframing 視角：「如果問題不是 X 而是 Y？」。禁止跳到解法。",
+        "feasibility": "補充現有解法失敗的結構性原因。禁止在此階段提新方案。",
     },
     "2.3": {
-        "crew_1": "確保 HMW 以使用者為主語。不要替團隊決定優先級。",
-        "crew_2": "把關粒度和格式品質。不要把自己的偏好強加在排序上。",
-        "crew_3": "用「這個 HMW 能激發多少方向」檢驗品質。禁止開始想解法。",
-        "crew_4": "從設計空間角度提供排序參考。不要否定任何 HMW。",
+        "empathy": "確保 HMW 以使用者為主語。不要替團隊決定優先級。",
+        "structure": "把關粒度和格式品質。不要把自己的偏好強加在排序上。",
+        "creativity": "用「這個 HMW 能激發多少方向」檢驗品質。禁止開始想解法。",
+        "feasibility": "從設計空間角度提供排序參考。不要否定任何 HMW。",
     },
     "3.1": {
-        "crew_1": "從使用者情感角度提供想法。不要求每個想法都回到使用者。",
-        "crew_2": "正常貢獻想法，心裡觀察模式。嚴禁分組、整理、評估。",
-        "crew_3": "帶頭示範、接力延伸、守護不評判氛圍。不主導方向，鼓勵多元。",
-        "crew_4": "從技術可能性角度貢獻想法。嚴禁說「做不到」「成本太高」「技術限制」。",
+        "empathy": "從使用者情感角度提供想法。不要求每個想法都回到使用者。",
+        "structure": "正常貢獻想法，心裡觀察模式。嚴禁分組、整理、評估。",
+        "creativity": "帶頭示範、接力延伸、守護不評判氛圍。不主導方向，鼓勵多元。",
+        "feasibility": "從技術可能性角度貢獻想法。嚴禁說「做不到」「成本太高」「技術限制」。",
     },
     "3.2": {
-        "crew_1": "檢視分群是否合理，提出異議。尊重多數意見。",
-        "crew_2": "主導分群邏輯，處理邊界歸屬。不要過度合併導致失去多樣性。",
-        "crew_3": "檢視分群是否合理，提出異議。尊重多數意見。",
-        "crew_4": "檢視分群是否合理，提出異議。尊重多數意見。",
+        "empathy": "檢視分群是否合理，提出異議。尊重多數意見。",
+        "structure": "主導分群邏輯，處理邊界歸屬。不要過度合併導致失去多樣性。",
+        "creativity": "檢視分群是否合理，提出異議。尊重多數意見。",
+        "feasibility": "檢視分群是否合理，提出異議。尊重多數意見。",
     },
     "3.3": {
-        "crew_1": "從使用者價值評估每個方向。不壟斷排序。",
-        "crew_2": "確保評估維度完整、討論有結構。不偏袒特定方向。",
-        "crew_3": "評估新穎性，捍衛大膽但可能被低估的方向。接受團隊決策。",
-        "crew_4": "充分表達可行性評估和風險，提出關鍵假設。不一票否決，提出簡化方案。",
+        "empathy": "從使用者價值評估每個方向。不壟斷排序。",
+        "structure": "確保評估維度完整、討論有結構。不偏袒特定方向。",
+        "creativity": "評估新穎性，捍衛大膽但可能被低估的方向。接受團隊決策。",
+        "feasibility": "充分表達可行性評估和風險，提出關鍵假設。不一票否決，提出簡化方案。",
     },
     "4.1": {
-        "crew_1": "確保原型覆蓋 Persona 最痛的場景。不要加太多場景。",
-        "crew_2": "協助組織原型流程的步驟順序。不要變成需求文件。",
-        "crew_3": "讓原型生動有記憶點，提供簡化替代方案。不要過度設計。",
-        "crew_4": "定義最小原型範圍、選擇呈現形式。不要追求完整性。",
+        "empathy": "確保原型覆蓋 Persona 最痛的場景。不要加太多場景。",
+        "structure": "協助組織原型流程的步驟順序。不要變成需求文件。",
+        "creativity": "讓原型生動有記憶點，提供簡化替代方案。不要過度設計。",
+        "feasibility": "定義最小原型範圍、選擇呈現形式。不要追求完整性。",
     },
     "4.2": {
-        "crew_1": "確保測試場景貼近 Persona 的真實脈絡。",
-        "crew_2": "結構化測試計畫（假設→方法→標準）。不要過度複雜化。",
-        "crew_3": "此步低活躍。",
-        "crew_4": "確保測試在當前條件下可執行。提供替代測試方式。",
+        "empathy": "確保測試場景貼近 Persona 的真實脈絡。",
+        "structure": "結構化測試計畫（假設→方法→標準）。不要過度複雜化。",
+        "creativity": "此步低活躍。",
+        "feasibility": "確保測試在當前條件下可執行。提供替代測試方式。",
     },
     "4.3": {
-        "crew_1": "角色扮演 Persona／提供使用者視角回饋。入戲時保持基於觀察。",
-        "crew_2": "紀錄測試結果和學習。不美化失敗。",
-        "crew_3": "從失敗中看見新機會。不在失敗中硬找正面。",
-        "crew_4": "評估迭代方案的可行性和工作量。不阻止合理的迭代。",
+        "empathy": "角色扮演 Persona／提供使用者視角回饋。入戲時保持基於觀察。",
+        "structure": "紀錄測試結果和學習。不美化失敗。",
+        "creativity": "從失敗中看見新機會。不在失敗中硬找正面。",
+        "feasibility": "評估迭代方案的可行性和工作量。不阻止合理的迭代。",
     },
 }
+
+
+# Legacy crew_X-keyed mapping (kept for any caller that has not migrated).
+_LEGACY_CREW_TO_LENS: dict[str, str] = {
+    "crew_1": CognitiveLens.EMPATHY.value,
+    "crew_2": CognitiveLens.STRUCTURE.value,
+    "crew_3": CognitiveLens.CREATIVITY.value,
+    "crew_4": CognitiveLens.FEASIBILITY.value,
+}
+
+MICRO_PHASE_CREW_OVERRIDES: dict[str, dict[str, str]] = {
+    phase: {
+        crew_role: lens_overrides[lens_value]
+        for crew_role, lens_value in _LEGACY_CREW_TO_LENS.items()
+        if lens_value in lens_overrides
+    }
+    for phase, lens_overrides in MICRO_PHASE_LENS_OVERRIDES.items()
+}
+
+
+def get_lens_override(micro_phase: str, lens_value: str | None) -> str:
+    """Return the behaviour override for the given (phase, lens)."""
+    if not lens_value:
+        return ""
+    return MICRO_PHASE_LENS_OVERRIDES.get(micro_phase, {}).get(lens_value, "")
 
 # ---------------------------------------------------------------------------
 # Artifact construction guides

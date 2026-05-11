@@ -48,12 +48,24 @@ class ProjectService:
         project = Project(
             name=request.name,
             description=request.description,
+            constraints=request.constraints,
             creator_id=user.id,
             ai_contribution=request.ai_contribution,
         )
         project = await self.repo.create(project)
 
-        seats = []
+        # Build persona lookup from request (if supplied)
+        persona_by_role: dict[str, dict] = {}
+        if request.personas:
+            for assignment in request.personas:
+                payload = assignment.persona.model_dump()
+                if hasattr(assignment.persona.lens_affinities, "model_dump"):
+                    payload["lens_affinities"] = (
+                        assignment.persona.lens_affinities.model_dump()
+                    )
+                persona_by_role[assignment.seat_role] = payload
+
+        seats: list[Seat] = []
         for role in SEAT_ROLES:
             seat = Seat(
                 project_id=project.id,
@@ -61,6 +73,7 @@ class ProjectService:
                 occupant_type="ai",
                 agent_id=f"agent_{role}",
                 state="ai_running",
+                persona=persona_by_role.get(role) if role != "supervisor" else None,
             )
             self.session.add(seat)
             seats.append(seat)
@@ -70,6 +83,7 @@ class ProjectService:
             id=project.id,
             name=project.name,
             description=project.description,
+            constraints=project.constraints,
             current_stage=project.current_stage,
             ai_contribution=project.ai_contribution,
             status=project.status,
@@ -111,6 +125,7 @@ class ProjectService:
             id=project.id,
             name=project.name,
             description=project.description,
+            constraints=project.constraints,
             current_stage=project.current_stage,
             ai_contribution=project.ai_contribution,
             status=project.status,
@@ -136,6 +151,8 @@ class ProjectService:
             project.name = request.name
         if request.description is not None:
             project.description = request.description
+        if request.constraints is not None:
+            project.constraints = request.constraints
         if request.ai_contribution is not None:
             project.ai_contribution = request.ai_contribution
         project.updated_at = datetime.now(timezone.utc)
@@ -146,6 +163,7 @@ class ProjectService:
             id=project.id,
             name=project.name,
             description=project.description,
+            constraints=project.constraints,
             current_stage=project.current_stage,
             ai_contribution=project.ai_contribution,
             status=project.status,
@@ -356,25 +374,19 @@ class ProjectService:
             generated_at=datetime.now(timezone.utc),
         )
 
-    _AI_DISPLAY_NAMES: dict[str, str] = {
-        "supervisor": "AI 引導者",
-        "crew_1": "AI 同理心專家",
-        "crew_2": "AI 結構化專家",
-        "crew_3": "AI 創意專家",
-        "crew_4": "AI 可行性專家",
-    }
-
     @staticmethod
     def _seat_to_response(seat: Seat) -> SeatResponse:
+        from app.agents.personas.display import resolve_display_name
+
+        persona_payload = getattr(seat, "persona", None)
         display_name = None
         if seat.occupant_type == "ai":
-            display_name = ProjectService._AI_DISPLAY_NAMES.get(
-                seat.seat_role, f"AI {seat.seat_role}"
-            )
+            display_name = resolve_display_name(seat.seat_role, persona_payload)
         return SeatResponse(
             seat_role=seat.seat_role,
             occupant_type=seat.occupant_type,
             user_id=seat.user_id,
             agent_id=seat.agent_id,
             display_name=display_name,
+            persona=persona_payload,
         )

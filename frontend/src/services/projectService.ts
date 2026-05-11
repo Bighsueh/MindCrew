@@ -1,15 +1,21 @@
 import api from './api'
 import type {
   CreateProjectRequest,
+  GeneratePersonasRequest,
+  GeneratePersonasResponse,
   JoinProjectRequest,
   JoinProjectResponse,
   AdvanceStageRequest,
   AdvanceStageResponse,
   MessagesResponse,
+  UpdateSeatPersonaRequest,
 } from '../types/api'
 import type {
+  CrewSeatRole,
+  Persona,
   Project,
   ProjectListItem,
+  Seat,
   StageInfo,
   StageHistoryEntry,
   MicroPhaseHistoryEntry,
@@ -134,6 +140,31 @@ export async function getAgentTraces(
   const response = await api.get<{ traces: AgentTrace[]; has_more: boolean }>(
     `/projects/${id}/agent-traces`,
     { params },
+  )
+  return response.data
+}
+
+// ── Persona system (Phase 19) ────────────────────────────────────────────
+
+export async function generatePersonas(
+  data: GeneratePersonasRequest,
+): Promise<Persona[]> {
+  const response = await api.post<GeneratePersonasResponse>(
+    '/personas/generate',
+    data,
+  )
+  return response.data.personas
+}
+
+export async function updateSeatPersona(
+  projectId: string,
+  seatRole: CrewSeatRole,
+  persona: Persona,
+): Promise<Seat> {
+  const body: UpdateSeatPersonaRequest = { persona }
+  const response = await api.patch<Seat>(
+    `/projects/${projectId}/seats/${seatRole}/persona`,
+    body,
   )
   return response.data
 }

@@ -27,6 +27,7 @@ from app.events.bus import event_bus
 from app.auth.router import router as auth_router
 from app.users.router import router as users_router
 from app.projects.router import router as projects_router
+from app.projects.persona_router import router as persona_router
 from app.chat.router import router as chat_router
 from app.ws.chat_ws import router as chat_ws_router
 from app.ws.teacher_ws import router as teacher_ws_router
@@ -153,6 +154,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(projects_router)
+app.include_router(persona_router)
 app.include_router(chat_router)
 app.include_router(chat_ws_router)
 app.include_router(teacher_ws_router)

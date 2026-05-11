@@ -9,6 +9,8 @@ import type {
   TeacherProjectSummary,
   ProjectRecord,
   AIContribution,
+  CrewPersonaAssignment,
+  Persona,
   SeatRole,
 } from './models'
 
@@ -40,7 +42,24 @@ export interface RefreshRequest {
 export interface CreateProjectRequest {
   name: string
   description: string
+  constraints?: string
   ai_contribution: AIContribution
+  personas?: CrewPersonaAssignment[]
+}
+
+export interface GeneratePersonasRequest {
+  title: string
+  description?: string
+  constraints?: string
+  num_personas?: number
+}
+
+export interface GeneratePersonasResponse {
+  personas: Persona[]
+}
+
+export interface UpdateSeatPersonaRequest {
+  persona: Persona
 }
 
 export interface JoinProjectRequest {
