@@ -109,9 +109,9 @@ export function SeatBar({
             status={status}
             speechBubble={bubble}
             preview={preview}
-            isPopoverOpen={openSeatId === seat.id}
-            onOpenPopover={() => setOpenSeatId(seat.id)}
-            onClosePopover={() => setOpenSeatId((cur) => (cur === seat.id ? null : cur))}
+            isPopoverOpen={openSeatId === seat.seat_role}
+            onOpenPopover={() => setOpenSeatId(seat.seat_role)}
+            onClosePopover={() => setOpenSeatId((cur) => (cur === seat.seat_role ? null : cur))}
             onDirectMessage={onDirectMessage}
             onProfileClick={onProfileClick}
           />

@@ -114,23 +114,21 @@ class SeatManager:
         seat_role: str,
         session: AsyncSession | None = None,
     ) -> None:
-        """A human is leaving a seat; AI should take over.
+        """A human is leaving a seat.
 
-        Steps:
-        1. Update PostgreSQL seat to AI
-        2. Update Redis
-        3. Broadcast SeatChangedEvent
-        4. Start new AI agent
-        5. AI sends greeting + progress summary
+        若場上仍有其他人類 → AI 立即接手（更新 DB / Redis、廣播、啟動 agent、送 greeting）。
+        若場上 0 人類 → 該席位保留 dormant，留作下一位人類的就座暗示；
+        AI agent 不啟動、不送 greeting，但仍寫 DB / Redis 並廣播給前端。
 
-        If `session` is provided, it is used for the DB update.
+        Supervisor 為 AI-only，不會經由此路徑進入 dormant，但守衛仍保留。
         """
-        # 1. Update PostgreSQL
         agent_id = f"agent_{seat_role}"
         previous_human_name: str = "（未知使用者）"
+        # 是否要保留為 dormant（在 _do_release 內依據剩餘人類數決定）
+        keep_dormant = False
 
         async def _do_release(s: AsyncSession) -> None:
-            nonlocal previous_human_name
+            nonlocal previous_human_name, keep_dormant
             result = await s.execute(
                 select(Seat).where(
                     Seat.project_id == project_id,
@@ -155,12 +153,23 @@ class SeatManager:
                 if user_obj is not None:
                     previous_human_name = user_obj.display_name
 
+            # 計算「扣掉自己」之後仍在場的人類數
+            remaining_humans = await self._count_remaining_humans(
+                s, project_id, excluding_seat_role=seat_role
+            )
+            keep_dormant = remaining_humans == 0 and seat_role != "supervisor"
+
             seat.occupant_type = "ai"
             seat.user_id = None
-            seat.agent_id = agent_id
-            seat.state = "ai_running"
             seat.joined_at = None
             seat.updated_at = datetime.now(timezone.utc)
+            if keep_dormant:
+                # 保留給下一位人類的視覺空位
+                seat.agent_id = None
+                seat.state = "dormant"
+            else:
+                seat.agent_id = agent_id
+                seat.state = "ai_running"
 
         if session is not None:
             await _do_release(session)
@@ -169,12 +178,16 @@ class SeatManager:
                 await _do_release(own_session)
                 await own_session.commit()
 
-        # 2. Update Redis
-        await self._update_redis_seat(project_id, seat_role, "ai", agent_id)
+        # Redis：dormant 時也清掉 agent_id，與其他 dormant 座位一致
+        await self._update_redis_seat(
+            project_id, seat_role, "ai", "" if keep_dormant else agent_id
+        )
 
-        # 3. Broadcast — pull persona for accurate display name
+        # Broadcast — dormant 時 current_display_name 留空，讓前端走 dormant UI 分支
         persona = await self._fetch_seat_persona(project_id, seat_role)
-        ai_display_name = self._role_to_display_name(seat_role, persona)
+        ai_display_name = "" if keep_dormant else self._role_to_display_name(
+            seat_role, persona
+        )
         event = SeatChangedEvent(
             project_id=project_id,
             seat_role=seat_role,
@@ -185,15 +198,38 @@ class SeatManager:
         )
         await event_bus.publish(event)
 
-        # 4. Start AI agent
-        await self._start_agent(project_id, seat_role, agent_id)
+        if keep_dormant:
+            logger.info(
+                "Seat %s in project %s released; no humans remain → kept dormant",
+                seat_role,
+                project_id,
+            )
+            return
 
-        # 5. Greeting + summary
+        # Start AI agent + greeting + summary
+        await self._start_agent(project_id, seat_role, agent_id)
         await self._send_ai_greeting(project_id, seat_role, agent_id)
 
         logger.info(
             "Seat %s in project %s released to AI agent %s", seat_role, project_id, agent_id
         )
+
+    async def _count_remaining_humans(
+        self,
+        session: AsyncSession,
+        project_id: UUID,
+        *,
+        excluding_seat_role: str,
+    ) -> int:
+        """同一 project 內，扣掉指定席位以外，目前仍由人類佔用的席位數。"""
+        result = await session.execute(
+            select(Seat).where(
+                Seat.project_id == project_id,
+                Seat.occupant_type == "human",
+                Seat.seat_role != excluding_seat_role,
+            )
+        )
+        return len(list(result.scalars().all()))
 
     async def stop_all_agents(self, project_id: UUID) -> None:
         """Stop all AI agents for a project (e.g. on project close)."""

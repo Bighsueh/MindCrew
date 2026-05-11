@@ -212,9 +212,12 @@ class BaseAgent:
         recent_chat = context.get("recent_chat", [])
         human_active = any(m.get("sender_type") == "human" for m in recent_chat[-10:])
         if is_all_ai or not human_active:
-            # All-AI mode OR human present but silent: equal footing, short cooldown
-            base = 25.0
-            base *= 0.3
+            # All-AI mode OR human present but silent: equal footing, short cooldown.
+            # Fix #2: supervisor 不套 0.3 倍率，避免在 all-AI 下每 2-7 秒就再開口。
+            if self._is_supervisor:
+                base = 40.0
+            else:
+                base = 25.0 * 0.3
         else:
             # Human actively participating: longer cooldown to give them space
             base = 30.0 if self._is_supervisor else 40.0
@@ -246,6 +249,8 @@ class BaseAgent:
     async def _decision_cycle(self) -> None:
         # Step 1: Observe
         context = await self._context_buffer.get_current_context()
+        # Stash project_id so downstream engines (assess, act) can access Redis-backed state.
+        context["_project_id"] = self._project_id
 
         # Load PhaseStrategy and inject into context (Phase 13)
         micro_phase = context.get("current_micro_phase", "1.1")
@@ -433,6 +438,7 @@ class BaseAgent:
                 role_status=context.get("my_role_status", "normal"),
                 sub_phase=context.get("current_sub_phase"),
                 comm_mode=context.get("comm_mode", "discussion"),
+                seats=context.get("seats", []),
             )
 
             # Record this action in context buffer for self-awareness

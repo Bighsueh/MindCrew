@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronUp,
-  ClipboardList,
   Compass,
   Lightbulb,
   Rocket,
@@ -10,15 +9,17 @@ import {
   Target,
   type LucideIcon,
 } from 'lucide-react'
-import type { DTStage } from '../../types/models'
+import type { DTStage, MicroPhaseId } from '../../types/models'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { useFirstRunFlag } from '../../hooks/useFirstRunFlag'
+import { MACRO_BY_STAGE } from '../progress/microPhaseInfo'
 
 interface StageHintBarProps {
   stage: DTStage
   projectId: string
+  /** 當前 micro phase（1.1–4.3）；若提供則 goal 文字顯示「現在請：…」micro 級指引 */
+  currentMicroPhase?: MicroPhaseId | null
   goalText?: string
-  onTaskClick?: () => void
   onStartWithAiClick?: () => void
   defaultCollapsed?: boolean
   /** 在白板第一次出現便利貼時由父層遞增此計數 → 觸發 [起頭] chip 一次性 flash 動畫。 */
@@ -91,8 +92,8 @@ function isTabletPortrait(): boolean {
 export function StageHintBar({
   stage,
   projectId,
+  currentMicroPhase,
   goalText,
-  onTaskClick,
   onStartWithAiClick,
   defaultCollapsed,
   startChipFlashKey = 0,
@@ -113,7 +114,20 @@ export function StageHintBar({
 
   const meta = STAGE_META[stage] ?? STAGE_META.discover
   const Icon = meta.icon
-  const goal = goalText ?? meta.defaultGoal
+
+  // 優先級：父層 goalText > micro phase 細粒度指引 > macro 階段預設 goal
+  const microInfo = useMemo(() => {
+    if (!currentMicroPhase) return null
+    if (stage === 'completed') return null
+    const macroKey = stage as Exclude<DTStage, 'completed'>
+    const macro = MACRO_BY_STAGE[macroKey]
+    if (!macro) return null
+    return macro.micro.find((m) => m.id === currentMicroPhase) ?? null
+  }, [stage, currentMicroPhase])
+
+  const goal = goalText
+    ?? (microInfo ? `現在請：${microInfo.description}` : meta.defaultGoal)
+  const microBadge = microInfo ? `${microInfo.id} ${microInfo.label}` : null
 
   // Initial collapsed state (immutable derivation, computed once per mount).
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -196,28 +210,29 @@ export function StageHintBar({
         aria-hidden={collapsed}
       >
         {stageChip}
-        <p className="text-sm text-text-muted truncate flex-1 min-w-0">{goal}</p>
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={onTaskClick}
-            className="inline-flex items-center gap-1 rounded-full bg-surface-hover hover:bg-surface text-text-muted hover:text-text px-2.5 py-1 text-xs transition-colors"
+        {microBadge && (
+          <span
+            className="inline-flex items-center rounded-full bg-accent/20 text-accent px-2 py-0.5 text-xs font-medium shrink-0"
+            aria-label={`Current micro phase: ${microBadge}`}
           >
-            <ClipboardList className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>任務</span>
-          </button>
+            {microBadge}
+          </span>
+        )}
+        <p className="text-sm text-text truncate flex-1 min-w-0">{goal}</p>
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={onStartWithAiClick}
             data-startwith-anchor=""
-            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs transition-colors ${
+            className={`group relative inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium shadow-sm transition-all ${
               flashing
-                ? 'bg-accent/15 text-accent animate-chip-flash'
-                : 'bg-surface-hover hover:bg-surface text-text-muted hover:text-text'
+                ? 'bg-accent text-text-inverse animate-chip-flash scale-105'
+                : 'bg-accent text-text-inverse hover:bg-accent/90 hover:scale-105 animate-pulse-outline'
             }`}
+            aria-label="開啟階段提示"
           >
-            <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>起頭</span>
+            <Sparkles className="w-4 h-4 transition-transform group-hover:rotate-12" aria-hidden="true" />
+            <span>階段提示</span>
           </button>
           <button
             type="button"
@@ -242,7 +257,12 @@ export function StageHintBar({
         tabIndex={collapsed ? 0 : -1}
       >
         {stageChip}
-        <span className="text-xs text-text-muted truncate flex-1 min-w-0">點此展開階段提示</span>
+        {microBadge && (
+          <span className="inline-flex items-center rounded-full bg-accent/20 text-accent px-2 py-0.5 text-[11px] font-medium shrink-0">
+            {microBadge}
+          </span>
+        )}
+        <span className="text-xs text-text-muted truncate flex-1 min-w-0">{goal}</span>
         <ChevronDown className="w-4 h-4 text-text-muted shrink-0" aria-hidden="true" />
       </button>
 

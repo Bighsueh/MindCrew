@@ -177,26 +177,28 @@ export function ChatDock({
         />
       </FloatingPanel>
 
-      <div
-        className="pointer-events-none absolute bottom-6 z-40 flex flex-col items-end gap-2 transition-[right] duration-300 ease-out motion-reduce:transition-none"
-        style={{ right: `calc(1rem + ${openPanelsWidth}px)` }}
-      >
-        {popoverOpen && !isOpen && (
-          <ChannelPopover
-            groupUnread={groupUnread}
-            personalUnread={personalUnread}
-            onSelect={handleSelect}
-            onClose={() => setPopoverOpen(false)}
+      {!isOpen && (
+        <div
+          className="pointer-events-none absolute bottom-6 z-40 flex flex-col items-end gap-2 transition-[right] duration-300 ease-out motion-reduce:transition-none"
+          style={{ right: `calc(1rem + ${openPanelsWidth}px)` }}
+        >
+          {popoverOpen && (
+            <ChannelPopover
+              groupUnread={groupUnread}
+              personalUnread={personalUnread}
+              onSelect={handleSelect}
+              onClose={() => setPopoverOpen(false)}
+            />
+          )}
+          <PrimaryFab
+            visible
+            dim={dim}
+            totalUnread={totalUnread}
+            expanded={popoverOpen}
+            onClick={() => setPopoverOpen((v) => !v)}
           />
-        )}
-        <PrimaryFab
-          visible={!isOpen}
-          dim={dim}
-          totalUnread={totalUnread}
-          expanded={popoverOpen}
-          onClick={() => setPopoverOpen((v) => !v)}
-        />
-      </div>
+        </div>
+      )}
     </>
   )
 }
@@ -215,7 +217,7 @@ function ChannelTabs({ activeKind, groupUnread, personalUnread, onChange }: Chan
     <div
       role="tablist"
       aria-label="聊天頻道切換"
-      className="flex items-center gap-1 rounded-full bg-surface-hover p-0.5"
+      className="relative z-10 pointer-events-auto flex items-center gap-1 rounded-full bg-surface-hover p-0.5"
     >
       <ChannelTab
         active={activeKind === 'group'}
@@ -277,6 +279,7 @@ function FloatingPanel({ open, width, drawer, children }: FloatingPanelProps) {
   if (drawer) {
     return (
       <div
+        aria-hidden={!open}
         className={cn(
           'absolute inset-x-0 bottom-0 z-30',
           'overflow-hidden rounded-t-2xl shadow-xl border-t border-x border-border bg-surface',
@@ -293,6 +296,7 @@ function FloatingPanel({ open, width, drawer, children }: FloatingPanelProps) {
   // desktop：右側浮動視窗
   return (
     <div
+      aria-hidden={!open}
       className={cn(
         'absolute top-3 bottom-3 right-3 z-30',
         'overflow-hidden rounded-xl shadow-xl border border-border bg-surface',
@@ -335,7 +339,6 @@ function PrimaryFab({ visible, dim, totalUnread, expanded, onClick }: PrimaryFab
   return (
     <button
       onClick={onClick}
-      data-tour="chat-fab"
       aria-label="開啟聊天"
       aria-expanded={expanded}
       aria-haspopup="menu"

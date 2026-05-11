@@ -61,6 +61,7 @@ class ActEngine:
         role_status: str = "normal",
         sub_phase: str | None = None,
         comm_mode: str = "discussion",
+        seats: list[dict] | None = None,
     ) -> ActResult:
         """Execute a list of actions from the ThinkEngine.
 
@@ -96,6 +97,13 @@ class ActEngine:
             try:
                 await self._execute_single(action, current_stage, sub_phase=sub_phase)
                 result.executed_actions.append(action)
+                # Fix #1: supervisor 點名 crew 後設 awaiting-reply 鎖
+                if (
+                    self._is_supervisor
+                    and action.get("type") == "chat_message"
+                    and seats
+                ):
+                    await self._maybe_set_awaiting_reply(action, seats)
             except Exception as exc:
                 logger.error(
                     "Action execution failed (type=%s): %s",
@@ -199,6 +207,26 @@ class ActEngine:
             logger.debug("Agent %s chose no_action: %s", self._agent_id, action.get("reason", ""))
         else:
             logger.warning("Unknown action type: %s", action_type)
+
+    async def _maybe_set_awaiting_reply(
+        self, action: dict, seats: list[dict]
+    ) -> None:
+        """Supervisor 發訊息若點名 crew，設 awaiting-reply 鎖（Fix #1）。"""
+        content = str(action.get("content", ""))
+        if not content:
+            return
+        try:
+            from app.agents.supervisor.awaiting_reply import (
+                detect_crew_mention,
+                set_awaiting_reply,
+            )
+            mention = detect_crew_mention(content, seats)
+            if mention is None:
+                return
+            seat_role, display_name = mention
+            await set_awaiting_reply(self._project_id, seat_role, display_name)
+        except Exception:
+            logger.debug("set_awaiting_reply hook failed", exc_info=True)
 
     async def _execute_chat_message(self, content: str, stage: str) -> None:
         """Publish ChatMessageEvent to EventBus and persist to DB."""

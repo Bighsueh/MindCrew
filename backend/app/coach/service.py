@@ -17,6 +17,7 @@ from uuid import UUID
 from app.chat.chat_id import make_personal_chat_id
 from app.chat.repository import MessageRepository
 from app.chinese.converter import chinese_converter
+from app.coach.canvas_context import build_canvas_topic_summary
 from app.coach.context import build_group_topic_summary
 from app.coach.prompts import build_messages
 from app.db.models.message import Message
@@ -97,9 +98,14 @@ class DTCoachService:
                     project_id, user_id, limit=_PERSONAL_HISTORY_LIMIT
                 )
 
-                # 3) 取 group topic 摘要（不可洩漏逐字訊息；spec §7.4）。
+                # 3) 取 group topic 摘要（≤200 字；spec §7.4，不洩漏逐字訊息）。
                 group_summary = await build_group_topic_summary(
                     session, project_id
+                )
+
+                # 3b) 取 canvas 摘要（≤300 字；只談分群/密度/卡點，不引用便條紙逐字）。
+                canvas_summary = await build_canvas_topic_summary(
+                    project_id, micro_phase
                 )
 
                 # 4) 組 messages。注意：personal_history 已含「使用者剛送出的訊息」，
@@ -113,6 +119,7 @@ class DTCoachService:
                     micro_phase=micro_phase,
                     user_display_name=user_display_name,
                     group_summary_text=group_summary,
+                    canvas_summary_text=canvas_summary,
                     personal_history=history_for_prompt,
                     current_user_message=user_message_content,
                 )

@@ -3,7 +3,7 @@ import { Tldraw, TLComponents, createTLStore, defaultShapeUtils } from '@tldraw/
 import '@tldraw/tldraw/tldraw.css'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
-import type { DTStage } from '../../types/models'
+import type { DTStage, MicroPhaseId } from '../../types/models'
 import { MiniToolbar } from './MiniToolbar'
 import { ZoomControls } from './ZoomControls'
 import { NoteAuthorOverlay } from './NoteAuthorOverlay'
@@ -37,6 +37,10 @@ interface CanvasPanelProps {
   onShapeCountChange?: (count: number) => void
   // Phase 20: parent override for EmptyState visibility; fallback = shapeCount === 0
   emptyStateVisible?: boolean
+  // 當 EmptyState 退場動畫（飛入「起頭」chip）完成時觸發 → 父層用來同步 chip flash
+  onEmptyStateHide?: () => void
+  // micro-phase 細粒度 hint（1.1–4.3）
+  currentMicroPhase?: MicroPhaseId | null
 }
 
 // Phase 20: narrow DTStage to the 4 stages the EmptyState recognises (matches STAGE_ACTIONS keys)
@@ -86,6 +90,8 @@ export function CanvasPanel({
   onEmptyStateAction,
   onShapeCountChange,
   emptyStateVisible,
+  onEmptyStateHide,
+  currentMicroPhase,
 }: CanvasPanelProps) {
   // Phase 17 Stream B (Spec 14 + 15): pull timer + vote state
   const { voteSession } = useProjectRealtime(projectId)
@@ -181,8 +187,10 @@ export function CanvasPanel({
       {onEmptyStateAction !== undefined && (
         <CanvasEmptyState
           stage={asStartActionStage(currentStage)}
+          currentMicroPhase={currentMicroPhase}
           visible={emptyStateVisible ?? shapeCount === 0}
           onActionClick={onEmptyStateAction}
+          onHide={onEmptyStateHide}
         />
       )}
     </div>

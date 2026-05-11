@@ -303,7 +303,7 @@ function OccupantBadge({
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-bg-warm px-2 py-0.5 text-[11px] text-text-muted">
           <Hourglass size={10} />
-          AI 待加入（人類入座後上線）
+          保留給人類 · 請就座
         </span>
       )
     }

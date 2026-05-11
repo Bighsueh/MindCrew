@@ -20,11 +20,11 @@ import {
   AdvanceStageConfirm,
   type DTStage as AdvanceDTStage,
 } from '../../components/workspace/AdvanceStageConfirm'
-import { FirstRunTour } from '../../components/workspace/FirstRunTour'
 import { StartActionsPopover } from '../../components/workspace/StartActionsPopover'
+import { OnboardingModal } from '../../components/workspace/OnboardingModal'
 import { Button } from '../../components/common/Button'
 import { Loading } from '../../components/common/Loading'
-import { MessageCircle, Users } from 'lucide-react'
+import { HelpCircle, MessageCircle, Users } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { ChatKind } from '../../stores/chatStore'
 import type { DTStage, MicroPhaseId, Seat } from '../../types/models'
@@ -46,17 +46,6 @@ function asStartActionStage(s: DTStage): StartActionStage {
   return 'discover'
 }
 
-// FirstRunTour 步驟定義；selector 必須與下方 DOM 上的 data-tour 屬性對齊。
-const TOUR_STEPS = [
-  { id: 'stage', selector: '[data-tour="stage"]', caption: '目前階段與目標' },
-  { id: 'canvas', selector: '[data-tour="canvas"]', caption: '團隊白板' },
-  {
-    id: 'chat-fab',
-    selector: '[data-tour="chat-fab"]',
-    caption: '群組聊天室與 DT 教練個人助理',
-  },
-]
-
 // mobile 三 tab 的識別字串
 type MobileTab = 'canvas' | 'group' | 'personal'
 
@@ -73,13 +62,15 @@ export function WorkspacePage() {
 
   const [showAdvanceModal, setShowAdvanceModal] = useState(false)
   const [showPersonasPanel, setShowPersonasPanel] = useState(false)
+  // 「重新導引」按鈕用：遞增 nonce 強制重開 OnboardingModal
+  const [onboardingForceNonce, setOnboardingForceNonce] = useState(0)
   const [isAdvancing, setIsAdvancing] = useState(false)
   const [activeTab, setActiveTab] = useState<MobileTab>('canvas')
   // 當前在前景的聊天 channel；由 ChatDock onActiveChange 回報。
   const [activeChannel, setActiveChannel] = useState<ChatKind | null>(null)
   // 觸發 ChatDock 重新初始化以切到 personal channel 的計數（最小變動方案）。
   const [dockOpenNonce, setDockOpenNonce] = useState(0)
-  const [dockInitialOpen, setDockInitialOpen] = useState<ChatKind | null>(null)
+  const [dockInitialOpen, setDockInitialOpen] = useState<ChatKind | null>('group')
 
   // 衍生狀態：SeatBar 需要的 typing / preview / recentSpeaker
   const coachState = useWorkspaceCoachState({ seats })
@@ -187,7 +178,7 @@ export function WorkspacePage() {
   )
 
   const handleStartChipClick = useCallback(() => {
-    orchestration.openStartPopover()
+    orchestration.toggleStartPopover()
   }, [orchestration])
 
   // ── SeatBar：點 AI 座位 → 切到個人助理 channel ──
@@ -207,8 +198,8 @@ export function WorkspacePage() {
   const handleShapeCountChange = useCallback(
     (count: number) => {
       orchestration.setShapeCount(count)
-      // 第一張便利貼出現 → 閃一次「請 AI 起頭」chip 提醒可進入下一步
-      if (count === 1) orchestration.flashStartChip()
+      // 第一張便利貼出現 → bannerVisible 變 false → CanvasEmptyState 啟動退場動畫
+      // chip flash 改由 onEmptyStateHide 在飛入動畫抵達時觸發（視覺同步）
     },
     [orchestration],
   )
@@ -232,10 +223,7 @@ export function WorkspacePage() {
       )}
 
       {/* DT Progress bar */}
-      <header
-        data-tour="stage"
-        className="flex-shrink-0 border-b border-border bg-surface px-4 py-2"
-      >
+      <header className="flex-shrink-0 border-b border-border bg-surface px-4 py-2">
         <div className="flex items-center gap-4">
           <span className="text-sm text-text-muted whitespace-nowrap">
             {currentProject.name}
@@ -246,6 +234,15 @@ export function WorkspacePage() {
               currentMicroPhase={currentMicroPhase ?? undefined}
             />
           </div>
+          <button
+            type="button"
+            onClick={() => setOnboardingForceNonce((n) => n + 1)}
+            aria-label="重新導引"
+            title="重新導引"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-surface-hover hover:text-text transition-colors"
+          >
+            <HelpCircle size={16} />
+          </button>
         </div>
       </header>
 
@@ -253,6 +250,7 @@ export function WorkspacePage() {
       <StageHintBar
         stage={currentStage}
         projectId={id!}
+        currentMicroPhase={currentMicroPhase}
         onStartWithAiClick={handleStartChipClick}
         startChipFlashKey={orchestration.startChipFlashKey}
       />
@@ -280,13 +278,15 @@ export function WorkspacePage() {
           </div>
           <div className="flex-1 overflow-hidden">
             {activeTab === 'canvas' && (
-              <div data-tour="canvas" className="h-full">
+              <div className="h-full">
                 <CanvasPanel
                   projectId={id!}
                   currentStage={currentStage}
+                  currentMicroPhase={currentMicroPhase}
                   emptyStateVisible={bannerVisible}
                   onShapeCountChange={handleShapeCountChange}
                   onEmptyStateAction={handleEmptyStateAction}
+                  onEmptyStateHide={orchestration.flashStartChip}
                 />
               </div>
             )}
@@ -313,13 +313,15 @@ export function WorkspacePage() {
 
         {/* Tablet/Desktop：全寬 canvas + ChatDock 浮動聊天 */}
         <div className="hidden md:block h-full relative overflow-hidden">
-          <div data-tour="canvas" className="h-full">
+          <div className="h-full">
             <CanvasPanel
               projectId={id!}
               currentStage={currentStage}
+              currentMicroPhase={currentMicroPhase}
               emptyStateVisible={bannerVisible}
               onShapeCountChange={handleShapeCountChange}
               onEmptyStateAction={handleEmptyStateAction}
+              onEmptyStateHide={orchestration.flashStartChip}
             />
           </div>
 
@@ -387,13 +389,19 @@ export function WorkspacePage() {
       <StartActionsPopover
         open={orchestration.startPopoverOpen}
         stage={startStage}
+        currentMicroPhase={currentMicroPhase}
         anchorSelector="[data-startwith-anchor]"
         onActionClick={handleEmptyStateAction}
         onClose={orchestration.closeStartPopover}
       />
 
-      {/* Phase 20: First-run tour — dot + caption */}
-      <FirstRunTour storageKey={`workspace-tour-${id}`} steps={TOUR_STEPS} />
+      {/* 新手導引 Modal：首次進入專案自動跳出；右上角 ? icon 可重開 */}
+      <OnboardingModal
+        projectId={id!}
+        project={currentProject}
+        forceOpenNonce={onboardingForceNonce}
+      />
+
 
       {/* Phase 19: AI persona management (creator only) */}
       {showPersonasPanel && currentProject && (
