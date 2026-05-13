@@ -15,7 +15,6 @@ from app.agents.conversation_health import ConversationHealthAnalyzer
 from app.agents.coordinator import agent_coordinator
 from app.agents.evaluator import StageEvaluator
 from app.agents.phase_strategy import PHASE_STRATEGIES
-from app.agents.summarizer import do_summarize, should_summarize
 from app.agents.throttle import ThrottleGate
 from app.llm.factory import LLMProviderFactory
 from app.ws.presence_tracker import presence_tracker
@@ -102,9 +101,6 @@ class BaseAgent:
         # Lazy-import ThinkEngine and ActEngine to avoid circular imports
         self._think_engine: Any = None
         self._act_engine: Any = None
-
-        # Summarizer cooldown (Phase 13): prevent rapid-fire summaries
-        self._last_summary_time: float = 0.0
 
         # Proactive initiation budget (spec §5.2)
         self._last_proactive_time: float | None = None
@@ -212,9 +208,12 @@ class BaseAgent:
         recent_chat = context.get("recent_chat", [])
         human_active = any(m.get("sender_type") == "human" for m in recent_chat[-10:])
         if is_all_ai or not human_active:
-            # All-AI mode OR human present but silent: equal footing, short cooldown
-            base = 25.0
-            base *= 0.3
+            # All-AI mode OR human present but silent: equal footing, short cooldown.
+            # Fix #2: supervisor 不套 0.3 倍率，避免在 all-AI 下每 2-7 秒就再開口。
+            if self._is_supervisor:
+                base = 40.0
+            else:
+                base = 25.0 * 0.3
         else:
             # Human actively participating: longer cooldown to give them space
             base = 30.0 if self._is_supervisor else 40.0
@@ -246,6 +245,8 @@ class BaseAgent:
     async def _decision_cycle(self) -> None:
         # Step 1: Observe
         context = await self._context_buffer.get_current_context()
+        # Stash project_id so downstream engines (assess, act) can access Redis-backed state.
+        context["_project_id"] = self._project_id
 
         # Load PhaseStrategy and inject into context (Phase 13)
         micro_phase = context.get("current_micro_phase", "1.1")
@@ -256,23 +257,6 @@ class BaseAgent:
                 "comm_goal": strategy.comm_goal,
                 "supervisor_mode": strategy.supervisor_mode,
             }
-
-        # Supervisor Summarizer: SS 策略下定期做摘要
-        if self._is_supervisor and strategy:
-            if strategy.comm_strategy == "simultaneous_summarizer":
-                # 摘要冷卻：至少間隔 30 秒避免連續觸發
-                summary_cooldown = time.time() - self._last_summary_time > 30.0
-                if summary_cooldown and should_summarize(context, strategy.summarize_interval):
-                    self._last_summary_time = time.time()
-                    llm_service = LLMProviderFactory.get_service()
-                    summary = await do_summarize(context, llm_service)
-                    if summary:
-                        act_engine = self._get_act_engine()
-                        await act_engine.execute(
-                            actions=[{"type": "chat_message", "content": f"【摘要】{summary}"}],
-                            current_stage=context.get("current_stage", "discover"),
-                        )
-                    return
 
         # Spec 14: Supervisor persona router — 決定本回合是 A/B 哪支發話
         if "supervisor" in self._seat_role.lower():
@@ -433,6 +417,7 @@ class BaseAgent:
                 role_status=context.get("my_role_status", "normal"),
                 sub_phase=context.get("current_sub_phase"),
                 comm_mode=context.get("comm_mode", "discussion"),
+                seats=context.get("seats", []),
             )
 
             # Record this action in context buffer for self-awareness

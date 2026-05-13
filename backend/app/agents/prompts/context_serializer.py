@@ -27,6 +27,31 @@ def build_context_description(context: dict) -> str:
     duration = context.get("stage_duration_minutes", 0)
     parts.append(f"【目前狀態】當前階段：{stage}，已進行 {duration} 分鐘。")
 
+    # specs/16-timer-system.md §6.5.4：時間預算 + 壓力等級 + 階段意圖 + directive
+    used_pct = context.get("time_budget_used_pct")
+    pressure = context.get("time_pressure_level")
+    intent = context.get("phase_intent")
+    if used_pct is not None and pressure:
+        try:
+            from app.stages.phase_intent import get_phase_intent_label_zh
+            from app.timer.pressure import (
+                get_pressure_label_zh,
+                pressure_directive,
+            )
+            intent_zh = get_phase_intent_label_zh(intent) if intent else "過渡"
+            pressure_zh = get_pressure_label_zh(pressure)
+            line = (
+                f"【時間預算】已用 {used_pct:.0f}%（壓力：{pressure_zh}）；"
+                f"本階段意圖：{intent_zh}。"
+            )
+            directive = pressure_directive(pressure, intent or "transitional")
+            if directive:
+                line += f"\n建議策略：{directive}"
+            parts.append(line)
+        except Exception:
+            # 失敗不擋 prompt 組裝；只在 debug log 留痕。
+            logger.debug("time pressure serialization failed", exc_info=True)
+
     # Micro-phase info (v2.0)
     micro_phase = context.get("current_micro_phase")
     if micro_phase:
@@ -53,7 +78,6 @@ def build_context_description(context: dict) -> str:
         _COMM_STRATEGY_LABELS = {
             "one_by_one": "逐一發言（OO）",
             "simultaneous": "同步發言（ST）",
-            "simultaneous_summarizer": "同步發言+定期摘要（SS）",
         }
         _COMM_GOAL_LABELS = {
             "direct_cooperation": "協作共創",

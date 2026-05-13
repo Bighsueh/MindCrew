@@ -13,17 +13,19 @@ import type { DTStage } from '../types/models'
  *
  * 決議來源：specs/13-personal-chat.md §10 OQ1。
  */
+// 文案改為白話：避免 Discover/Develop/HMW/POV/brainstorm 等專業詞，
+// 改用「了解使用者 / 想各種解法」這類白話。
 export function getCoachIntro(stage: DTStage | undefined): string {
   switch (stage) {
     case 'discover':
-      return '嗨我是 DT 教練。Discover 階段重點是同理使用者——你目前在思考要訪談誰、還是怎麼設計訪談？'
+      return '嗨我是你的設計思考小幫手。現在是 Discover（了解使用者）——你想先聊聊要訪談誰、還是怎麼開口問問題？'
     case 'define':
-      return 'Define 階段了！我們要從訪談洞察萃取出明確的問題。你想先聊聊聚焦痛點、還是 POV 句型？'
+      return '進入 Define（找出問題）了。我們要把訪談聽到的東西整理出幾個關鍵痛點。你想先聊聊怎麼挑重點，還是怎麼寫成好回答的問句？'
     case 'develop':
-      return 'Develop 階段歡迎你！這裡盡情發想各種解法。要先做 brainstorm 規則、還是怎麼讓點子更發散？'
+      return '現在是 Develop（想各種解法）。這一階段點子多比點子好重要，怎麼都丟到白板上都行。你想先聊聊發想規則，還是怎麼讓自己更發散？'
     case 'deliver':
-      return 'Deliver 階段。要把想法做成原型給人測試。你想先決定原型形式、還是測試對象？'
+      return '到了 Deliver（做出來測一下）。我們要把想法做成最簡單可以給人試用的版本。你想先想想做什麼形式、還是要找誰來試？'
     default:
-      return '嗨我是 DT 教練。今天有什麼我能幫你想清楚的？'
+      return '嗨我是你的設計思考小幫手。今天有什麼我能幫你想清楚的？'
   }
 }

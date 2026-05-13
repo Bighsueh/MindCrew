@@ -11,6 +11,9 @@ export type WSMessageType =
   | 'ping'
   | 'project_update'
   | 'micro_phase_changed'
+  | 'timer_state'
+  | 'timer_warning'
+  | 'timer_timeout'
 
 export interface WSChatMessagePayload {
   id?: string
@@ -72,6 +75,29 @@ export interface WSMicroPhaseChangedPayload {
   timestamp: string
 }
 
+// specs/16-timer-system.md §6.5.3：每 10s tick + threshold + timeout 三類 timer 事件。
+export interface WSTimerStatePayload {
+  project_id: string
+  current_sub_phase: string | null
+  budget_seconds: number
+  used_seconds: number
+  paused: boolean
+  used_pct: number
+}
+
+export interface WSTimerWarningPayload {
+  project_id: string
+  threshold_pct: number
+  current_sub_phase: string
+  used_seconds: number
+  budget_seconds: number
+}
+
+export interface WSTimerTimeoutPayload {
+  project_id: string
+  current_sub_phase: string
+}
+
 export type WSPayload =
   | WSChatMessagePayload
   | WSTypingPayload
@@ -80,6 +106,9 @@ export type WSPayload =
   | WSSystemMessagePayload
   | WSProjectUpdatePayload
   | WSMicroPhaseChangedPayload
+  | WSTimerStatePayload
+  | WSTimerWarningPayload
+  | WSTimerTimeoutPayload
   | Record<string, never>
 
 export interface WSMessage {

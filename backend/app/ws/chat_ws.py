@@ -146,6 +146,12 @@ async def _event_bus_forwarder(
                 "micro_phase_changed",
                 "seat_changed",
                 "system_message",
+                # specs/16-timer-system.md §6.5.3：timer 事件廣播給所有訂閱者
+                # （含觀察者）。payload 無 chat_id → should_deliver_chat_event
+                # 走 None 分支自動放行。
+                "timer_state",
+                "timer_warning",
+                "timer_timeout",
             ):
                 continue
 

@@ -30,10 +30,6 @@ interface SeatBarProps {
   recentSpeaker?: RecentSpeaker
   /** 各座位的最新訊息預覽——顯示在 popover 中 */
   seatPreviews?: Record<string, string>
-  /** 開啟與 AI 座位的私人聊天視窗 */
-  onDirectMessage?: (seat: Seat) => void
-  /** 開啟座位簡介（暫為 stub） */
-  onProfileClick?: (seat: Seat) => void
 }
 
 function deriveStatus(seat: Seat, typingSet: Set<string>): SeatStatus {
@@ -52,8 +48,6 @@ export function SeatBar({
   typingNames,
   recentSpeaker,
   seatPreviews,
-  onDirectMessage,
-  onProfileClick,
 }: SeatBarProps) {
   const [openSeatId, setOpenSeatId] = useState<string | null>(null)
   const [bubbles, setBubbles] = useState<Map<string, { key: number; preview: string }>>(new Map())
@@ -109,11 +103,9 @@ export function SeatBar({
             status={status}
             speechBubble={bubble}
             preview={preview}
-            isPopoverOpen={openSeatId === seat.id}
-            onOpenPopover={() => setOpenSeatId(seat.id)}
-            onClosePopover={() => setOpenSeatId((cur) => (cur === seat.id ? null : cur))}
-            onDirectMessage={onDirectMessage}
-            onProfileClick={onProfileClick}
+            isPopoverOpen={openSeatId === seat.seat_role}
+            onOpenPopover={() => setOpenSeatId(seat.seat_role)}
+            onClosePopover={() => setOpenSeatId((cur) => (cur === seat.seat_role ? null : cur))}
           />
         )
       })}

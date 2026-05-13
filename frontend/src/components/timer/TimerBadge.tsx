@@ -8,9 +8,27 @@ import { useEffect } from 'react'
 import {
   formatBudget,
   formatRemaining,
-  getTimerColor,
+  getPressureLabel,
+  getPressureLevel,
   useTimerStore,
+  type PressureLevel,
 } from '@/stores/timerStore'
+
+interface ColorPalette {
+  bg: string
+  fg: string
+  bar: string
+}
+
+// specs/16-timer-system.md §6.5.3：五階顏色對應 PressureLevel
+// （tight / critical 在容器加 pulse 動畫，讓人類旁觀者也感受到壓力）。
+const PRESSURE_PALETTE: Record<PressureLevel, ColorPalette> = {
+  calm: { bg: '#dcfce7', fg: '#166534', bar: '#16a34a' },
+  halfway: { bg: '#fef3c7', fg: '#92400e', bar: '#d97706' },
+  two_thirds: { bg: '#ffedd5', fg: '#9a3412', bar: '#ea580c' },
+  tight: { bg: '#fee2e2', fg: '#991b1b', bar: '#dc2626' },
+  critical: { bg: '#fecaca', fg: '#7f1d1d', bar: '#b91c1c' },
+}
 
 export function TimerBadge() {
   const snapshot = useTimerStore((s) => s.snapshot)
@@ -24,15 +42,11 @@ export function TimerBadge() {
 
   if (!snapshot.available || !snapshot.current_sub_phase) return null
 
-  const color = getTimerColor(snapshot.used_pct)
-  const colorMap = {
-    green: { bg: '#dcfce7', fg: '#166534', bar: '#16a34a' },
-    yellow: { bg: '#fef3c7', fg: '#92400e', bar: '#d97706' },
-    red: { bg: '#fee2e2', fg: '#991b1b', bar: '#dc2626' },
-    overtime: { bg: '#fee2e2', fg: '#991b1b', bar: '#dc2626' },
-  }
-  const c = colorMap[color]
+  const pressure = getPressureLevel(snapshot.used_pct)
+  const c = PRESSURE_PALETTE[pressure]
   const pct = Math.min(snapshot.used_pct, 100)
+  const isOvertime = snapshot.used_pct >= 100
+  const shouldPulse = isOvertime || pressure === 'critical' || pressure === 'tight'
 
   return (
     <div
@@ -57,12 +71,25 @@ export function TimerBadge() {
         boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
         fontWeight: 600,
         fontSize: 14,
-        animation: color === 'overtime' ? 'timer-flash 1s linear infinite' : undefined,
+        animation: shouldPulse ? 'timer-flash 1s linear infinite' : undefined,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span>{snapshot.paused ? '⏸' : '⏱'}</span>
         <span>{snapshot.current_sub_phase}</span>
+        <span
+          style={{
+            fontSize: 11,
+            padding: '1px 6px',
+            borderRadius: 4,
+            background: c.bar,
+            color: '#fff',
+            opacity: 0.85,
+          }}
+          aria-label="time-pressure-level"
+        >
+          {getPressureLabel(pressure)}
+        </span>
         <span style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
           剩 {formatRemaining(snapshot.budget_seconds, snapshot.used_seconds)} /{' '}
           {formatBudget(snapshot.budget_seconds)}

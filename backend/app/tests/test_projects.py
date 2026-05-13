@@ -263,6 +263,92 @@ async def test_ai_crew_count_personas_mismatch(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_leave_keeps_seat_dormant_when_no_humans_remain(client: AsyncClient):
+    """人類離席後若場上 0 人類 → 該席位保留 dormant，作為下一位人類的就座暗示。"""
+    token = await _register_teacher(client, "proj_reserve@test.com")
+    create_resp = await client.post(
+        "/api/projects",
+        json={"name": "Reserve Project", "personas": VALID_PERSONAS_PAYLOAD},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    project_id = create_resp.json()["id"]
+
+    await client.post(
+        f"/api/projects/{project_id}/join",
+        json={"seat_role": "crew_1"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    leave_resp = await client.post(
+        f"/api/projects/{project_id}/leave",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert leave_resp.status_code == 200
+
+    after = await client.get(
+        f"/api/projects/{project_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    crew1 = next(s for s in after.json()["seats"] if s["seat_role"] == "crew_1")
+    assert crew1["occupant_type"] == "ai"
+    assert crew1["is_active"] is False, "離席後場上 0 人類，crew_1 應保留 dormant"
+
+
+@pytest.mark.asyncio
+async def test_leave_ai_takes_over_when_other_humans_remain(client: AsyncClient):
+    """若仍有其他人類在場，AI 立即接手離席者的位子（既有行為）。"""
+    teacher_token = await _register_teacher(client, "proj_resv_t@test.com")
+    create_resp = await client.post(
+        "/api/projects",
+        json={"name": "Reserve Multi", "personas": VALID_PERSONAS_PAYLOAD},
+        headers={"Authorization": f"Bearer {teacher_token}"},
+    )
+    project_id = create_resp.json()["id"]
+
+    # 第二位帳號（學生）作為 second human
+    await client.post(
+        "/api/teacher/students",
+        json={
+            "email": "proj_resv_s@test.com",
+            "password": "pass",
+            "display_name": "Student B",
+            "can_create_project": False,
+        },
+        headers={"Authorization": f"Bearer {teacher_token}"},
+    )
+    login_resp = await client.post(
+        "/api/auth/login",
+        json={"email": "proj_resv_s@test.com", "password": "pass"},
+    )
+    student_token = login_resp.json()["access_token"]
+
+    await client.post(
+        f"/api/projects/{project_id}/join",
+        json={"seat_role": "crew_1"},
+        headers={"Authorization": f"Bearer {teacher_token}"},
+    )
+    await client.post(
+        f"/api/projects/{project_id}/join",
+        json={"seat_role": "crew_2"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+
+    # 老師離席；學生仍在場 → crew_1 應由 AI 立即接手 (is_active=True)
+    leave_resp = await client.post(
+        f"/api/projects/{project_id}/leave",
+        headers={"Authorization": f"Bearer {teacher_token}"},
+    )
+    assert leave_resp.status_code == 200
+
+    after = await client.get(
+        f"/api/projects/{project_id}",
+        headers={"Authorization": f"Bearer {teacher_token}"},
+    )
+    crew1 = next(s for s in after.json()["seats"] if s["seat_role"] == "crew_1")
+    assert crew1["occupant_type"] == "ai"
+    assert crew1["is_active"] is True
+
+
+@pytest.mark.asyncio
 async def test_create_project_rejects_partial_personas(client: AsyncClient):
     token = await _register_teacher(client, "proj_partpers@test.com")
     # Phase 21：personas 數量必須等於 ai_crew_count（預設 3），給 2 位應該 422。

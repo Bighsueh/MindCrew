@@ -14,6 +14,7 @@ interface UseStageOrchestrationResult {
   startPopoverOpen: boolean
   openStartPopover: () => void
   closeStartPopover: () => void
+  toggleStartPopover: () => void
 
   /** 哪些階段的 EmptyState banner 已被使用者收起，不再自動顯示。 */
   bannerDismissedStages: Set<DTStage>
@@ -59,6 +60,7 @@ export function useStageOrchestration({
 
   const openStartPopover = useCallback(() => setStartPopoverOpen(true), [])
   const closeStartPopover = useCallback(() => setStartPopoverOpen(false), [])
+  const toggleStartPopover = useCallback(() => setStartPopoverOpen((v) => !v), [])
 
   const dismissBanner = useCallback((stage: DTStage) => {
     setBannerDismissedStages((prev) => {
@@ -75,6 +77,7 @@ export function useStageOrchestration({
     startPopoverOpen,
     openStartPopover,
     closeStartPopover,
+    toggleStartPopover,
     bannerDismissedStages,
     dismissBanner,
     shapeCount,

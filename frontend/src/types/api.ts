@@ -39,6 +39,23 @@ export interface RefreshRequest {
 
 // ── Projects ──────────────────────────────────────────────────────────────
 
+// specs/16-timer-system.md：老師建立專案時的 timer 配置。
+// 對齊後端 app/timer/schemas.py::TimerConfig，未提供時 backend 走 DEFAULT_2HR_PRESET。
+export interface TimerConfigInput {
+  total_session_minutes: number
+  macro_budgets: {
+    discover: number
+    define: number
+    develop: number
+    deliver: number
+  }
+  sub_phase_overrides?: Record<string, number>
+  warning_thresholds_pct?: number[]
+  auto_advance_on_timeout?: boolean
+  allow_overrun?: boolean
+  preset_id: string
+}
+
 export interface CreateProjectRequest {
   name: string
   description: string
@@ -47,6 +64,8 @@ export interface CreateProjectRequest {
   // Phase 21: 教師可選 AI 組員人數（1–4），預設 3。Persona 數量必須等於此值。
   ai_crew_count: number
   personas: CrewPersonaAssignment[]
+  // specs/16-timer-system.md：未填 → 後端用 DEFAULT_2HR_PRESET。
+  timer_config?: TimerConfigInput
 }
 
 export interface GeneratePersonasRequest {

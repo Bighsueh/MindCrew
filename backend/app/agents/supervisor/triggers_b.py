@@ -59,16 +59,32 @@ async def detect_b_triggers(ctx: dict[str, Any]) -> list[tuple[str, dict[str, st
                     "matched_phrase": text[:60],
                 }))
 
-    # B3: time budget warning — 已過 80% 但 deliverable 未達成
+    # B3 系列：specs/16-timer-system.md §6.5.5 四階遞進壓力 trigger
     used_pct = ctx.get("time_budget_used_pct", 0.0)
     deliverable_done = ctx.get("_deliverable_done", False)
-    if used_pct >= 80.0 and not deliverable_done:
-        remaining = max(0, 100 - int(used_pct))
-        fired.append(("B3_time_budget_warning", {
-            "sub_phase": sub_phase,
-            "used_pct": str(int(used_pct)),
-            "remaining_pct": str(remaining),
-        }))
+    # phase_intent 由 context_buffer 注入；舊呼叫點若沒灌入，預設 transitional
+    # 不會引發發散階段專屬 trigger（B3a / B3c）。
+    phase_intent = ctx.get("phase_intent", "transitional")
+
+    remaining = max(0, 100 - int(used_pct))
+    pressure_payload = {
+        "sub_phase": sub_phase,
+        "used_pct": str(int(used_pct)),
+        "remaining_pct": str(remaining),
+    }
+
+    # critical：≥90% 不論意圖，強制 re-scope（原 B3 改名為 _critical_rescope）
+    if used_pct >= 90.0 and not deliverable_done:
+        fired.append(("B3_critical_rescope", pressure_payload))
+    # B3c：75-90% 仍在發散 → 宣告結束發散
+    elif used_pct >= 75.0 and phase_intent == "divergent":
+        fired.append(("B3c_close_diverge", pressure_payload))
+    # B3b：67-75% 任何意圖 → 停止開新主題，收到候選 ≤ 3
+    elif used_pct >= 67.0:
+        fired.append(("B3b_two_thirds_focus", pressure_payload))
+    # B3a：50-67% 且發散 → 提醒可開始挑潛力候選
+    elif used_pct >= 50.0 and phase_intent == "divergent":
+        fired.append(("B3a_halfway_pivot", pressure_payload))
 
     # B4: phase sync drift — agents at different sub_phases
     # 全 AI 模式下 sub_phase 由 project 統一決定，主要對人類混合模式有用

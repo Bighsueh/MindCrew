@@ -448,6 +448,19 @@ def get_first_sub_phase_of_macro(macro_stage: str) -> str | None:
     return None
 
 
+def get_first_sub_phase_of_micro(micro_phase: str) -> str | None:
+    """First sub-phase id whose parent_micro_phase matches the given micro_phase.
+
+    例：``get_first_sub_phase_of_micro("2.1") -> "2.1"`` 或對應第一個帶字母後綴的
+    sub_phase（如 "1.1a" for "1.1"）。用於 advance_micro_phase / advance_stage 路徑
+    重置 timer 時找到正確的 sub_phase。
+    """
+    for sub_phase_id in SUB_PHASE_ORDER:
+        if SUB_PHASES[sub_phase_id].parent_micro_phase == micro_phase:
+            return sub_phase_id
+    return None
+
+
 def validate_sub_phase_advance(from_id: str, to_id: str) -> bool:
     """Forward advancement only (next-in-sequence)."""
     return get_next_sub_phase(from_id) == to_id

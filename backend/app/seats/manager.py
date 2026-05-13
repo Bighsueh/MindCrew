@@ -114,23 +114,21 @@ class SeatManager:
         seat_role: str,
         session: AsyncSession | None = None,
     ) -> None:
-        """A human is leaving a seat; AI should take over.
+        """A human is leaving a seat.
 
-        Steps:
-        1. Update PostgreSQL seat to AI
-        2. Update Redis
-        3. Broadcast SeatChangedEvent
-        4. Start new AI agent
-        5. AI sends greeting + progress summary
+        若場上仍有其他人類 → AI 立即接手（更新 DB / Redis、廣播、啟動 agent、送 greeting）。
+        若場上 0 人類 → 該席位保留 dormant，留作下一位人類的就座暗示；
+        AI agent 不啟動、不送 greeting，但仍寫 DB / Redis 並廣播給前端。
 
-        If `session` is provided, it is used for the DB update.
+        Supervisor 為 AI-only，不會經由此路徑進入 dormant，但守衛仍保留。
         """
-        # 1. Update PostgreSQL
         agent_id = f"agent_{seat_role}"
         previous_human_name: str = "（未知使用者）"
+        # 是否要保留為 dormant（在 _do_release 內依據剩餘人類數決定）
+        keep_dormant = False
 
         async def _do_release(s: AsyncSession) -> None:
-            nonlocal previous_human_name
+            nonlocal previous_human_name, keep_dormant
             result = await s.execute(
                 select(Seat).where(
                     Seat.project_id == project_id,
@@ -155,12 +153,23 @@ class SeatManager:
                 if user_obj is not None:
                     previous_human_name = user_obj.display_name
 
+            # 計算「扣掉自己」之後仍在場的人類數
+            remaining_humans = await self._count_remaining_humans(
+                s, project_id, excluding_seat_role=seat_role
+            )
+            keep_dormant = remaining_humans == 0 and seat_role != "supervisor"
+
             seat.occupant_type = "ai"
             seat.user_id = None
-            seat.agent_id = agent_id
-            seat.state = "ai_running"
             seat.joined_at = None
             seat.updated_at = datetime.now(timezone.utc)
+            if keep_dormant:
+                # 保留給下一位人類的視覺空位
+                seat.agent_id = None
+                seat.state = "dormant"
+            else:
+                seat.agent_id = agent_id
+                seat.state = "ai_running"
 
         if session is not None:
             await _do_release(session)
@@ -169,12 +178,16 @@ class SeatManager:
                 await _do_release(own_session)
                 await own_session.commit()
 
-        # 2. Update Redis
-        await self._update_redis_seat(project_id, seat_role, "ai", agent_id)
+        # Redis：dormant 時也清掉 agent_id，與其他 dormant 座位一致
+        await self._update_redis_seat(
+            project_id, seat_role, "ai", "" if keep_dormant else agent_id
+        )
 
-        # 3. Broadcast — pull persona for accurate display name
+        # Broadcast — dormant 時 current_display_name 留空，讓前端走 dormant UI 分支
         persona = await self._fetch_seat_persona(project_id, seat_role)
-        ai_display_name = self._role_to_display_name(seat_role, persona)
+        ai_display_name = "" if keep_dormant else self._role_to_display_name(
+            seat_role, persona
+        )
         event = SeatChangedEvent(
             project_id=project_id,
             seat_role=seat_role,
@@ -185,15 +198,37 @@ class SeatManager:
         )
         await event_bus.publish(event)
 
-        # 4. Start AI agent
-        await self._start_agent(project_id, seat_role, agent_id)
+        if keep_dormant:
+            logger.info(
+                "Seat %s in project %s released; no humans remain → kept dormant",
+                seat_role,
+                project_id,
+            )
+            return
 
-        # 5. Greeting + summary
-        await self._send_ai_greeting(project_id, seat_role, agent_id)
+        # Start AI agent silently (no greeting / progress summary — see progress.md 2026-05-11)
+        await self._start_agent(project_id, seat_role, agent_id)
 
         logger.info(
             "Seat %s in project %s released to AI agent %s", seat_role, project_id, agent_id
         )
+
+    async def _count_remaining_humans(
+        self,
+        session: AsyncSession,
+        project_id: UUID,
+        *,
+        excluding_seat_role: str,
+    ) -> int:
+        """同一 project 內，扣掉指定席位以外，目前仍由人類佔用的席位數。"""
+        result = await session.execute(
+            select(Seat).where(
+                Seat.project_id == project_id,
+                Seat.occupant_type == "human",
+                Seat.seat_role != excluding_seat_role,
+            )
+        )
+        return len(list(result.scalars().all()))
 
     async def stop_all_agents(self, project_id: UUID) -> None:
         """Stop all AI agents for a project (e.g. on project close)."""
@@ -239,14 +274,16 @@ class SeatManager:
         project_id: UUID,
         *,
         crew_stagger_seconds: float = 1.0,
+        session: AsyncSession | None = None,
     ) -> None:
         """Phase 21: 第一位真人入座後，把所有 dormant AI 席位轉為 active。
 
-        - Supervisor 立即啟動（含 greeting）。
+        - Supervisor 立即啟動（含 greeting），使用呼叫端 ``session``（若提供），
+          以便和外層交易共用 visibility（測試 fixture 不 commit 時必要）。
         - 其他 dormant crew seats 在 ``crew_stagger_seconds`` 間距內依序啟動，
-          並在 background task 中執行以避免阻塞 HTTP 回應。
+          並在 background task 中執行（用自己的 session）以避免阻塞 HTTP 回應。
         """
-        async with async_session_factory() as session:
+        if session is not None:
             result = await session.execute(
                 select(Seat).where(
                     Seat.project_id == project_id,
@@ -255,6 +292,16 @@ class SeatManager:
                 )
             )
             dormant_seats = list(result.scalars().all())
+        else:
+            async with async_session_factory() as own_session:
+                result = await own_session.execute(
+                    select(Seat).where(
+                        Seat.project_id == project_id,
+                        Seat.occupant_type == "ai",
+                        Seat.state == "dormant",
+                    )
+                )
+                dormant_seats = list(result.scalars().all())
 
         if not dormant_seats:
             return
@@ -266,12 +313,15 @@ class SeatManager:
         crew_seats.sort(key=lambda s: s.seat_role)  # crew_1, crew_2, ...
 
         if supervisor_seat is not None:
-            await self._promote_dormant_seat(project_id, supervisor_seat.seat_role)
+            await self._promote_dormant_seat(
+                project_id, supervisor_seat.seat_role, session=session
+            )
 
         async def _stagger_crew() -> None:
             for idx, seat in enumerate(crew_seats):
                 await asyncio.sleep(crew_stagger_seconds * (idx + 1))
                 try:
+                    # Background path: 使用自己的 session（外層 request 已結束）。
                     await self._promote_dormant_seat(project_id, seat.seat_role)
                 except Exception as exc:  # pragma: no cover - background safety
                     logger.warning(
@@ -282,13 +332,20 @@ class SeatManager:
             asyncio.create_task(_stagger_crew())
 
     async def _promote_dormant_seat(
-        self, project_id: UUID, seat_role: str
+        self,
+        project_id: UUID,
+        seat_role: str,
+        *,
+        session: AsyncSession | None = None,
     ) -> None:
-        """Flip a single seat from dormant → ai_running, start its agent, and broadcast."""
+        """Flip a single seat from dormant → ai_running, start its agent, and broadcast.
+
+        若提供 ``session`` 則沿用之（不 commit，交給外層）；否則開新 session 並 commit。
+        """
         agent_id = f"agent_{seat_role}"
 
-        async with async_session_factory() as session:
-            result = await session.execute(
+        async def _flip(s: AsyncSession, commit: bool) -> bool:
+            result = await s.execute(
                 select(Seat).where(
                     Seat.project_id == project_id,
                     Seat.seat_role == seat_role,
@@ -296,11 +353,23 @@ class SeatManager:
             )
             seat = result.scalar_one_or_none()
             if seat is None or seat.state != "dormant":
-                return
+                return False
             seat.agent_id = agent_id
             seat.state = "ai_running"
             seat.updated_at = datetime.now(timezone.utc)
-            await session.commit()
+            if commit:
+                await s.commit()
+            else:
+                await s.flush()
+            return True
+
+        if session is not None:
+            if not await _flip(session, commit=False):
+                return
+        else:
+            async with async_session_factory() as own_session:
+                if not await _flip(own_session, commit=True):
+                    return
 
         await self._update_redis_seat(project_id, seat_role, "ai", agent_id)
 
@@ -317,9 +386,8 @@ class SeatManager:
         )
         await event_bus.publish(event)
 
-        # Spin up the agent task and let it greet.
+        # Spin up the agent task silently (no greeting / progress summary — see progress.md 2026-05-11)
         await self._start_agent(project_id, seat_role, agent_id)
-        await self._send_ai_greeting(project_id, seat_role, agent_id)
         logger.info(
             "Seat %s in project %s promoted from dormant → ai_running",
             seat_role,
@@ -515,28 +583,6 @@ class SeatManager:
             if seat and seat.occupant_type == "ai":
                 self._restart_counts[key] = count + 1
                 await self._start_agent(project_id, seat_role, agent_id)
-
-    async def _send_ai_greeting(
-        self, project_id: UUID, seat_role: str, agent_id: str
-    ) -> None:
-        """Send greeting and progress summary after AI takes over a seat."""
-        from app.seats.seat_progress import (
-            build_regular_progress_summary,
-            build_supervisor_progress_summary,
-        )
-
-        persona = await self._fetch_seat_persona(project_id, seat_role)
-        agent_name = self._role_to_display_name(seat_role, persona)
-        await self._publish_chat(
-            project_id, agent_id, agent_name, "我來接手了！讓我先看看目前的進度…"
-        )
-        await asyncio.sleep(2.0)
-
-        if seat_role == "supervisor":
-            progress_msg = await build_supervisor_progress_summary(project_id)
-        else:
-            progress_msg = await build_regular_progress_summary(project_id)
-        await self._publish_chat(project_id, agent_id, agent_name, progress_msg)
 
     async def _publish_chat(
         self,

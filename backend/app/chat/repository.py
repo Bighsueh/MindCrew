@@ -110,7 +110,7 @@ class MessageRepository:
         *,
         limit: int = 50,
     ) -> list[Message]:
-        """專供 agent context_buffer / seat_progress 用：**僅 group**。
+        """專供 agent context_buffer 用：**僅 group**。
 
         強制收斂點（spec §4.4、§9.1）——下游 agent 邏輯不直接 ``select(Message)``，
         一律走這個 method，確保任何 LLM prompt 都不會看到 personal 訊息。

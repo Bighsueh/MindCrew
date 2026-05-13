@@ -108,11 +108,13 @@ export function ProjectLobbyPage() {
             onJoin={handleJoin}
             joiningRole={joiningRole}
             joinError={joinError}
+            isLocked={joiningRole !== null}
           />
         </div>
         <ObserverCard
           onEnter={handleEnterWorkspace}
           hasCurrentSeat={!!myCurrentSeat}
+          isLocked={joiningRole !== null}
         />
       </div>
 
@@ -142,6 +144,8 @@ export function ProjectLobbyPage() {
           <ChevronDown size={18} className="animate-bounce-gentle text-text-muted" />
         </button>
       )}
+
+      {joiningRole && <Loading fullScreen text="準備進入工作區…" />}
     </div>
   )
 }

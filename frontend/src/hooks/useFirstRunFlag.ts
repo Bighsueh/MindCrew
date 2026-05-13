@@ -7,9 +7,12 @@ const STORAGE_PREFIX = 'mindcrew.firstrun.'
  * 旗標儲存在 localStorage，跨 session 不再觸發。
  *
  * @param key   邏輯名稱（例如 'workspace-tour'、'stage-bar-bounce'）
- * @returns     [shouldShow, dismiss] — shouldShow=true 代表還沒看過；dismiss() 永久關掉。
+ * @returns     [shouldShow, dismiss, reset]
+ *              - shouldShow=true 代表還沒看過
+ *              - dismiss() 永久關掉
+ *              - reset()   清掉 flag，讓首次體驗重來（給「重新導引」按鈕用）
  */
-export function useFirstRunFlag(key: string): [boolean, () => void] {
+export function useFirstRunFlag(key: string): [boolean, () => void, () => void] {
   const storageKey = STORAGE_PREFIX + key
   const [seen, setSeen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true
@@ -39,5 +42,14 @@ export function useFirstRunFlag(key: string): [boolean, () => void] {
     }
   }, [storageKey])
 
-  return [!seen, dismiss]
+  const reset = useCallback(() => {
+    setSeen(false)
+    try {
+      window.localStorage.removeItem(storageKey)
+    } catch {
+      /* localStorage 不可用時靜默 */
+    }
+  }, [storageKey])
+
+  return [!seen, dismiss, reset]
 }

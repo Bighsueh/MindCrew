@@ -88,6 +88,26 @@ class AssessEngine:
                         },
                     )
 
+        # Rule 0.3: Supervisor awaiting crew reply (Fix #1)
+        # Supervisor 點名某 crew 後，鎖 45s 或直到 crew 回覆，避免連續搶話。
+        if is_supervisor:
+            project_id = context.get("_project_id")
+            if project_id is not None:
+                try:
+                    from app.agents.supervisor.awaiting_reply import check_awaiting_reply
+                    awaited = await check_awaiting_reply(project_id, recent_chat)
+                    if awaited is not None:
+                        return AssessResult(
+                            decision="wait",
+                            rule="rule_0_3_awaiting_reply",
+                            details={
+                                "reason": f"等待 {awaited.display_name}（{awaited.seat_role}）回應",
+                                "awaited_seat": awaited.seat_role,
+                            },
+                        )
+                except Exception:
+                    logger.debug("awaiting-reply check failed", exc_info=True)
+
         # Rule 0: Strategy Gate — OO 策略下只有被 @mention 的人可行動
         if comm_strategy == "one_by_one" and not is_supervisor:
             last_sender_is_supervisor = False
@@ -332,7 +352,7 @@ class AssessEngine:
             am_participant = any(my_seat.lower() in p.lower() for p in participants)
             am_addressed = bool(pending and my_seat.lower() in str(pending).lower())
             if not am_participant and not am_addressed:
-                if comm_strategy in ("simultaneous", "simultaneous_summarizer"):
+                if comm_strategy == "simultaneous":
                     yield_probability = 0.20
                 elif comm_strategy == "one_by_one":
                     yield_probability = 0.70

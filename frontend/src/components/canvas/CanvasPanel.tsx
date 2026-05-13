@@ -3,7 +3,7 @@ import { Tldraw, TLComponents, createTLStore, defaultShapeUtils } from '@tldraw/
 import '@tldraw/tldraw/tldraw.css'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
-import type { DTStage } from '../../types/models'
+import type { DTStage, MicroPhaseId } from '../../types/models'
 import { MiniToolbar } from './MiniToolbar'
 import { ZoomControls } from './ZoomControls'
 import { NoteAuthorOverlay } from './NoteAuthorOverlay'
@@ -13,7 +13,6 @@ import { ZoneOverlay } from './ZoneOverlay'
 import { HmwTabBar } from './HmwTabBar'
 import { CommModeIndicator } from './CommModeIndicator'
 // Phase 17 Stream B (Spec 14 + 15) — Timer + Advance vote
-import { TimerBadge } from '../timer/TimerBadge'
 import { TimerControlPanel } from '../timer/TimerControlPanel'
 import { AdvanceVoteBanner } from '../vote/AdvanceVoteBanner'
 import { useProjectRealtime } from '@/hooks/useProjectRealtime'
@@ -37,6 +36,10 @@ interface CanvasPanelProps {
   onShapeCountChange?: (count: number) => void
   // Phase 20: parent override for EmptyState visibility; fallback = shapeCount === 0
   emptyStateVisible?: boolean
+  // 當 EmptyState 退場動畫（飛入「起頭」chip）完成時觸發 → 父層用來同步 chip flash
+  onEmptyStateHide?: () => void
+  // micro-phase 細粒度 hint（1.1–4.3）
+  currentMicroPhase?: MicroPhaseId | null
 }
 
 // Phase 20: narrow DTStage to the 4 stages the EmptyState recognises (matches STAGE_ACTIONS keys)
@@ -86,6 +89,8 @@ export function CanvasPanel({
   onEmptyStateAction,
   onShapeCountChange,
   emptyStateVisible,
+  onEmptyStateHide,
+  currentMicroPhase,
 }: CanvasPanelProps) {
   // Phase 17 Stream B (Spec 14 + 15): pull timer + vote state
   const { voteSession } = useProjectRealtime(projectId)
@@ -165,8 +170,8 @@ export function CanvasPanel({
         subPhaseName={subPhaseName}
         nextRevealSeat={nextRevealSeat}
       />
-      {/* Phase 17 Stream B (Spec 15): everyone-visible timer */}
-      <TimerBadge />
+      {/* Phase 17 Stream B (Spec 16 §6.5.3): Timer 改放 Workspace navbar（TimerInline）。
+          這裡保留註解便於追蹤；舊浮動 TimerBadge 已下架避免與 navbar 重複。 */}
       {/* Phase 17 Stream B (Spec 15): teacher-only timer control */}
       <TimerControlPanel projectId={projectId} isTeacher={isTeacher} />
       {/* Phase 17 Stream B (Spec 14 N2): Crew advance vote */}
@@ -181,8 +186,10 @@ export function CanvasPanel({
       {onEmptyStateAction !== undefined && (
         <CanvasEmptyState
           stage={asStartActionStage(currentStage)}
+          currentMicroPhase={currentMicroPhase}
           visible={emptyStateVisible ?? shapeCount === 0}
           onActionClick={onEmptyStateAction}
+          onHide={onEmptyStateHide}
         />
       )}
     </div>

@@ -15,8 +15,6 @@ interface SeatChipProps {
   isPopoverOpen: boolean
   onOpenPopover: () => void
   onClosePopover: () => void
-  onDirectMessage?: (seat: Seat) => void
-  onProfileClick?: (seat: Seat) => void
 }
 
 export function SeatChip({
@@ -30,8 +28,6 @@ export function SeatChip({
   isPopoverOpen,
   onOpenPopover,
   onClosePopover,
-  onDirectMessage,
-  onProfileClick,
 }: SeatChipProps) {
   const isAI = seat.occupant_type === 'ai'
   const isSupervisor = seat.seat_role === 'supervisor'
@@ -107,9 +103,8 @@ export function SeatChip({
           displayName={displayName}
           roleLabel={label}
           preview={preview}
+          isCurrentUser={isCurrentUser}
           onClose={onClosePopover}
-          onDirectMessage={onDirectMessage}
-          onProfileClick={onProfileClick}
         />
       )}
     </div>

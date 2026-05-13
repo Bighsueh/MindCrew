@@ -89,6 +89,21 @@ class ProjectService:
             seats.append(seat)
         await self.session.flush()
 
+        # specs/16-timer-system.md：建立專案時同步初始化 timer。
+        # 老師可在 request.timer_config 帶 preset 或自訂 macro budget；
+        # 沒提供就用 DEFAULT_2HR_PRESET。建立後從 sub_phase "1.1a" 自動啟動。
+        try:
+            from app.timer.service import TimerService
+            await TimerService.initialize_project(
+                project.id, config=request.timer_config
+            )
+            await TimerService.start_phase(project.id, "1.1a")
+        except Exception:  # noqa: BLE001 — timer 失敗不該擋 project 建立。
+            import logging
+            logging.getLogger(__name__).exception(
+                "Failed to bootstrap timer for project %s", project.id
+            )
+
         return ProjectResponse(
             id=project.id,
             name=project.name,
@@ -244,7 +259,11 @@ class ProjectService:
 
         if is_first_human:
             # 第一位真人 → 把所有 dormant AI 座位激活（含 supervisor + 其他 crew）。
-            await seat_manager.activate_dormant_seats(project_id)
+            # 傳 self.session 進去，讓 supervisor 的同步激活與本次 request 同交易，
+            # 確保測試 fixture（不 commit）也能看到狀態。
+            await seat_manager.activate_dormant_seats(
+                project_id, session=self.session
+            )
         else:
             # 其他真人 → 只確認既有 AI agents 在跑（idempotent）。
             await seat_manager.start_all_agents(project_id)

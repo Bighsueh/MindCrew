@@ -65,6 +65,21 @@ export function getTimerColor(usedPct: number): 'green' | 'yellow' | 'red' | 'ov
   return 'green'
 }
 
+// specs/16-timer-system.md §6.5.1：對齊後端 PressureLevel 五階。
+export type PressureLevel = 'calm' | 'halfway' | 'two_thirds' | 'tight' | 'critical'
+
+export function getPressureLevel(usedPct: number): PressureLevel {
+  if (usedPct >= 90) return 'critical'
+  if (usedPct >= 75) return 'tight'
+  if (usedPct >= 67) return 'two_thirds'
+  if (usedPct >= 50) return 'halfway'
+  return 'calm'
+}
+
+export function getPressureLabel(level: PressureLevel): string {
+  return { calm: '充裕', halfway: '過半', two_thirds: '剩 1/3', tight: '剩 1/4', critical: '臨界' }[level]
+}
+
 export function formatRemaining(budget: number, used: number): string {
   const remaining = Math.max(0, budget - used)
   const m = Math.floor(remaining / 60)

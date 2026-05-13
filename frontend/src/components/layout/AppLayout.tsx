@@ -1,7 +1,15 @@
 import { Outlet, Link, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
-import { LayoutDashboard, FolderOpen, LogOut } from 'lucide-react'
+import { LayoutDashboard, FolderOpen, LogOut, HelpCircle } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import {
+  startProjectsTour,
+  clearProjectsTourFlag,
+} from '../onboarding/projectsTour'
+import {
+  startTeacherDashboardTour,
+  clearTeacherDashboardTourFlag,
+} from '../onboarding/teacherDashboardTour'
 
 export function AppLayout() {
   const user = useAuthStore((s) => s.user)
@@ -50,6 +58,32 @@ export function AppLayout() {
             {user && (
               <span className="text-sm text-text-muted">{user.display_name}</span>
             )}
+            {(() => {
+              const isProjects = location.pathname === '/projects'
+              const isTeacherDash = location.pathname === '/teacher/dashboard'
+              if (!user?.role) return null
+              if (!isProjects && !isTeacherDash) return null
+              const onClick = () => {
+                if (isProjects) {
+                  clearProjectsTourFlag()
+                  startProjectsTour(user.role)
+                } else {
+                  clearTeacherDashboardTourFlag()
+                  startTeacherDashboardTour()
+                }
+              }
+              return (
+                <button
+                  type="button"
+                  onClick={onClick}
+                  aria-label="重新導引"
+                  title="重新導引"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface hover:text-text cursor-pointer"
+                >
+                  <HelpCircle size={16} />
+                </button>
+              )
+            })()}
             <button
               onClick={logout}
               className="flex items-center gap-1 rounded-lg px-3 py-2 text-sm text-text-muted transition-colors hover:bg-error/10 hover:text-error cursor-pointer"

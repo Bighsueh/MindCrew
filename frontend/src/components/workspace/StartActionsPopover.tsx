@@ -2,23 +2,29 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import {
-  STAGE_ACTIONS,
-  STAGE_LABEL,
+  NarrativeHeader,
   StartActionGrid,
-  type StartActionStage,
 } from '../canvas/CanvasEmptyState'
+import {
+  STAGE_LABEL,
+  resolveStageHint,
+  type StartActionStage,
+} from './stageStartHints'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
+import type { MicroPhaseId } from '../../types/models'
 
 export interface StartActionsPopoverProps {
   open: boolean
   stage: StartActionStage
+  /** Micro-phase 細粒度 hint；命中 1.1–4.3 時優先用 micro 版內容。 */
+  currentMicroPhase?: MicroPhaseId | null
   /** CSS selector for the chip / button to anchor against. */
   anchorSelector: string
   onClose: () => void
   onActionClick?: (actionId: string) => void
 }
 
-const POPOVER_WIDTH = 360
+const POPOVER_WIDTH = 520
 const POPOVER_GAP = 8
 
 interface AnchorRect {
@@ -40,6 +46,7 @@ function measure(selector: string): AnchorRect | null {
 export function StartActionsPopover({
   open,
   stage,
+  currentMicroPhase,
   anchorSelector,
   onClose,
   onActionClick,
@@ -97,7 +104,7 @@ export function StartActionsPopover({
 
   if (!open || !pos) return null
 
-  const actions = STAGE_ACTIONS[stage]
+  const hint = resolveStageHint(stage, currentMicroPhase)
   const stageLabel = STAGE_LABEL[stage]
 
   return createPortal(
@@ -129,9 +136,10 @@ export function StartActionsPopover({
           <X size={14} />
         </button>
       </div>
-      <div className="px-4 pb-4">
+      <div className="flex flex-col gap-2 px-4 pb-4">
+        <NarrativeHeader narrative={hint.narrative} dense />
         <StartActionGrid
-          actions={actions}
+          actions={hint.actions}
           onActionClick={(id) => {
             onActionClick?.(id)
             onClose()
