@@ -28,7 +28,8 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS_PER_CALL: int = 2048
     LLM_PROJECT_RPM_LIMIT: int = 30
     LLM_GLOBAL_RPM_LIMIT: int = 300
-    LLM_CALL_TIMEOUT_SECONDS: int = 25
+    LLM_CALL_TIMEOUT_SECONDS: int = 60
+    LLM_STREAM_CONNECT_TIMEOUT_SECONDS: int = 15
 
     # Embedding (Qwen3-Embedding-8B)
     EMBEDDING_BASE_URL: str = "https://embedding.example.com/v1"

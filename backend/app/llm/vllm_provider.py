@@ -22,6 +22,7 @@ class VLLMProvider(LLMProvider):
         )
         self._model = settings.VLLM_MODEL_NAME
         self._timeout = settings.LLM_CALL_TIMEOUT_SECONDS
+        self._connect_timeout = settings.LLM_STREAM_CONNECT_TIMEOUT_SECONDS
 
     async def chat_completion(
         self,
@@ -39,10 +40,13 @@ class VLLMProvider(LLMProvider):
                     max_tokens=max_tokens,
                     stream=True,
                 ),
-                timeout=self._timeout,
+                timeout=self._connect_timeout,
             )
         except asyncio.TimeoutError:
-            logger.warning("vLLM chat_completion timed out after %ss", self._timeout)
+            logger.warning(
+                "vLLM chat_completion connect timed out after %ss",
+                self._connect_timeout,
+            )
             raise
 
         chunks: list[str] = []
@@ -97,12 +101,12 @@ class VLLMProvider(LLMProvider):
                     max_tokens=max_tokens,
                     stream=True,
                 ),
-                timeout=self._timeout,
+                timeout=self._connect_timeout,
             )
         except asyncio.TimeoutError:
             logger.warning(
                 "vLLM chat_completion_stream connect timed out after %ss",
-                self._timeout,
+                self._connect_timeout,
             )
             raise
 

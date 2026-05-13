@@ -27,6 +27,12 @@ canvasRouter.post('/projects/:id/notes', (req: Request, res: Response) => {
     return
   }
 
+  if (typeof author !== 'string' || author.length === 0) {
+    console.warn('[canvas-api] rejected note: author must be a non-empty string', { author })
+    res.status(400).json({ detail: 'author must be a non-empty string' })
+    return
+  }
+
   const note = addNote(id, content, author, color || 'yellow', position)
   res.status(201).json(note)
 })

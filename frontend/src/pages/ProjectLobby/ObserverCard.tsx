@@ -5,9 +5,15 @@ interface ObserverCardProps {
   onEnter: () => void
   hasCurrentSeat: boolean
   isLocked?: boolean
+  canObserve?: boolean
 }
 
-export function ObserverCard({ onEnter, hasCurrentSeat, isLocked = false }: ObserverCardProps) {
+export function ObserverCard({
+  onEnter,
+  hasCurrentSeat,
+  isLocked = false,
+  canObserve = true,
+}: ObserverCardProps) {
   return (
     <div className="flex flex-col rounded-2xl bg-surface p-6 shadow-md">
       <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-info/10 text-info">
@@ -41,7 +47,8 @@ export function ObserverCard({ onEnter, hasCurrentSeat, isLocked = false }: Obse
             variant="secondary"
             onClick={onEnter}
             className="mt-5 w-full"
-            disabled={isLocked}
+            disabled={isLocked || !canObserve}
+            title={!canObserve ? '僅教師可觀察' : undefined}
           >
             <span className="flex items-center justify-center gap-1.5">
               <Eye size={14} />

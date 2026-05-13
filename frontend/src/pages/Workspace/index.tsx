@@ -133,7 +133,8 @@ export function WorkspacePage() {
     currentProject &&
     user &&
     (currentProject.creator_id === user.id ||
-      currentProject.seats?.some((s) => s.user_id === user.id))
+      currentProject.seats?.some((s) => s.user_id === user.id) ||
+      user.role === 'teacher')
 
   useEffect(() => {
     if (currentProject && user && !hasAccess) {
@@ -279,6 +280,7 @@ export function WorkspacePage() {
                   onShapeCountChange={handleShapeCountChange}
                   onEmptyStateAction={handleEmptyStateAction}
                   onEmptyStateHide={orchestration.flashStartChip}
+                  isObserver={isObserver}
                 />
               </div>
             )}
@@ -314,6 +316,7 @@ export function WorkspacePage() {
               onShapeCountChange={handleShapeCountChange}
               onEmptyStateAction={handleEmptyStateAction}
               onEmptyStateHide={orchestration.flashStartChip}
+              isObserver={isObserver}
             />
           </div>
 
