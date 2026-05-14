@@ -86,7 +86,7 @@ export function TimerInline({ isCreator = false, onActivate }: TimerInlineProps 
         <span aria-hidden="true" className="text-lg leading-none opacity-60">
           ⏱
         </span>
-        <span>老師尚未啟用計時器</span>
+        <span>等待建立者啟用計時器</span>
       </div>
     )
   }

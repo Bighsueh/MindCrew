@@ -33,13 +33,14 @@ async def test_full_flow(client: AsyncClient):
     student_token = login_resp.json()["access_token"]
 
     # 4. Student creates project
-    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD
+    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD, VALID_TIMER_CONFIG
 
     proj_resp = await client.post("/api/projects", json={
         "name": "Flow Project",
         "description": "Full flow test",
         "ai_contribution": "high",
         "personas": VALID_PERSONAS_PAYLOAD,
+        "timer_config": VALID_TIMER_CONFIG,
     }, headers={"Authorization": f"Bearer {student_token}"})
     assert proj_resp.status_code == 201
     project_id = proj_resp.json()["id"]

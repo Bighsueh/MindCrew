@@ -41,4 +41,12 @@ def make_personas_payload(n: int) -> list[dict]:
 VALID_PERSONAS_PAYLOAD: list[dict] = make_personas_payload(3)
 
 
-__all__ = ["VALID_PERSONAS_PAYLOAD", "make_personas_payload"]
+# Spec 16：建立專案時 timer_config 必填。測試共用一個 2hr preset payload。
+VALID_TIMER_CONFIG: dict = {
+    "total_session_minutes": 120,
+    "macro_budgets": {"discover": 45, "define": 30, "develop": 25, "deliver": 20},
+    "preset_id": "timer_preset_2hr",
+}
+
+
+__all__ = ["VALID_PERSONAS_PAYLOAD", "VALID_TIMER_CONFIG", "make_personas_payload"]

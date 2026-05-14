@@ -43,13 +43,14 @@ async def _register(client: AsyncClient, email: str, name: str = "User") -> dict
 
 async def _create_project(client: AsyncClient, token: str) -> UUID:
     """以 teacher 身分建一個 project，回傳 project_id。"""
-    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD
+    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD, VALID_TIMER_CONFIG
 
     resp = await client.post(
         "/api/projects",
         json={
             "name": "Chat ID Test Project",
             "personas": VALID_PERSONAS_PAYLOAD,
+            "timer_config": VALID_TIMER_CONFIG,
         },
         headers={"Authorization": f"Bearer {token}"},
     )
