@@ -104,6 +104,12 @@ class ProjectCreateRequest(BaseModel):
         return self
 
 
+class ProjectTimerInitRequest(BaseModel):
+    """為舊專案補 timer 的 payload。config=None 走 DEFAULT_2HR_PRESET。"""
+
+    config: "TimerConfig | None" = None
+
+
 class SeatResponse(BaseModel):
     seat_role: str
     occupant_type: str

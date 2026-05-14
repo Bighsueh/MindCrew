@@ -29,6 +29,14 @@ export async function createProject(data: CreateProjectRequest): Promise<Project
   return response.data
 }
 
+// specs/16-timer-system.md：舊專案啟用 timer 的 lazy bootstrap。
+export async function initProjectTimer(
+  projectId: string,
+  config?: import('./../types/api').TimerConfigInput,
+): Promise<void> {
+  await api.post(`/projects/${projectId}/timer/init`, { config })
+}
+
 // Spec 13: 強制送出便條（人類限定）
 export interface CreateNoteForceResponse {
   success: boolean

@@ -15,6 +15,7 @@ from app.projects.schemas import (
     ProjectListItem,
     ProjectResponse,
     ProjectSummaryResponse,
+    ProjectTimerInitRequest,
     ProjectUpdateRequest,
     SeatResponse,
 )
@@ -301,3 +302,30 @@ async def timer_extend(
     from app.timer.service import TimerService
     new_config = await TimerService.extend(project_id, payload.additional_minutes)
     return {"success": new_config is not None}
+
+
+@router.post("/{project_id}/timer/init")
+async def timer_init(
+    project_id: UUID,
+    payload: ProjectTimerInitRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """為尚未啟用 timer 的舊專案補上 timer_config + 啟動 sub_phase 1.1a。
+
+    僅限 project creator；timer 已啟用回 409。config=None 走 DEFAULT_2HR_PRESET。
+    """
+    from fastapi import HTTPException
+    from app.timer.service import TimerService
+
+    project = await ProjectService(session).repo.get_by_id(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="專案不存在")
+    if project.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="只有建立者可啟用計時器")
+    if project.timer_config is not None:
+        raise HTTPException(status_code=409, detail="計時器已啟用")
+
+    await TimerService.initialize_project(project_id, config=payload.config)
+    await TimerService.start_phase(project_id, "1.1a")
+    return {"ok": True}
