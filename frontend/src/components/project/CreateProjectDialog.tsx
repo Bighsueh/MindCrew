@@ -237,9 +237,17 @@ export function CreateProjectDialog({
     setPersonas((prev) => (prev.length > clamped ? prev.slice(0, clamped) : prev))
   }
 
+  const isTimerValid = useMemo(
+    () => timerMode !== 'custom' || customTotalMinutes >= 30,
+    [timerMode, customTotalMinutes],
+  )
+
   const canSubmit = useMemo(
-    () => name.trim().length > 0 && personas.length === aiCrewCount,
-    [name, personas.length, aiCrewCount],
+    () =>
+      name.trim().length > 0 &&
+      personas.length === aiCrewCount &&
+      isTimerValid,
+    [name, personas.length, aiCrewCount, isTimerValid],
   )
 
   const handleSubmit = async () => {
@@ -455,8 +463,24 @@ export function CreateProjectDialog({
                       </div>
                     ))}
                   </div>
-                  <div className="rounded-md bg-bg/60 px-2 py-1.5 text-xs text-text-muted">
-                    合計：<span className="font-semibold text-text">{customTotalMinutes} 分鐘</span>
+                  <div
+                    className={cn(
+                      'rounded-md px-2 py-1.5 text-xs',
+                      customTotalMinutes < 30
+                        ? 'bg-error-bg text-error'
+                        : 'bg-bg/60 text-text-muted',
+                    )}
+                  >
+                    合計：
+                    <span className="font-semibold text-text">
+                      {customTotalMinutes} 分鐘
+                    </span>
+                    <span className="ml-2 opacity-80">（限制：30–720 分鐘）</span>
+                    {customTotalMinutes < 30 && (
+                      <span className="ml-2 font-medium">
+                        ⚠ 總時間需 ≥ 30 分鐘才能建立專案
+                      </span>
+                    )}
                   </div>
                 </div>
               )}
@@ -488,10 +512,14 @@ export function CreateProjectDialog({
                     setError('請輸入專案名稱。')
                     return
                   }
+                  if (!isTimerValid) {
+                    setError('時間配置總計需 ≥ 30 分鐘。')
+                    return
+                  }
                   setError('')
                   setStep('personas')
                 }}
-                disabled={!canAdvanceToPersonas}
+                disabled={!canAdvanceToPersonas || !isTimerValid}
               >
                 下一步：設計 AI 隊友
               </Button>
