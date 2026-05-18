@@ -36,7 +36,14 @@ const PRESSURE_BAR_CLASS: Record<PressureLevel, string> = {
   critical: 'bg-red-600',
 }
 
-export function TimerInline() {
+interface TimerInlineProps {
+  /** 是否為專案建立者（老師）：true 時不可用狀態會顯示「啟用」按鈕。 */
+  isCreator?: boolean
+  /** 老師按下「啟用倒數計時器」時呼叫。 */
+  onActivate?: () => void
+}
+
+export function TimerInline({ isCreator = false, onActivate }: TimerInlineProps = {}) {
   const snapshot = useTimerStore((s) => s.snapshot)
   const tick = useTimerStore((s) => s.tick)
 
@@ -46,7 +53,43 @@ export function TimerInline() {
     return () => window.clearInterval(id)
   }, [snapshot.available, snapshot.paused, tick])
 
-  if (!snapshot.available || !snapshot.current_sub_phase) return null
+  // 舊專案（建立時未自動初始化 timer）會收到 available=false。
+  // specs/16-timer-system.md：footer 不再整個消失，改顯示啟用入口或等待提示。
+  if (!snapshot.available || !snapshot.current_sub_phase) {
+    if (isCreator) {
+      return (
+        <button
+          type="button"
+          onClick={onActivate}
+          data-tour-timer=""
+          className={cn(
+            'flex items-center gap-2 rounded-lg border border-dashed border-primary/50 bg-primary/5 px-3 py-2',
+            'min-w-[300px] text-sm text-primary hover:bg-primary/10 transition-colors cursor-pointer',
+          )}
+        >
+          <span aria-hidden="true" className="text-lg leading-none">
+            ⏱
+          </span>
+          <span className="flex-1 text-left font-medium">啟用倒數計時器</span>
+          <span className="text-xs text-text-muted">點此選擇預設</span>
+        </button>
+      )
+    }
+    return (
+      <div
+        data-tour-timer=""
+        className={cn(
+          'flex items-center gap-2 rounded-lg border border-border bg-bg-warm/40 px-3 py-2',
+          'min-w-[300px] text-sm text-text-muted',
+        )}
+      >
+        <span aria-hidden="true" className="text-lg leading-none opacity-60">
+          ⏱
+        </span>
+        <span>等待建立者啟用計時器</span>
+      </div>
+    )
+  }
 
   const pressure = getPressureLevel(snapshot.used_pct)
   const isOvertime = snapshot.used_pct >= 100

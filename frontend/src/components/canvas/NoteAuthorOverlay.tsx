@@ -9,7 +9,16 @@ import { useEditor } from '@tldraw/tldraw'
 import { track, useValue } from '@tldraw/state-react'
 import type { TLShape } from '@tldraw/tldraw'
 
-function parseAuthor(raw: string): { name: string; type: 'ai' | 'human' } {
+export function parseAuthor(raw: unknown): { name: string; type: 'ai' | 'human' } {
+  if (raw && typeof raw === 'object' && 'name' in raw) {
+    const obj = raw as { name: unknown; type?: unknown }
+    const name = typeof obj.name === 'string' && obj.name.length > 0 ? obj.name : '?'
+    const type = obj.type === 'human' ? 'human' : 'ai'
+    return { name, type }
+  }
+  if (typeof raw !== 'string') {
+    return { name: '?', type: 'ai' }
+  }
   const m = raw.match(/^(.+?)\((ai|human)\)$/)
   if (m) return { name: m[1], type: m[2] as 'ai' | 'human' }
   return { name: raw || '?', type: 'ai' }
@@ -20,7 +29,7 @@ export const NoteAuthorOverlay = track(function NoteAuthorOverlay() {
   const hoveredId = useValue('hoveredShapeId', () => editor.getHoveredShapeId(), [editor])
 
   const shapes = editor.getCurrentPageShapes().filter(
-    (s): s is TLShape => s.type === 'note' && !!(s.meta as Record<string, string>).author,
+    (s): s is TLShape => s.type === 'note' && !!(s.meta as Record<string, unknown>).author,
   )
 
   if (shapes.length === 0) return null
@@ -32,9 +41,9 @@ export const NoteAuthorOverlay = track(function NoteAuthorOverlay() {
       {/* Dots on every note */}
       {shapes.map((shape) => {
         const point = editor.pageToViewport({ x: shape.x, y: shape.y })
-        const meta = shape.meta as Record<string, string>
+        const meta = shape.meta as Record<string, unknown>
         const { type } = parseAuthor(meta.author)
-        const movingBy = meta._moving_by
+        const movingBy = typeof meta._moving_by === 'string' ? meta._moving_by : ''
 
         return (
           <div
@@ -79,8 +88,8 @@ export const NoteAuthorOverlay = track(function NoteAuthorOverlay() {
         if (!shape) return null
 
         const point = editor.pageToViewport({ x: shape.x, y: shape.y })
-        const meta = shape.meta as Record<string, string>
-        const movingBy = meta._moving_by
+        const meta = shape.meta as Record<string, unknown>
+        const movingBy = typeof meta._moving_by === 'string' ? meta._moving_by : ''
 
         if (movingBy) {
           // Show "moving by" badge instead of author

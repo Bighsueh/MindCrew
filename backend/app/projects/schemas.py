@@ -76,9 +76,9 @@ class ProjectCreateRequest(BaseModel):
     personas: list[CrewPersonaAssignment] = Field(
         ..., min_length=MIN_AI_CREW, max_length=MAX_AI_CREW
     )
-    # specs/16-timer-system.md：老師建立專案時可選擇 preset 或自訂 macro budget。
-    # 未提供時走 DEFAULT_2HR_PRESET（120 分鐘 / 4 macro phases）。
-    timer_config: "TimerConfig | None" = None
+    # specs/16-timer-system.md：建立者必須明確選擇 timer preset / 自訂 macro budget。
+    # 未來開放學生自助建專案後，這個必填確保不會出現「沒人啟用 timer」的狀況。
+    timer_config: "TimerConfig" = Field(..., description="必填：建立者選的 preset 或自訂配置")
 
     @model_validator(mode="after")
     def _validate_personas_match_crew_count(self) -> "ProjectCreateRequest":
@@ -102,6 +102,12 @@ class ProjectCreateRequest(BaseModel):
                 f"personas: 多出 {sorted(extra)}，僅允許 {list(expected)}"
             )
         return self
+
+
+class ProjectTimerInitRequest(BaseModel):
+    """為舊專案補 timer 的 payload。config=None 走 DEFAULT_2HR_PRESET。"""
+
+    config: "TimerConfig | None" = None
 
 
 class SeatResponse(BaseModel):

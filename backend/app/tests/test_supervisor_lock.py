@@ -27,7 +27,7 @@ async def _register(client: AsyncClient, email: str, role: str = "teacher") -> s
 
 
 async def _create_project(client: AsyncClient, token: str, name: str = "Lock Test") -> str:
-    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD
+    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD, VALID_TIMER_CONFIG
 
     resp = await client.post(
         "/api/projects",
@@ -35,6 +35,7 @@ async def _create_project(client: AsyncClient, token: str, name: str = "Lock Tes
             "name": name,
             "ai_contribution": "medium",
             "personas": VALID_PERSONAS_PAYLOAD,
+            "timer_config": VALID_TIMER_CONFIG,
         },
         headers={"Authorization": f"Bearer {token}"},
     )

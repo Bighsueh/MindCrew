@@ -46,9 +46,10 @@ services:
       LLM_MAX_TOKENS_PER_CALL: ${LLM_MAX_TOKENS_PER_CALL:-2048}
       LLM_PROJECT_RPM_LIMIT: ${LLM_PROJECT_RPM_LIMIT:-30}
       LLM_GLOBAL_RPM_LIMIT: ${LLM_GLOBAL_RPM_LIMIT:-300}
-      LLM_CALL_TIMEOUT_SECONDS: "30"  # 顯式設定，防止被 .env 覆蓋
+      LLM_CALL_TIMEOUT_SECONDS: "60"  # 顯式設定，防止被 .env 覆蓋
+      LLM_STREAM_CONNECT_TIMEOUT_SECONDS: "15"
       APP_ENV: production
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,https://frontend.mindcrew.orb.local,https://backend.mindcrew.orb.local}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-dummy}
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://embedding.example.com/v1}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-8B}
@@ -75,6 +76,9 @@ services:
     networks:
       - mindcrew
     restart: unless-stopped
+    labels:
+      dev.orbstack.domains: backend.mindcrew.orb.local
+      dev.orbstack.http_port: "8000"
 
   sidecar:
     build:
@@ -103,6 +107,9 @@ services:
     networks:
       - mindcrew
     restart: unless-stopped
+    labels:
+      dev.orbstack.domains: frontend.mindcrew.orb.local
+      dev.orbstack.http_port: "80"
 
 networks:
   mindcrew:

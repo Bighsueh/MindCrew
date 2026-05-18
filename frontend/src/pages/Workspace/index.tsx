@@ -8,6 +8,8 @@ import { useAuthStore } from '../../stores/authStore'
 import { advanceStage, leaveProject, getStage } from '../../services/projectService'
 import { DoubleDiamondProgress } from '../../components/progress/DoubleDiamondProgress'
 import { TimerInline } from '../../components/timer/TimerInline'
+import { InitTimerDialog } from '../../components/timer/InitTimerDialog'
+import { useTimerStore } from '../../stores/timerStore'
 import { ConnectionBanner } from '../../components/workspace/ConnectionBanner'
 import { SeatBar } from '../../components/workspace/SeatBar'
 import { ChatPanel } from '../../components/chat/ChatPanel'
@@ -63,6 +65,8 @@ export function WorkspacePage() {
 
   const [showAdvanceModal, setShowAdvanceModal] = useState(false)
   const [showPersonasPanel, setShowPersonasPanel] = useState(false)
+  // 舊專案缺 timer_config 時，老師可從 footer 啟用倒數計時。
+  const [showInitTimer, setShowInitTimer] = useState(false)
   // 「重新導引」按鈕用：遞增 nonce 強制重開 OnboardingModal
   const [onboardingForceNonce, setOnboardingForceNonce] = useState(0)
   const [isAdvancing, setIsAdvancing] = useState(false)
@@ -133,7 +137,8 @@ export function WorkspacePage() {
     currentProject &&
     user &&
     (currentProject.creator_id === user.id ||
-      currentProject.seats?.some((s) => s.user_id === user.id))
+      currentProject.seats?.some((s) => s.user_id === user.id) ||
+      user.role === 'teacher')
 
   useEffect(() => {
     if (currentProject && user && !hasAccess) {
@@ -279,6 +284,7 @@ export function WorkspacePage() {
                   onShapeCountChange={handleShapeCountChange}
                   onEmptyStateAction={handleEmptyStateAction}
                   onEmptyStateHide={orchestration.flashStartChip}
+                  isObserver={isObserver}
                 />
               </div>
             )}
@@ -314,6 +320,7 @@ export function WorkspacePage() {
               onShapeCountChange={handleShapeCountChange}
               onEmptyStateAction={handleEmptyStateAction}
               onEmptyStateHide={orchestration.flashStartChip}
+              isObserver={isObserver}
             />
           </div>
 
@@ -345,7 +352,10 @@ export function WorkspacePage() {
             />
           </div>
 
-          <TimerInline />
+          <TimerInline
+            isCreator={currentProject?.creator_id === user?.id}
+            onActivate={() => setShowInitTimer(true)}
+          />
 
           <div className="flex-1 flex justify-end items-center gap-2">
             {currentProject?.creator_id === user?.id && (
@@ -407,6 +417,25 @@ export function WorkspacePage() {
           seats={seats}
           onClose={() => setShowPersonasPanel(false)}
           onUpdated={(updatedSeat) => updateSeat(updatedSeat.seat_role, updatedSeat)}
+        />
+      )}
+
+      {/* 舊專案啟用 timer（specs/16-timer-system.md） */}
+      {id && (
+        <InitTimerDialog
+          isOpen={showInitTimer}
+          projectId={id}
+          onClose={() => setShowInitTimer(false)}
+          onInitialized={() => {
+            setShowInitTimer(false)
+            // 立即把 store 標 available=true 讓 footer 馬上反應；
+            // useProjectRealtime 5s polling 會接著用真實 budget/used_seconds 蓋過。
+            useTimerStore.getState().setSnapshot({
+              available: true,
+              current_sub_phase: '1.1a',
+              paused: false,
+            })
+          }}
         />
       )}
     </div>

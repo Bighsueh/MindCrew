@@ -72,13 +72,14 @@ async def _make_teacher(db_session: AsyncSession, user_id: UUID) -> None:
 
 
 async def _create_project(client: AsyncClient, token: str) -> UUID:
-    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD
+    from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD, VALID_TIMER_CONFIG
 
     resp = await client.post(
         "/api/projects",
         json={
             "name": "Personal Isolation Test Project",
             "personas": VALID_PERSONAS_PAYLOAD,
+            "timer_config": VALID_TIMER_CONFIG,
         },
         headers={"Authorization": f"Bearer {token}"},
     )

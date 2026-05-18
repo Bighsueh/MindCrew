@@ -64,8 +64,8 @@ export interface CreateProjectRequest {
   // Phase 21: 教師可選 AI 組員人數（1–4），預設 3。Persona 數量必須等於此值。
   ai_crew_count: number
   personas: CrewPersonaAssignment[]
-  // specs/16-timer-system.md：未填 → 後端用 DEFAULT_2HR_PRESET。
-  timer_config?: TimerConfigInput
+  // specs/16-timer-system.md：建立者必須明確選 preset 或自訂；後端拒絕缺值。
+  timer_config: TimerConfigInput
 }
 
 export interface GeneratePersonasRequest {

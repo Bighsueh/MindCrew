@@ -1,7 +1,7 @@
 import pytest
 from httpx import AsyncClient
 
-from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD
+from app.tests._persona_fixtures import VALID_PERSONAS_PAYLOAD, VALID_TIMER_CONFIG
 
 
 async def _register_teacher(client: AsyncClient, email: str) -> str:
@@ -21,6 +21,7 @@ async def test_create_project(client: AsyncClient):
         "description": "A test project",
         "ai_contribution": "medium",
         "personas": VALID_PERSONAS_PAYLOAD,
+        "timer_config": VALID_TIMER_CONFIG,
     }, headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 201
     data = resp.json()
@@ -38,6 +39,7 @@ async def test_list_projects(client: AsyncClient):
     await client.post("/api/projects", json={
         "name": "List Project",
         "personas": VALID_PERSONAS_PAYLOAD,
+        "timer_config": VALID_TIMER_CONFIG,
     }, headers={"Authorization": f"Bearer {token}"})
     resp = await client.get("/api/projects", headers={
         "Authorization": f"Bearer {token}",
@@ -52,6 +54,7 @@ async def test_get_project(client: AsyncClient):
     create_resp = await client.post("/api/projects", json={
         "name": "Get Project",
         "personas": VALID_PERSONAS_PAYLOAD,
+        "timer_config": VALID_TIMER_CONFIG,
     }, headers={"Authorization": f"Bearer {token}"})
     project_id = create_resp.json()["id"]
     resp = await client.get(f"/api/projects/{project_id}", headers={
@@ -69,6 +72,7 @@ async def test_join_and_leave(client: AsyncClient):
     create_resp = await client.post("/api/projects", json={
         "name": "Join Project",
         "personas": VALID_PERSONAS_PAYLOAD,
+        "timer_config": VALID_TIMER_CONFIG,
     }, headers={"Authorization": f"Bearer {token}"})
     project_id = create_resp.json()["id"]
 
@@ -108,6 +112,7 @@ async def test_join_occupied_seat(client: AsyncClient):
     create_resp = await client.post("/api/projects", json={
         "name": "Occupied Project",
         "personas": VALID_PERSONAS_PAYLOAD,
+        "timer_config": VALID_TIMER_CONFIG,
     }, headers={"Authorization": f"Bearer {token}"})
     project_id = create_resp.json()["id"]
 
@@ -143,6 +148,7 @@ async def test_student_no_permission_cannot_create(client: AsyncClient):
     resp = await client.post("/api/projects", json={
         "name": "Should Fail",
         "personas": VALID_PERSONAS_PAYLOAD,
+        "timer_config": VALID_TIMER_CONFIG,
     }, headers={"Authorization": f"Bearer {student_token}"})
     assert resp.status_code == 403
 
@@ -165,7 +171,7 @@ async def test_one_human_one_seat_in_project(client: AsyncClient):
     token = await _register_teacher(client, "proj_1seat@test.com")
     create_resp = await client.post(
         "/api/projects",
-        json={"name": "1-Seat Project", "personas": VALID_PERSONAS_PAYLOAD},
+        json={"name": "1-Seat Project", "personas": VALID_PERSONAS_PAYLOAD, "timer_config": VALID_TIMER_CONFIG},
         headers={"Authorization": f"Bearer {token}"},
     )
     project_id = create_resp.json()["id"]
@@ -193,7 +199,7 @@ async def test_first_human_activates_dormant_seats(client: AsyncClient):
     token = await _register_teacher(client, "proj_activate@test.com")
     create_resp = await client.post(
         "/api/projects",
-        json={"name": "Activate Project", "personas": VALID_PERSONAS_PAYLOAD},
+        json={"name": "Activate Project", "personas": VALID_PERSONAS_PAYLOAD, "timer_config": VALID_TIMER_CONFIG},
         headers={"Authorization": f"Bearer {token}"},
     )
     project_id = create_resp.json()["id"]
@@ -235,6 +241,7 @@ async def test_custom_ai_crew_count(client: AsyncClient):
             "name": "Mini Project",
             "ai_crew_count": 1,
             "personas": make_personas_payload(1),
+            "timer_config": VALID_TIMER_CONFIG,
         },
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -256,6 +263,7 @@ async def test_ai_crew_count_personas_mismatch(client: AsyncClient):
             "name": "Mismatch Project",
             "ai_crew_count": 4,
             "personas": make_personas_payload(2),  # only 2 — should fail
+            "timer_config": VALID_TIMER_CONFIG,
         },
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -268,7 +276,7 @@ async def test_leave_keeps_seat_dormant_when_no_humans_remain(client: AsyncClien
     token = await _register_teacher(client, "proj_reserve@test.com")
     create_resp = await client.post(
         "/api/projects",
-        json={"name": "Reserve Project", "personas": VALID_PERSONAS_PAYLOAD},
+        json={"name": "Reserve Project", "personas": VALID_PERSONAS_PAYLOAD, "timer_config": VALID_TIMER_CONFIG},
         headers={"Authorization": f"Bearer {token}"},
     )
     project_id = create_resp.json()["id"]
@@ -299,7 +307,7 @@ async def test_leave_ai_takes_over_when_other_humans_remain(client: AsyncClient)
     teacher_token = await _register_teacher(client, "proj_resv_t@test.com")
     create_resp = await client.post(
         "/api/projects",
-        json={"name": "Reserve Multi", "personas": VALID_PERSONAS_PAYLOAD},
+        json={"name": "Reserve Multi", "personas": VALID_PERSONAS_PAYLOAD, "timer_config": VALID_TIMER_CONFIG},
         headers={"Authorization": f"Bearer {teacher_token}"},
     )
     project_id = create_resp.json()["id"]
@@ -357,6 +365,7 @@ async def test_create_project_rejects_partial_personas(client: AsyncClient):
         json={
             "name": "Partial Personas",
             "personas": VALID_PERSONAS_PAYLOAD[:2],  # only crew_1, crew_2
+            "timer_config": VALID_TIMER_CONFIG,
         },
         headers={"Authorization": f"Bearer {token}"},
     )

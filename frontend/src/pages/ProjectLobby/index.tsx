@@ -115,6 +115,9 @@ export function ProjectLobbyPage() {
           onEnter={handleEnterWorkspace}
           hasCurrentSeat={!!myCurrentSeat}
           isLocked={joiningRole !== null}
+          canObserve={
+            user?.role === 'teacher' || currentProject.creator_id === user?.id
+          }
         />
       </div>
 

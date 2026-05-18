@@ -40,6 +40,8 @@ interface CanvasPanelProps {
   onEmptyStateHide?: () => void
   // micro-phase 細粒度 hint（1.1–4.3）
   currentMicroPhase?: MicroPhaseId | null
+  // Observer mode → render tldraw in read-only mode
+  isObserver?: boolean
 }
 
 // Phase 20: narrow DTStage to the 4 stages the EmptyState recognises (matches STAGE_ACTIONS keys)
@@ -91,6 +93,7 @@ export function CanvasPanel({
   emptyStateVisible,
   onEmptyStateHide,
   currentMicroPhase,
+  isObserver = false,
 }: CanvasPanelProps) {
   // Phase 17 Stream B (Spec 14 + 15): pull timer + vote state
   const { voteSession } = useProjectRealtime(projectId)
@@ -154,6 +157,9 @@ export function CanvasPanel({
         store={store}
         inferDarkMode={false}
         components={TLDRAW_COMPONENTS}
+        onMount={(editor) => {
+          editor.updateInstanceState({ isReadonly: isObserver })
+        }}
       >
         <AnimatedYjsBridge shapesMap={shapesMap} store={store} />
         <MiniToolbar />

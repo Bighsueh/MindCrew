@@ -55,7 +55,7 @@ function buildRecord(
     isLocked: false,
     opacity: 1,
     meta: {
-      author: (shape.author as string) || '',
+      author: typeof shape.author === 'string' ? shape.author : '',
       _moving_by: (shape._moving_by as string) || '',
     },
     props: {
