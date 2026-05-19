@@ -10,6 +10,7 @@ import { Loading } from '../../components/common/Loading'
 import { LobbyHeader } from './LobbyHeader'
 import { SeatSelectionGrid } from './SeatSelectionGrid'
 import { ObserverCard } from './ObserverCard'
+import { JoinSeatCard } from './JoinSeatCard'
 import { InfoTabs } from './InfoTabs'
 import type { SeatRole } from '../../types/models'
 
@@ -47,9 +48,19 @@ export function ProjectLobbyPage() {
       await joinProject(id, { seat_role: seatRole })
       navigate(`/projects/${id}/workspace`)
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status
+      const errObj = err as {
+        response?: { status?: number; data?: { detail?: string } }
+      }
+      const status = errObj?.response?.status
+      const detail = errObj?.response?.data?.detail ?? ''
       if (status === 409) {
-        setJoinError('此席位已被其他人類佔用，請選擇其他席位。')
+        if (detail.includes('already has a human participant')) {
+          setJoinError('此學習活動已有人類參與者。')
+        } else if (detail.includes('already occupy')) {
+          setJoinError('你已經在這個學習活動中佔有一個席位。')
+        } else {
+          setJoinError('此席位已被其他人類佔用，請選擇其他席位。')
+        }
       } else {
         setJoinError('加入失敗，請稍後再試。')
       }
@@ -57,6 +68,17 @@ export function ProjectLobbyPage() {
       setJoiningRole(null)
     }
   }
+
+  const isTeacherView =
+    user?.role === 'teacher' || currentProject?.creator_id === user?.id
+
+  const firstAvailableCrewRole = (
+    seats.find(
+      (s) => s.seat_role !== 'supervisor' && s.occupant_type !== 'human',
+    )?.seat_role ?? null
+  ) as SeatRole | null
+
+  const projectHasHuman = seats.some((s) => s.occupant_type === 'human')
 
   const handleEnterWorkspace = () => {
     navigate(`/projects/${id}/workspace`)
@@ -93,7 +115,7 @@ export function ProjectLobbyPage() {
   }, [])
 
   if (isLoading || !currentProject) {
-    return <Loading fullScreen text="載入專案資訊…" />
+    return <Loading fullScreen text="載入活動資訊…" />
   }
 
   return (
@@ -109,16 +131,29 @@ export function ProjectLobbyPage() {
             joiningRole={joiningRole}
             joinError={joinError}
             isLocked={joiningRole !== null}
+            hideJoinButtons={!isTeacherView}
+            hideObserverHint={!isTeacherView}
           />
         </div>
-        <ObserverCard
-          onEnter={handleEnterWorkspace}
-          hasCurrentSeat={!!myCurrentSeat}
-          isLocked={joiningRole !== null}
-          canObserve={
-            user?.role === 'teacher' || currentProject.creator_id === user?.id
-          }
-        />
+        {isTeacherView ? (
+          <ObserverCard
+            onEnter={handleEnterWorkspace}
+            hasCurrentSeat={!!myCurrentSeat}
+            isLocked={joiningRole !== null}
+            canObserve
+          />
+        ) : (
+          <JoinSeatCard
+            onJoin={() =>
+              firstAvailableCrewRole && handleJoin(firstAvailableCrewRole)
+            }
+            onEnter={handleEnterWorkspace}
+            hasCurrentSeat={!!myCurrentSeat}
+            canJoin={firstAvailableCrewRole !== null}
+            isLocked={joiningRole !== null}
+            projectFull={projectHasHuman && !myCurrentSeat}
+          />
+        )}
       </div>
 
       <div ref={infoTabsRef} className="mt-6">

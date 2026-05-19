@@ -21,6 +21,13 @@ class Project(Base):
     creator_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("user.id"), nullable=False
     )
+    # Phase 22：活動邀請碼（教師輸入此碼即可列管該活動）+ 已列管的教師
+    invite_code: Mapped[str] = mapped_column(
+        String(8), unique=True, nullable=False, index=True
+    )
+    linked_teacher_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id"), nullable=True
+    )
     current_stage: Mapped[str] = mapped_column(
         String(20), nullable=False, default="discover"
     )
@@ -54,4 +61,5 @@ class Project(Base):
     __table_args__ = (
         Index("idx_project_creator", "creator_id"),
         Index("idx_project_status", "status"),
+        Index("idx_project_linked_teacher", "linked_teacher_id"),
     )

@@ -79,6 +79,8 @@ class ProjectCreateRequest(BaseModel):
     # specs/16-timer-system.md：建立者必須明確選擇 timer preset / 自訂 macro budget。
     # 未來開放學生自助建專案後，這個必填確保不會出現「沒人啟用 timer」的狀況。
     timer_config: "TimerConfig" = Field(..., description="必填：建立者選的 preset 或自訂配置")
+    # Phase 22：學生建立活動時可選填教師的 signature_code 直接列管
+    teacher_signature_code: str | None = Field(default=None, max_length=8)
 
     @model_validator(mode="after")
     def _validate_personas_match_crew_count(self) -> "ProjectCreateRequest":
@@ -119,6 +121,15 @@ class SeatResponse(BaseModel):
     persona: dict[str, Any] | None = None
     # Phase 21: 在第一位真人入座前 AI 為 "dormant"——前端據此顯示「待加入」。
     is_active: bool = True
+    # Phase 22：席位識別色（首次出聲後鎖定；前端聊天氣泡＋便利貼預設色）
+    sticky_color: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class LinkedTeacherInfo(BaseModel):
+    id: UUID
+    display_name: str
 
     model_config = {"from_attributes": True}
 
@@ -134,6 +145,9 @@ class ProjectResponse(BaseModel):
     creator_id: UUID
     seats: list[SeatResponse] = []
     created_at: datetime
+    # Phase 22
+    invite_code: str | None = None
+    linked_teacher: LinkedTeacherInfo | None = None
 
     model_config = {"from_attributes": True}
 
@@ -148,8 +162,19 @@ class ProjectListItem(BaseModel):
     seat_summary: dict[str, int]
     created_at: datetime
     updated_at: datetime
+    # Phase 22
+    invite_code: str | None = None
+    linked_teacher: LinkedTeacherInfo | None = None
 
     model_config = {"from_attributes": True}
+
+
+class LinkTeacherRequest(BaseModel):
+    signature_code: str = Field(..., min_length=4, max_length=8)
+
+
+class TrackByInviteCodeRequest(BaseModel):
+    invite_code: str = Field(..., min_length=4, max_length=8)
 
 
 class ProjectUpdateRequest(BaseModel):

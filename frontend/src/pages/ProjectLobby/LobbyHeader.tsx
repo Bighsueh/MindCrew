@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { ChevronLeft } from 'lucide-react'
 import { PhaseIndicator } from '../../components/common/PhaseIndicator'
 import { DoubleDiamondProgress } from '../../components/progress/DoubleDiamondProgress'
+import { LobbyEnrollmentRow } from './LobbyEnrollmentRow'
 import type { Project } from '../../types/models'
 
 const AI_LABELS: Record<string, string> = {
@@ -24,21 +25,24 @@ export function LobbyHeader({ project }: LobbyHeaderProps) {
           className="flex items-center gap-1 rounded-md px-2 py-1 hover:text-text hover:bg-surface transition-colors"
         >
           <ChevronLeft size={16} />
-          返回專案列表
+          返回學習活動
         </Link>
       </div>
 
-      {/* Title row */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold text-text">{project.name}</h1>
-            <PhaseIndicator phase={project.current_stage} />
-          </div>
-          <p className="mt-1.5 text-sm text-text-muted">
-            AI 貢獻度：{AI_LABELS[project.ai_contribution] ?? project.ai_contribution}
-          </p>
+      {/* Title row（活動名 + 階段 + AI 貢獻度） */}
+      <div>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-3xl font-bold text-text">{project.name}</h1>
+          <PhaseIndicator phase={project.current_stage} />
         </div>
+        <p className="mt-1.5 text-sm text-text-muted">
+          AI 貢獻度：{AI_LABELS[project.ai_contribution] ?? project.ai_contribution}
+        </p>
+      </div>
+
+      {/* Phase 22 / UX revamp：邀請老師指導（獨立一條橫向 bar） */}
+      <div className="mt-5">
+        <LobbyEnrollmentRow project={project} />
       </div>
 
       {/* Double Diamond Progress */}

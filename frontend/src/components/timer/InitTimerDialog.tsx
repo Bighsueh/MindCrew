@@ -66,7 +66,7 @@ export function InitTimerDialog({
     <Modal isOpen={isOpen} onClose={onClose} title="啟用倒數計時器" maxWidth="xl">
       <div className="flex flex-col gap-5">
         <p className="text-sm text-text-muted">
-          這個專案建立時尚未設定計時器。選一個預設或自訂時間後，所有人就能在頁面下方看到倒數。
+          這個學習活動建立時尚未設定計時器。選一個預設或自訂時間後，所有人就能在頁面下方看到倒數。
           啟用後會從 <span className="font-semibold text-text">sub_phase 1.1a</span> 開始計時。
         </p>
 

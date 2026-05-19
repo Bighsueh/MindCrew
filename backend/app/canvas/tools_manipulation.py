@@ -198,11 +198,17 @@ async def tool_create_note(
             },
         }
 
+    # Phase 22：若該席位有鎖定色，覆蓋呼叫端傳入的 color（system author 不 override）
+    from app.seats.colors import lookup_color_for_author
+
+    seat_color = await lookup_color_for_author(project_id, author_id, author_type)
+    effective_color = seat_color or color
+
     note_id = await canvas_ops.add_note(
         project_id=project_id,
         content=converted_text,
         position={"x": x, "y": y},
-        color=color,
+        color=effective_color,
         author_id=author_id,
         author_name=author_name,
         author_type=author_type,

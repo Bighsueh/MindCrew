@@ -129,7 +129,7 @@ export function ProjectsPage() {
         <div data-tour="projects-hero" className="flex items-end justify-between">
           <div>
             <h1 className="text-3xl font-bold text-text">{greeting}</h1>
-            <p className="mt-1 text-base text-text-muted">管理你的設計思考專案</p>
+            <p className="mt-1 text-base text-text-muted">管理你的設計思考學習活動</p>
           </div>
           {canCreateProject && (
             <Button
@@ -138,16 +138,18 @@ export function ProjectsPage() {
               onClick={() => setShowCreate(true)}
             >
               <Plus size={16} />
-              新增專案
+              新增學習活動
             </Button>
           )}
         </div>
 
-        <div data-tour="projects-stats" className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <StatCard icon={FolderOpen} label="全部專案" value={stats.total} accent="bg-primary/10 text-primary" delay={0} />
-          <StatCard icon={Sparkles} label="進行中" value={stats.active} accent="bg-info/10 text-info" delay={100} />
-          <StatCard icon={CheckCircle2} label="已完成" value={stats.completed} accent="bg-success/10 text-success" delay={200} />
-        </div>
+        {projects.length > 0 && (
+          <div data-tour="projects-stats" className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <StatCard icon={FolderOpen} label="全部活動" value={stats.total} accent="bg-primary/10 text-primary" delay={0} />
+            <StatCard icon={Sparkles} label="進行中" value={stats.active} accent="bg-info/10 text-info" delay={100} />
+            <StatCard icon={CheckCircle2} label="已完成" value={stats.completed} accent="bg-success/10 text-success" delay={200} />
+          </div>
+        )}
       </div>
 
       {/* Filter + Search */}
@@ -175,7 +177,7 @@ export function ProjectsPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜尋專案名稱…"
+            placeholder="搜尋學習活動名稱…"
             className="w-full rounded-xl border border-border-light bg-surface py-2.5 pl-9 pr-3 text-sm text-text shadow-sm
                        placeholder:text-text-muted
                        focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
@@ -195,9 +197,9 @@ export function ProjectsPage() {
             <StickyNoteSVG color="#D4E4C8" rotation={3} text="點子" float floatDelay="1s" />
             <StickyNoteSVG color="#C8D8E8" rotation={-2} text="方案" float floatDelay="2s" />
           </div>
-          <h3 className="mt-6 text-lg font-semibold text-text">尚無專案</h3>
-          <p className="mt-1 text-sm text-text-muted">
-            {canCreateProject ? '點擊「新增專案」開始你的設計思考之旅。' : '等待老師邀請你加入專案。'}
+          <h3 className="mt-6 text-2xl font-bold text-text">尚無學習活動</h3>
+          <p className="mt-2 text-base text-text-muted">
+            {canCreateProject ? '點擊「新增學習活動」開始你的設計思考之旅。' : '等待老師邀請你加入學習活動。'}
           </p>
           {canCreateProject && (
             <Button
@@ -205,14 +207,14 @@ export function ProjectsPage() {
               className="mt-5 rounded-full px-8"
               onClick={() => setShowCreate(true)}
             >
-              建立第一個專案
+              建立第一個學習活動
             </Button>
           )}
         </div>
       ) : filteredProjects.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl bg-bg-warm py-12 text-center">
           <Search size={32} className="text-text-muted/40" />
-          <p className="mt-3 text-sm text-text-muted">找不到符合條件的專案</p>
+          <p className="mt-3 text-sm text-text-muted">找不到符合條件的學習活動</p>
         </div>
       ) : (
         <div className="flex flex-col gap-8">

@@ -237,7 +237,7 @@ function BriefingField({ label, value, onGoToSettings }: BriefingFieldProps) {
               onClick={onGoToSettings}
               className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
             >
-              前往專案設定補上 <ExternalLink size={12} />
+              前往活動設定補上 <ExternalLink size={12} />
             </button>
           )}
         </div>

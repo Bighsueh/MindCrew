@@ -24,6 +24,14 @@ import {
   DEFAULT_CUSTOM_BUDGETS,
   type TimerMode,
 } from '../timer/TimerConfigForm'
+import {
+  ConstraintsField,
+  EMPTY_SIMPLE_CONSTRAINTS,
+  buildSimpleConstraintsText,
+  type ConstraintsMode,
+  type SimpleConstraints,
+} from './ConstraintsField'
+import { useAuthStore } from '../../stores/authStore'
 
 interface CreateProjectDialogProps {
   isOpen: boolean
@@ -36,6 +44,59 @@ const AI_LEVELS: { value: AIContribution; label: string; description: string }[]
   { value: 'medium', label: '中', description: 'AI 與人類均衡協作' },
   { value: 'high', label: '高', description: 'AI 積極參與，提供大量洞察' },
 ]
+
+type RoleCopyKey = 'teacher' | 'student'
+
+const ROLE_COPY: Record<RoleCopyKey, {
+  basicsTitle: string
+  personasTitle: string
+  step1Label: string
+  step2Label: string
+  descriptionLabel: string
+  descriptionPlaceholder: string
+  constraintsHelper: string
+  aiContributionLabel: string
+  aiContributionHint: string
+  personasIntro: (n: number) => string
+  emptyPersonasHint: (n: number) => string
+  submitLabel: string
+  submitPartial: (cur: number, total: number) => string
+}> = {
+  teacher: {
+    basicsTitle: '建立新學習活動',
+    personasTitle: '設計 AI 隊友',
+    step1Label: '1. 活動資訊',
+    step2Label: '2. 設計 AI 隊友',
+    descriptionLabel: '描述（選填）',
+    descriptionPlaceholder: '簡述這個設計思考工作坊的主題、使用者、目標…',
+    constraintsHelper:
+      '限制不是阻礙，而是激發創意的養分。例：預算極低、使用者多為長者、必須在 3 個月內落地。',
+    aiContributionLabel: 'AI 貢獻度',
+    aiContributionHint: '你希望 AI 在這次工作坊扮演多重的角色？',
+    personasIntro: (n) =>
+      `基於你輸入的主題、描述和限制，由 AI 產出跨領域的隊友人設。你可以調整、刪除、手動新增。建立活動前必須備齊 ${n} 位 Crew 隊友。`,
+    emptyPersonasHint: (n) => `建立活動前必須備齊 ${n} 位 Crew 隊友。`,
+    submitLabel: '建立學習活動',
+    submitPartial: (cur, total) => `建立學習活動（${cur}/${total}）`,
+  },
+  student: {
+    basicsTitle: '開啟新探索',
+    personasTitle: '挑選你的 AI 夥伴',
+    step1Label: '1. 活動資訊',
+    step2Label: '2. 挑選 AI 夥伴',
+    descriptionLabel: '描述（選填）',
+    descriptionPlaceholder: '寫下你想探索的題目、好奇的對象與想解決的事…',
+    constraintsHelper:
+      '限制能幫你聚焦——想想你的時間、預算、能找到的人與場合。',
+    aiContributionLabel: 'AI 參與程度',
+    aiContributionHint: '你希望 AI 多幫你一點，還是讓你自己想多一點？',
+    personasIntro: (n) =>
+      `AI 幫你找了幾個不同角度的夥伴，看看誰能幫到你；可以改、可以換、也可以自己加。開始探索前需要 ${n} 位夥伴。`,
+    emptyPersonasHint: (n) => `開始探索前需要 ${n} 位夥伴。`,
+    submitLabel: '開始探索',
+    submitPartial: (cur, total) => `開始探索（${cur}/${total}）`,
+  },
+}
 
 const CREW_SLOTS: CrewSeatRole[] = ['crew_1', 'crew_2', 'crew_3', 'crew_4']
 
@@ -58,12 +119,28 @@ export function CreateProjectDialog({
   onClose,
   onCreated,
 }: CreateProjectDialogProps) {
+  const user = useAuthStore((s) => s.user)
+  const copy = ROLE_COPY[user?.role === 'student' ? 'student' : 'teacher']
+
   const [step, setStep] = useState<WizardStep>('basics')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [constraintsMode, setConstraintsMode] = useState<ConstraintsMode>('simple')
+  const [simpleConstraints, setSimpleConstraints] = useState<SimpleConstraints>(
+    EMPTY_SIMPLE_CONSTRAINTS,
+  )
   const [constraints, setConstraints] = useState('')
   const [aiContribution, setAiContribution] = useState<AIContribution>('medium')
   const [aiCrewCount, setAiCrewCount] = useState<number>(DEFAULT_AI_CREW)
+  // Phase 22：學生建立活動時可選填教師代碼以列管
+  const [teacherSignatureCode, setTeacherSignatureCode] = useState('')
+
+  const resolveConstraintsText = (): string => {
+    if (constraintsMode === 'simple') {
+      return buildSimpleConstraintsText(simpleConstraints)
+    }
+    return constraints.trim()
+  }
 
   const [personas, setPersonas] = useState<Persona[]>([])
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
@@ -82,9 +159,12 @@ export function CreateProjectDialog({
     setStep('basics')
     setName('')
     setDescription('')
+    setConstraintsMode('simple')
+    setSimpleConstraints(EMPTY_SIMPLE_CONSTRAINTS)
     setConstraints('')
     setAiContribution('medium')
     setAiCrewCount(DEFAULT_AI_CREW)
+    setTeacherSignatureCode('')
     setPersonas([])
     setEditingIndex(null)
     setTimerMode('preset_2hr')
@@ -128,7 +208,7 @@ export function CreateProjectDialog({
         {
           title: name.trim(),
           description: description.trim() || undefined,
-          constraints: constraints.trim() || undefined,
+          constraints: resolveConstraintsText() || undefined,
           num_personas: aiCrewCount,
         },
         {
@@ -212,11 +292,11 @@ export function CreateProjectDialog({
 
   const handleSubmit = async () => {
     if (!name.trim()) {
-      setError('請輸入專案名稱。')
+      setError('請輸入活動名稱。')
       return
     }
     if (personas.length !== aiCrewCount) {
-      setError(`必須備齊 ${aiCrewCount} 位 Crew 隊友才能建立專案。`)
+      setError(`必須備齊 ${aiCrewCount} 位 Crew 才能建立。`)
       return
     }
     setError('')
@@ -225,11 +305,13 @@ export function CreateProjectDialog({
       await createProject({
         name: name.trim(),
         description: description.trim(),
-        constraints: constraints.trim() || undefined,
+        constraints: resolveConstraintsText() || undefined,
         ai_contribution: aiContribution,
         ai_crew_count: aiCrewCount,
         personas: buildAssignments(personas),
         timer_config: buildTimerConfig(),
+        teacher_signature_code:
+          teacherSignatureCode.trim().toUpperCase() || undefined,
       })
       onCreated()
       reset()
@@ -245,7 +327,7 @@ export function CreateProjectDialog({
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title={step === 'basics' ? '建立新專案' : '設計 AI 隊友'}
+      title={step === 'basics' ? copy.basicsTitle : copy.personasTitle}
       maxWidth={step === 'personas' ? '5xl' : 'xl'}
     >
       <div className="flex flex-col gap-5">
@@ -258,7 +340,7 @@ export function CreateProjectDialog({
                 : 'bg-success/10 text-success',
             )}
           >
-            1. 專案資訊
+            {copy.step1Label}
           </span>
           <span className="text-text-muted">→</span>
           <span
@@ -269,14 +351,14 @@ export function CreateProjectDialog({
                 : 'bg-bg-warm text-text-muted',
             )}
           >
-            2. 設計 AI 隊友
+            {copy.step2Label}
           </span>
         </div>
 
         {step === 'basics' && (
           <div className="flex flex-col gap-5">
             <Input
-              label="專案名稱"
+              label="活動名稱"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="例：校園永續設計工作坊"
@@ -284,34 +366,29 @@ export function CreateProjectDialog({
             />
 
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-text">描述（選填）</label>
+              <label className="text-sm font-medium text-text">{copy.descriptionLabel}</label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="簡述這個設計思考工作坊的主題、使用者、目標…"
+                placeholder={copy.descriptionPlaceholder}
                 rows={3}
                 className="rounded-md border border-border px-3 py-2.5 text-sm bg-surface text-text placeholder:text-text-muted resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               />
             </div>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-text">
-                專案限制（選填，但強烈建議）
-              </label>
-              <p className="text-xs text-text-muted">
-                限制不是阻礙，而是激發創意的養分。例：預算極低、使用者多為長者、必須在 3 個月內落地。
-              </p>
-              <textarea
-                value={constraints}
-                onChange={(e) => setConstraints(e.target.value)}
-                placeholder="列出這個專案的關鍵限制條件…"
-                rows={3}
-                className="rounded-md border border-border px-3 py-2.5 text-sm bg-surface text-text placeholder:text-text-muted resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              />
-            </div>
+            <ConstraintsField
+              mode={constraintsMode}
+              onModeChange={setConstraintsMode}
+              simple={simpleConstraints}
+              onSimpleChange={setSimpleConstraints}
+              advancedText={constraints}
+              onAdvancedTextChange={setConstraints}
+              helperText={copy.constraintsHelper}
+            />
 
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-text">AI 貢獻度</label>
+              <label className="text-sm font-medium text-text">{copy.aiContributionLabel}</label>
+              <p className="text-xs text-text-muted">{copy.aiContributionHint}</p>
               <div className="flex gap-2">
                 {AI_LEVELS.map((level) => (
                   <button
@@ -370,6 +447,27 @@ export function CreateProjectDialog({
               />
             </div>
 
+            {/* Phase 22：學生可選填教師代碼以將活動列管於該老師 */}
+            {user?.role === 'student' && (
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-text">
+                  邀請老師指導（選填）
+                </label>
+                <p className="text-xs text-text-muted">
+                  輸入老師代碼，活動建立後就會出現在他的儀表板。
+                </p>
+                <Input
+                  value={teacherSignatureCode}
+                  onChange={(e) =>
+                    setTeacherSignatureCode(e.target.value.toUpperCase())
+                  }
+                  placeholder="老師代碼，例：MD7K2A"
+                  className="font-mono uppercase tracking-widest"
+                  maxLength={8}
+                />
+              </div>
+            )}
+
             {error && (
               <div className="rounded-md bg-error-bg px-4 py-3 text-sm text-error">
                 {error}
@@ -384,7 +482,7 @@ export function CreateProjectDialog({
                 className="flex-1"
                 onClick={() => {
                   if (!canAdvanceToPersonas) {
-                    setError('請輸入專案名稱。')
+                    setError('請輸入活動名稱。')
                     return
                   }
                   if (!isTimerValid) {
@@ -396,7 +494,7 @@ export function CreateProjectDialog({
                 }}
                 disabled={!canAdvanceToPersonas || !isTimerValid}
               >
-                下一步：設計 AI 隊友
+                下一步：{copy.personasTitle}
               </Button>
             </div>
           </div>
@@ -405,12 +503,7 @@ export function CreateProjectDialog({
         {step === 'personas' && (
           <div className="flex flex-col gap-4">
             <div className="rounded-lg border border-border-light bg-bg-warm/40 p-4 text-sm leading-relaxed text-text-muted">
-              基於你輸入的主題、描述和限制，由 AI 產出跨領域的隊友人設。
-              你可以調整、刪除、手動新增。
-              <span className="text-text">
-                建立專案前必須備齊 {aiCrewCount} 位 Crew 隊友
-              </span>
-              。
+              {copy.personasIntro(aiCrewCount)}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -468,10 +561,7 @@ export function CreateProjectDialog({
               <div className="rounded-xl border border-dashed border-border-light bg-surface/40 p-8 text-center text-sm text-text-muted">
                 還沒有 AI 隊友。點「由 AI 生成」或「手動新增」開始設計。
                 <br />
-                <span className="text-text">
-                  建立專案前必須備齊 {aiCrewCount} 位 Crew 隊友
-                </span>
-                。
+                <span className="text-text">{copy.emptyPersonasHint(aiCrewCount)}</span>
               </div>
             ) : (
               <div className="flex gap-3 overflow-x-auto pb-2">
@@ -536,8 +626,8 @@ export function CreateProjectDialog({
                 }
               >
                 {personas.length === aiCrewCount
-                  ? '建立專案'
-                  : `建立專案（${personas.length}/${aiCrewCount}）`}
+                  ? copy.submitLabel
+                  : copy.submitPartial(personas.length, aiCrewCount)}
               </Button>
             </div>
           </div>

@@ -11,6 +11,7 @@ from app.projects.schemas import (
     CanvasStateResponse,
     JoinRequest,
     JoinResponse,
+    LinkTeacherRequest,
     ProjectCreateRequest,
     ProjectListItem,
     ProjectResponse,
@@ -105,6 +106,32 @@ async def delete_project(
     service = ProjectService(session)
     await service.delete_project(project_id, current_user)
     await session.commit()
+
+
+# Phase 22: 學生 creator 將活動列管於某老師
+@router.post("/{project_id}/link-teacher", response_model=ProjectResponse)
+async def link_teacher(
+    project_id: UUID,
+    payload: LinkTeacherRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ProjectResponse:
+    service = ProjectService(session)
+    result = await service.link_teacher(project_id, payload.signature_code, current_user)
+    await session.commit()
+    return result
+
+
+@router.delete("/{project_id}/link-teacher", response_model=ProjectResponse)
+async def unlink_teacher(
+    project_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ProjectResponse:
+    service = ProjectService(session)
+    result = await service.unlink_teacher(project_id, current_user)
+    await session.commit()
+    return result
 
 
 @router.get("/{project_id}/canvas-state", response_model=CanvasStateResponse)

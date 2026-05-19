@@ -5,9 +5,22 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.codes import generate_code
 from app.auth.jwt import create_access_token, create_refresh_token, decode_token
 from app.auth.schemas import RegisterRequest, LoginRequest, RefreshRequest, TokenResponse, UserResponse
 from app.db.models.user import User
+
+
+async def _allocate_signature_code(session: AsyncSession) -> str:
+    """為新教師分配唯一短碼（碰撞重試）。"""
+    for _ in range(16):
+        code = generate_code()
+        exists = await session.execute(
+            select(User.id).where(User.signature_code == code)
+        )
+        if exists.first() is None:
+            return code
+    raise RuntimeError("Unable to allocate unique signature_code")
 
 
 def _hash_password(password: str) -> str:
@@ -44,12 +57,17 @@ class AuthService:
                 detail="Email already registered",
             )
 
+        signature_code: str | None = None
+        if request.role == "teacher":
+            signature_code = await _allocate_signature_code(self.session)
+
         user = User(
             email=request.email,
             password_hash=_hash_password(request.password),
             display_name=request.display_name,
-            role="teacher",
+            role=request.role,
             can_create_project=True,
+            signature_code=signature_code,
         )
         self.session.add(user)
         await self.session.flush()

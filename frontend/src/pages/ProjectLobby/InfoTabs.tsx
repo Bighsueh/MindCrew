@@ -27,7 +27,7 @@ interface InfoTabsProps {
 
 const TABS = [
   { key: 'activity', label: '即時動態', icon: Radio },
-  { key: 'stats', label: '專案概況', icon: BarChart3 },
+  { key: 'stats', label: '活動概況', icon: BarChart3 },
   { key: 'canvas', label: '白板預覽', icon: StickyNote },
   { key: 'summary', label: '快速摘要', icon: Sparkles },
 ] as const

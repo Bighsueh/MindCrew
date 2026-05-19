@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getTeacherProjects, createStudent, listStudents, getProjectsOverview } from '../../services/teacherService'
+import { trackProjectByInviteCode } from '../../services/projectService'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../../components/common/Button'
 import { Input } from '../../components/common/Input'
@@ -9,7 +10,7 @@ import { CreateProjectDialog } from '../../components/project/CreateProjectDialo
 import { StageDistributionBar } from '../../components/teacher/StageDistributionBar'
 import { AlertBanner } from '../../components/teacher/AlertBanner'
 import { ProjectMonitorCard } from '../../components/teacher/ProjectMonitorCard'
-import { Plus, RefreshCw } from 'lucide-react'
+import { Plus, RefreshCw, Copy, Check, Link as LinkIcon } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useTeacherDashboardTourAutoStart } from '../../components/onboarding/useTeacherDashboardTourAutoStart'
 import type { TeacherProjectSummary, ProjectOverviewResponse, User } from '../../types/models'
@@ -39,6 +40,45 @@ export function TeacherDashboardPage() {
   })
   const [addStudentError, setAddStudentError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  // Phase 22：複製我的代碼 / 列管活動
+  const [copied, setCopied] = useState(false)
+  const [trackCode, setTrackCode] = useState('')
+  const [trackError, setTrackError] = useState('')
+  const [trackSuccess, setTrackSuccess] = useState('')
+  const [isTracking, setIsTracking] = useState(false)
+
+  const handleCopyCode = async () => {
+    if (!user?.signature_code) return
+    try {
+      await navigator.clipboard.writeText(user.signature_code)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const handleTrackActivity = async () => {
+    const code = trackCode.trim().toUpperCase()
+    if (code.length < 4) {
+      setTrackError('請輸入學生的活動代碼')
+      return
+    }
+    setTrackError('')
+    setTrackSuccess('')
+    setIsTracking(true)
+    try {
+      const project = await trackProjectByInviteCode(code)
+      setTrackSuccess(`已加入指導「${project.name}」`)
+      setTrackCode('')
+      await loadOverview()
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setTrackError(detail ?? '加入失敗，請確認代碼是否正確')
+    } finally {
+      setIsTracking(false)
+    }
+  }
 
   const loadOverview = async () => {
     try {
@@ -107,7 +147,7 @@ export function TeacherDashboardPage() {
   return (
     <div>
       {/* Page header */}
-      <div data-tour="teacher-hero" className="mb-8 flex items-center justify-between">
+      <div data-tour="teacher-hero" className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-text">教師儀表板</h1>
           <p className="mt-1 text-sm text-text-muted">{user?.display_name} 老師</p>
@@ -125,8 +165,63 @@ export function TeacherDashboardPage() {
             onClick={() => setShowCreateProject(true)}
           >
             <Plus size={16} />
-            建立新專案
+            建立新學習活動
           </Button>
+        </div>
+      </div>
+
+      {/* Phase 22：教師代碼 + 列管活動 */}
+      <div className="mb-8 flex flex-col gap-3 rounded-2xl bg-surface px-6 py-5 shadow-sm sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium uppercase tracking-wide text-text-muted">
+            我的教師代碼
+          </span>
+          <div className="flex items-center gap-2">
+            <code className="rounded-md bg-bg-warm px-3 py-1.5 font-mono text-lg font-semibold tracking-widest text-text">
+              {user?.signature_code ?? '—'}
+            </code>
+            <button
+              type="button"
+              onClick={handleCopyCode}
+              disabled={!user?.signature_code}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs text-text-muted transition-colors hover:bg-bg-warm hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied ? '已複製' : '複製'}
+            </button>
+          </div>
+          <p className="text-xs text-text-muted">
+            學生建立學習活動時輸入此代碼，活動就會出現在你的儀表板。
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1.5 sm:items-end">
+          <span className="text-xs font-medium uppercase tracking-wide text-text-muted">
+            加入學生的學習活動
+          </span>
+          <div className="flex items-center gap-2">
+            <Input
+              value={trackCode}
+              onChange={(e) => setTrackCode(e.target.value.toUpperCase())}
+              placeholder="學生的活動代碼，例：QF73TE"
+              className="w-36 font-mono uppercase tracking-widest"
+            />
+            <Button
+              size="sm"
+              onClick={handleTrackActivity}
+              isLoading={isTracking}
+              disabled={!trackCode.trim()}
+            >
+              <LinkIcon size={14} />
+              加入指導
+            </Button>
+          </div>
+          {trackError && (
+            <span className="text-xs text-error">{trackError}</span>
+          )}
+          {trackSuccess && (
+            <span className="text-xs text-success">{trackSuccess}</span>
+          )}
         </div>
       </div>
 
@@ -144,7 +239,7 @@ export function TeacherDashboardPage() {
               )}
               onClick={() => setActiveTab(tab)}
             >
-              {tab === 'projects' ? '專案監控' : '學生管理'}
+              {tab === 'projects' ? '學習活動監控' : '學生管理'}
               {activeTab === tab && (
                 <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-primary" />
               )}
@@ -162,14 +257,14 @@ export function TeacherDashboardPage() {
             </div>
           ) : overview === null || overview.projects.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-2xl bg-bg-warm py-16">
-              <p className="text-lg font-medium text-text">尚無專案</p>
-              <p className="mt-1 text-sm text-text-muted">建立你的第一個 Design Thinking 專案</p>
+              <p className="text-2xl font-bold text-text">尚無學習活動</p>
+              <p className="mt-2 text-base text-text-muted">建立你的第一個 Design Thinking 學習活動</p>
               <Button
                 data-tour="teacher-empty-cta"
                 className="mt-5 rounded-full px-8"
                 onClick={() => setShowCreateProject(true)}
               >
-                建立第一個專案
+                建立第一個學習活動
               </Button>
             </div>
           ) : (
@@ -218,7 +313,7 @@ export function TeacherDashboardPage() {
               <table className="w-full text-left">
                 <thead className="border-b border-border-light bg-bg-warm/50">
                   <tr>
-                    {['顯示名稱', '電子郵件', '可建立專案', '建立時間'].map((h) => (
+                    {['顯示名稱', '電子郵件', '可建立活動', '建立時間'].map((h) => (
                       <th key={h} className="px-5 py-3.5 text-xs font-semibold text-text-muted uppercase tracking-wide">
                         {h}
                       </th>
@@ -293,7 +388,7 @@ export function TeacherDashboardPage() {
               }
               className="h-4 w-4 rounded border-border text-primary"
             />
-            <span>允許建立專案</span>
+            <span>允許建立學習活動</span>
           </label>
 
           {addStudentError && (

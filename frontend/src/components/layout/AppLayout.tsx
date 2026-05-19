@@ -19,7 +19,7 @@ export function AppLayout() {
   const isTeacher = user?.role === 'teacher'
 
   const navItems = [
-    { to: '/projects', label: '專案列表', icon: FolderOpen },
+    { to: '/projects', label: '學習活動', icon: FolderOpen },
     ...(isTeacher
       ? [{ to: '/teacher/dashboard', label: '教師儀表板', icon: LayoutDashboard }]
       : []),

@@ -8,6 +8,9 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import select
+
+from app.auth.codes import generate_code
 from app.db.models.project import Project
 from app.db.models.seat import Seat
 from app.db.models.user import User
@@ -17,6 +20,7 @@ from app.projects.schemas import (
     CanvasStateResponse,
     JoinRequest,
     JoinResponse,
+    LinkedTeacherInfo,
     ProjectCreateRequest,
     ProjectListItem,
     ProjectResponse,
@@ -24,7 +28,50 @@ from app.projects.schemas import (
     ProjectUpdateRequest,
     SeatResponse,
 )
+from app.seats.colors import seed_seat_colors
 from app.seats.manager import seat_manager
+
+
+async def _allocate_invite_code(session: AsyncSession) -> str:
+    """為新專案分配唯一 invite_code（碰撞重試）。"""
+    for _ in range(16):
+        code = generate_code()
+        existing = await session.execute(
+            select(Project.id).where(Project.invite_code == code)
+        )
+        if existing.first() is None:
+            return code
+    raise RuntimeError("Unable to allocate unique invite_code")
+
+
+async def _resolve_teacher_by_signature(
+    session: AsyncSession, signature_code: str
+) -> User:
+    """查 teacher，否則 422。"""
+    result = await session.execute(
+        select(User).where(
+            User.signature_code == signature_code.strip().upper(),
+            User.role == "teacher",
+        )
+    )
+    teacher = result.scalar_one_or_none()
+    if teacher is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="找不到此老師代碼",
+        )
+    return teacher
+
+
+async def _load_linked_teacher(
+    session: AsyncSession, teacher_id: UUID | None
+) -> LinkedTeacherInfo | None:
+    if teacher_id is None:
+        return None
+    teacher = await session.get(User, teacher_id)
+    if teacher is None:
+        return None
+    return LinkedTeacherInfo(id=teacher.id, display_name=teacher.display_name)
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +99,23 @@ class ProjectService:
                 detail="You do not have permission to create projects",
             )
 
+        invite_code = await _allocate_invite_code(self.session)
+
+        linked_teacher_id: UUID | None = None
+        if request.teacher_signature_code:
+            teacher = await _resolve_teacher_by_signature(
+                self.session, request.teacher_signature_code
+            )
+            linked_teacher_id = teacher.id
+
         project = Project(
             name=request.name,
             description=request.description,
             constraints=request.constraints,
             creator_id=user.id,
             ai_contribution=request.ai_contribution,
+            invite_code=invite_code,
+            linked_teacher_id=linked_teacher_id,
         )
         project = await self.repo.create(project)
 
@@ -87,6 +145,9 @@ class ProjectService:
             )
             self.session.add(seat)
             seats.append(seat)
+
+        # Phase 22：seed 每個席位的 sticky_color（shuffle 8 色）
+        seed_seat_colors(seats)
         await self.session.flush()
 
         # specs/16-timer-system.md：建立專案時同步初始化 timer。
@@ -109,6 +170,10 @@ class ProjectService:
             creator_id=project.creator_id,
             seats=[self._seat_to_response(s) for s in seats],
             created_at=project.created_at,
+            invite_code=project.invite_code,
+            linked_teacher=await _load_linked_teacher(
+                self.session, project.linked_teacher_id
+            ),
         )
 
     async def list_projects(self, user: User) -> list[ProjectListItem]:
@@ -129,6 +194,10 @@ class ProjectService:
                     seat_summary={"human": human_count, "ai": ai_count},
                     created_at=p.created_at,
                     updated_at=p.updated_at,
+                    invite_code=p.invite_code,
+                    linked_teacher=await _load_linked_teacher(
+                        self.session, p.linked_teacher_id
+                    ),
                 )
             )
         return result
@@ -151,7 +220,90 @@ class ProjectService:
             creator_id=project.creator_id,
             seats=[self._seat_to_response(s) for s in seats],
             created_at=project.created_at,
+            invite_code=project.invite_code,
+            linked_teacher=await _load_linked_teacher(
+                self.session, project.linked_teacher_id
+            ),
         )
+
+    async def link_teacher(
+        self, project_id: UUID, signature_code: str, user: User
+    ) -> ProjectResponse:
+        """學生（creator）將活動列管於指定老師。"""
+        project = await self.repo.get_by_id(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+            )
+        if project.creator_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the creator may link a teacher",
+            )
+        if project.linked_teacher_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="此活動已列管於其他老師，請先解除",
+            )
+        teacher = await _resolve_teacher_by_signature(self.session, signature_code)
+        project.linked_teacher_id = teacher.id
+        project.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return await self.get_project(project_id)
+
+    async def unlink_teacher(
+        self, project_id: UUID, user: User
+    ) -> ProjectResponse:
+        """creator 或目前列管的老師都可解除。"""
+        project = await self.repo.get_by_id(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+            )
+        if project.linked_teacher_id is None:
+            return await self.get_project(project_id)
+        if user.id not in (project.creator_id, project.linked_teacher_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only creator or linked teacher may unlink",
+            )
+        project.linked_teacher_id = None
+        project.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return await self.get_project(project_id)
+
+    async def track_by_invite_code(
+        self, invite_code: str, teacher: User
+    ) -> ProjectResponse:
+        """老師輸入活動 invite_code 列管之。"""
+        if teacher.role != "teacher":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only teachers can track activities",
+            )
+        result = await self.session.execute(
+            select(Project).where(
+                Project.invite_code == invite_code.strip().upper()
+            )
+        )
+        project = result.scalar_one_or_none()
+        if project is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="找不到此活動代碼",
+            )
+        if (
+            project.linked_teacher_id is not None
+            and project.linked_teacher_id != teacher.id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="此活動已列管於其他老師",
+            )
+        project.linked_teacher_id = teacher.id
+        project.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return await self.get_project(project.id)
 
     async def update_project(
         self, project_id: UUID, request: ProjectUpdateRequest, user: User
@@ -189,6 +341,10 @@ class ProjectService:
             creator_id=project.creator_id,
             seats=[self._seat_to_response(s) for s in seats],
             created_at=project.created_at,
+            invite_code=project.invite_code,
+            linked_teacher=await _load_linked_teacher(
+                self.session, project.linked_teacher_id
+            ),
         )
 
     async def get_seats(self, project_id: UUID) -> list[SeatResponse]:
@@ -230,6 +386,12 @@ class ProjectService:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="You already occupy a seat in this project",
+            )
+        # Phase 22: 每個專案最多只能有一個人類參與者。
+        if any(s.occupant_type == "human" for s in all_seats):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This project already has a human participant",
             )
         if seat.occupant_type == "human":
             raise HTTPException(
@@ -435,4 +597,5 @@ class ProjectService:
             # 仍把 persona 帶出，讓教師 / 建立者預覽 — 真正切換到 UI 上的「代理中」需要 is_active=True
             persona=persona_payload,
             is_active=not is_dormant,
+            sticky_color=getattr(seat, "sticky_color", None),
         )

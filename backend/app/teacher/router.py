@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt import get_current_user
@@ -23,6 +23,11 @@ from app.db.models.user import User
 from app.db.session import get_db_session
 from app.events.bus import event_bus
 from app.events.types import ChatMessageEvent
+from app.projects.schemas import (
+    ProjectResponse,
+    TrackByInviteCodeRequest,
+)
+from app.projects.service import ProjectService
 from app.teacher.schemas import (
     AgentTraceListResponse,
     AgentTraceResponse,
@@ -60,6 +65,20 @@ def _require_teacher(current_user: User) -> User:
 # GET /api/teacher/projects
 # ---------------------------------------------------------------------------
 
+# Phase 22：老師輸入活動 invite_code 將該活動列管至自己
+@router.post("/api/teacher/projects/track", response_model=ProjectResponse)
+async def track_project_by_invite_code(
+    payload: TrackByInviteCodeRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ProjectResponse:
+    _require_teacher(current_user)
+    service = ProjectService(session)
+    result = await service.track_by_invite_code(payload.invite_code, current_user)
+    await session.commit()
+    return result
+
+
 @router.get("/api/teacher/projects", response_model=list[TeacherProjectListItem])
 async def list_teacher_projects(
     current_user: User = Depends(get_current_user),
@@ -69,7 +88,12 @@ async def list_teacher_projects(
 
     result = await session.execute(
         select(Project)
-        .where(Project.creator_id == current_user.id)
+        .where(
+            or_(
+                Project.creator_id == current_user.id,
+                Project.linked_teacher_id == current_user.id,
+            )
+        )
         .order_by(Project.updated_at.desc())
     )
     projects = result.scalars().all()
@@ -128,10 +152,14 @@ async def get_project_record(
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
-    if project.creator_id != current_user.id:
+    # Phase 22：creator 或被學生列管的老師都可檢視
+    if (
+        project.creator_id != current_user.id
+        and project.linked_teacher_id != current_user.id
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not the creator of this project",
+            detail="You are not the creator or linked teacher of this project",
         )
 
     # Stage history
@@ -216,7 +244,12 @@ async def get_projects_overview(
 
     result = await session.execute(
         select(Project)
-        .where(Project.creator_id == current_user.id)
+        .where(
+            or_(
+                Project.creator_id == current_user.id,
+                Project.linked_teacher_id == current_user.id,
+            )
+        )
         .order_by(Project.updated_at.desc())
     )
     projects = result.scalars().all()
@@ -346,10 +379,14 @@ async def send_hint(
     project = p_result.scalar_one_or_none()
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    if project.creator_id != current_user.id:
+    # Phase 22：creator 或被學生列管的老師都可檢視
+    if (
+        project.creator_id != current_user.id
+        and project.linked_teacher_id != current_user.id
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not the creator of this project",
+            detail="You are not the creator or linked teacher of this project",
         )
 
     now = datetime.now(timezone.utc)

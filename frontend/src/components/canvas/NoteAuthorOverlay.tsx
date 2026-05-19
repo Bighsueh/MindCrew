@@ -8,6 +8,7 @@
 import { useEditor } from '@tldraw/tldraw'
 import { track, useValue } from '@tldraw/state-react'
 import type { TLShape } from '@tldraw/tldraw'
+import { getColorScheme } from '../../colors/sticky'
 
 export function parseAuthor(raw: unknown): { name: string; type: 'ai' | 'human' } {
   if (raw && typeof raw === 'object' && 'name' in raw) {
@@ -44,6 +45,12 @@ export const NoteAuthorOverlay = track(function NoteAuthorOverlay() {
         const meta = shape.meta as Record<string, unknown>
         const { type } = parseAuthor(meta.author)
         const movingBy = typeof meta._moving_by === 'string' ? meta._moving_by : ''
+        // Phase 22：dot 用便利貼自身的色，與聊天氣泡一致
+        const noteColor = (shape.props as { color?: string } | undefined)?.color
+        const scheme = getColorScheme(noteColor ?? null)
+        const dotColor = noteColor
+          ? scheme.accent
+          : (type === 'ai' ? '#5A4D41' : '#8B4B2A')
 
         return (
           <div
@@ -54,13 +61,13 @@ export const NoteAuthorOverlay = track(function NoteAuthorOverlay() {
               top: point.y + 4 * zoom,
             }}
           >
-            {/* Author type dot */}
+            {/* Author identification dot — colored by note color */}
             <div
-              className="rounded-full"
+              className="rounded-full ring-1 ring-white/60"
               style={{
                 width: Math.max(4, 6 * zoom),
                 height: Math.max(4, 6 * zoom),
-                backgroundColor: type === 'ai' ? '#5A4D41' : '#8B4B2A',
+                backgroundColor: dotColor,
               }}
             />
             {/* Moving glow indicator (Feature C) */}

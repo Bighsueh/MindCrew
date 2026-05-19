@@ -43,12 +43,12 @@ const FEATURES = [
   {
     icon: Zap,
     title: '全 AI 自主模式',
-    desc: '建立專案後讓 AI 自行運作，事後回來看成果。人類可隨時加入或離開。',
+    desc: '建立學習活動後讓 AI 自行運作，事後回來看成果。人類可隨時加入或離開。',
   },
   {
     icon: LayoutGrid,
     title: '教師儀表板',
-    desc: '一覽所有專案的即時狀態、觀察模式不佔席位、課後紀錄完整回顧。',
+    desc: '一覽所有學習活動的即時狀態、觀察模式不佔席位、課後紀錄完整回顧。',
   },
   {
     icon: Lightbulb,
@@ -58,18 +58,18 @@ const FEATURES = [
   {
     icon: BarChart3,
     title: 'LLM 用量追蹤',
-    desc: '追蹤每個專案的 AI 運算資源消耗，精確到各 Agent 的 input/output token 分布。',
+    desc: '追蹤每個學習活動的 AI 運算資源消耗，精確到各 Agent 的 input/output token 分布。',
   },
 ] as const
 
 const FAQ_ITEMS = [
   {
     q: '學生可以自行註冊嗎？',
-    a: '不行。學生帳號由教師統一建立與管理，確保教學場景下的帳號管控。',
+    a: '可以。學生能自助註冊帳號並建立屬於自己的學習活動；教師也仍可在儀表板中統一建立與管理學生帳號。',
   },
   {
     q: 'AI 會不會太主動，壓過學生的發言？',
-    a: 'AI 內建節奏控制——偵測到人類正在輸入時會暫停，連續發言不超過 3 則。教師還可以透過「AI 貢獻度」調整 AI 的活躍程度。',
+    a: 'AI 內建節奏控制——偵測到人類正在輸入時會暫停，連續發言不超過 3 則。你也可以透過「AI 貢獻度」調整 AI 的活躍程度。',
   },
   {
     q: '支援手機嗎？',
@@ -77,7 +77,7 @@ const FAQ_ITEMS = [
   },
   {
     q: '可以只讓 AI 跑完整個流程嗎？',
-    a: '可以。建立專案後不加入任何席位，5 個 AI Agent 會自主完成四階段流程。你可以隨時加入，也可以事後查看完整紀錄。',
+    a: '可以。建立學習活動後不加入任何席位，AI Agent 會自主完成四階段流程。你可以隨時加入，也可以事後查看完整紀錄。',
   },
 ] as const
 
@@ -122,7 +122,7 @@ export function LandingPage() {
         }`}
       >
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-          <span className="font-brand text-xl font-normal tracking-normal text-primary">MindCrew</span>
+          <span className="font-brand text-xl font-semibold tracking-normal text-primary">MindCrew</span>
           <div className="hidden items-center gap-8 md:flex">
             <a href="#features" className="text-sm text-text-muted transition-colors hover:text-text">功能</a>
             <a href="#process" className="text-sm text-text-muted transition-colors hover:text-text">流程</a>
@@ -139,9 +139,9 @@ export function LandingPage() {
             <TransitionLink
               to="/register"
               className="rounded-full bg-primary px-3.5 py-2 text-sm font-semibold text-text-inverse shadow-sm transition-colors hover:bg-primary-light cursor-pointer sm:px-5"
-              title="首次使用：建立教師帳號以管理課堂與學生"
+              title="首次使用：選擇教師或學生身分以建立帳號"
             >
-              教師免費註冊
+              免費註冊
             </TransitionLink>
           </div>
         </div>
@@ -150,23 +150,21 @@ export function LandingPage() {
       {/* ─── Hero ─── */}
       <section className="relative flex min-h-svh flex-col items-center px-6 pt-16 pb-8">
         <div className="relative z-10 mx-auto flex max-w-5xl flex-1 flex-col items-center justify-center text-center">
-          <h1 className="font-brand animate-fade-up text-[clamp(3.5rem,10vw,9rem)] font-normal leading-[0.9] tracking-[0.02em] text-primary">
-            MIND
-            <br />
-            CREW
+          <h1 className="font-brand animate-fade-up text-[clamp(3rem,12vw,9rem)] font-semibold leading-[0.9] tracking-[-0.01em] text-primary whitespace-nowrap">
+            MindCrew
           </h1>
           <p className="animate-fade-up mx-auto mt-6 max-w-xl text-xl leading-relaxed text-text/80" style={{ animationDelay: '0.15s' }}>
             AI 驅動的 Design Thinking 協作平台。
             <br />
-            五位 AI 隊友，與你一起發散、收斂、創造。
+            AI 隊友與你一起發散、收斂、創造。
           </p>
           <div className="animate-fade-up mt-8 flex flex-wrap items-center justify-center gap-4" style={{ animationDelay: '0.3s' }}>
             <TransitionLink
               to="/register"
               className="group flex items-center gap-2 rounded-full bg-primary px-8 py-3.5 text-sm font-semibold text-text-inverse transition-all hover:bg-primary-light hover:shadow-lg cursor-pointer"
-              title="建立教師帳號後即可建立專案、邀請學生與 AI 協作"
+              title="建立帳號後即可開始你的設計思考學習活動"
             >
-              教師免費註冊
+              免費註冊
               <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" />
             </TransitionLink>
             <a
@@ -205,7 +203,7 @@ export function LandingPage() {
                 AI 隊友隨時待命，在你需要發散的時候帶來多元觀點，在收斂的時候協助歸納整理。
               </p>
               <p className="mt-4 text-base leading-relaxed text-text-muted-on-dark">
-                無論是課堂教學、團隊腦力激盪，或是獨立研究——打開專案，AI 團隊已就位。
+                無論是課堂教學、團隊腦力激盪，或是獨立研究——打開學習活動，AI 團隊已就位。
               </p>
             </ScrollReveal>
           </div>
@@ -416,10 +414,8 @@ export function LandingPage() {
       <section className="bg-bg-dark px-6 py-32">
         <div className="mx-auto max-w-4xl text-center">
           <ScrollReveal variant="fade-up" duration={800}>
-            <h2 className="font-brand text-[clamp(2.5rem,6vw,5rem)] font-normal leading-[0.95] tracking-[0.02em] text-text-on-dark">
-              MIND
-              <br />
-              CREW
+            <h2 className="font-brand text-[clamp(2.5rem,6vw,5rem)] font-semibold leading-[0.95] tracking-[-0.01em] text-text-on-dark whitespace-nowrap">
+              MindCrew
             </h2>
           </ScrollReveal>
           <ScrollReveal variant="fade-up" delay={150} duration={700}>
@@ -431,9 +427,9 @@ export function LandingPage() {
             <TransitionLink
               to="/register"
               className="group mt-10 inline-flex items-center gap-2 rounded-full border border-text-on-dark/20 bg-transparent px-10 py-4 text-sm font-semibold text-text-on-dark transition-all duration-300 hover:bg-text-on-dark hover:text-bg-dark cursor-pointer"
-              title="首次使用：建立教師帳號"
+              title="首次使用：選擇身分以建立帳號"
             >
-              教師免費註冊
+              免費註冊
               <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" />
             </TransitionLink>
           </ScrollReveal>
