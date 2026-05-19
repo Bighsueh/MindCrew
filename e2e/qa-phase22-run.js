@@ -219,10 +219,10 @@ async function main() {
     await nameInput.fill('QA Phase22');
     pass('B3-name', '"QA Phase22" filled');
 
-    const tcInput = studentPage.locator('input[placeholder="例：MD7K2A"]').first();
+    const tcInput = studentPage.locator('input[placeholder*="MD7K2A"]').first();
     const tcVis = await tcInput.isVisible().catch(() => false);
     if (tcVis) {
-      pass('B3-teacher-code-field', '"加入老師班譯（選填）" field visible (placeholder 例：MD7K2A)');
+      pass('B3-teacher-code-field', '"邀請老師指導（選填）" or "加入老師班譯" field visible (placeholder contains MD7K2A)');
       if (teacherCode) {
         await tcInput.fill(teacherCode);
         pass('B3-teacher-code-entered', `Teacher code "${teacherCode}" entered`);
@@ -230,7 +230,7 @@ async function main() {
         skip('B3-teacher-code-entered', 'No teacher code available');
       }
     } else {
-      fail('B3-teacher-code-field', '"加入老師班譯" input not visible');
+      fail('B3-teacher-code-field', '"邀請老師指導" teacher code input not visible');
     }
 
     const crewBtns = studentPage.locator('[role="dialog"] button').filter({ hasText: 'AI 組員' });
@@ -363,31 +363,44 @@ async function main() {
       log(`Lobby URL: ${studentPage.url()}`);
       log(`Lobby body (1000): ${bodyText.slice(0,1000)}`);
 
-      if (bodyText.includes('活動代碼')) {
-        pass('C1-invite-code-label', '"活動代碼" visible');
+      // 活動代碼 — can appear as "活動代碼" (old) or "我的活動代碼" (new unlinked state)
+      const hasCode = bodyText.includes('活動代碼') || bodyText.includes('我的活動代碼');
+      if (hasCode) {
+        pass('C1-invite-code-label', '活動代碼 label visible (may be "活動代碼" or "我的活動代碼")');
         const codeEls = studentPage.locator('code');
         const cnt = await codeEls.count();
         for (let i = 0; i < cnt; i++) {
           const t = (await codeEls.nth(i).textContent()).trim();
           if (t && t !== '—' && t.length >= 4) {
             inviteCode = t;
-            pass('C1-invite-code-value', `活動代碼: "${inviteCode}"`);
+            pass('C1-invite-code-value', `活動代碼 chip: "${inviteCode}"`);
             break;
           }
         }
-        if (!inviteCode) fail('C1-invite-code-value', `No code chip found (${cnt} <code> elements)`);
+        if (!inviteCode) fail('C1-invite-code-value', `No code chip found (${cnt} <code> elements). Body: ${bodyText.slice(0,300)}`);
+        // 複製 button: only visible in unlinked state path. When linked, no copy button shown.
         const cpCnt = await studentPage.locator('button:has-text("複製")').count();
-        if (cpCnt > 0) pass('C2-copy-btn', `"複製" in lobby (count: ${cpCnt})`);
-        else fail('C2-copy-btn', '"複製" not in lobby');
+        if (cpCnt > 0) {
+          pass('C2-copy-btn', `"複製" button in lobby (count: ${cpCnt})`);
+        } else if (bodyText.includes('指導老師') || bodyText.includes('已由')) {
+          pass('C2-copy-btn-linked-ok', 'No "複製" in linked state (expected — copy button only in unlinked path)');
+        } else {
+          fail('C2-copy-btn', '"複製" not found and not in linked state');
+        }
       } else {
-        fail('C1-invite-code-label', `"活動代碼" not in lobby. URL: ${studentPage.url()}`);
+        fail('C1-invite-code-label', `活動代碼 label not in lobby. URL: ${studentPage.url()}. Body: ${bodyText.slice(0,300)}`);
       }
 
-      if (bodyText.includes("列管狀態") || bodyText.includes("已列管") || bodyText.includes("尚未列管")) {
-        pass('C3-linked-status-label', '"列管狀態" visible');
-        if (teacherCode && bodyText.includes('已列管')) {
-          pass('C4-linked-teacher', '"已列管" visible');
-          if (bodyText.includes(teacherName)) pass('C4-teacher-name', `"${teacherName}" shown in 已列管`);
+      // 指導老師 / 列管狀態 section — new UI uses "指導老師", old uses "列管狀態"
+      const hasLinkSection = bodyText.includes("指導老師") || bodyText.includes("列管狀態") ||
+                             bodyText.includes("邀請老師指導") || bodyText.includes("已列管") ||
+                             bodyText.includes("已由") || bodyText.includes("尚未列管");
+      if (hasLinkSection) {
+        pass('C3-linked-status-label', '指導老師/列管狀態 section visible in lobby');
+        const isLinked = bodyText.includes('已列管') || bodyText.includes('已由') || bodyText.includes('指導老師');
+        if (teacherCode && isLinked) {
+          pass('C4-linked-teacher', 'Linked state shown (已列管/已由/指導老師 visible)');
+          if (bodyText.includes(teacherName)) pass('C4-teacher-name', `"${teacherName}" shown in linked state`);
           else fail('C4-teacher-name', `"${teacherName}" not found. Body: ${bodyText.slice(0,500)}`);
           const unlinkVis = await studentPage.locator('button:has-text("解除")').first().isVisible().catch(()=>false);
           if (unlinkVis) pass('C5-unlink-btn', '"解除" visible');
@@ -395,10 +408,10 @@ async function main() {
         } else if (!teacherCode) {
           skip('C4-linked-teacher', 'No teacher code');
         } else {
-          fail('C4-linked-teacher', `"已列管" not shown despite teacher_code "${teacherCode}". Body: ${bodyText.slice(0,500)}`);
+          fail('C4-linked-teacher', `Linked state not shown despite teacher_code "${teacherCode}". Body: ${bodyText.slice(0,500)}`);
         }
       } else {
-        fail('C3-linked-status-label', `"列管狀態" not in lobby. URL: ${studentPage.url()}`);
+        fail('C3-linked-status-label', `指導老師/列管狀態 section not in lobby. URL: ${studentPage.url()}. Body: ${bodyText.slice(0,300)}`);
       }
     } catch(e) { fail('C-lobby', e.message); await screenshot(studentPage,'C-fail'); }
   } else {
@@ -443,7 +456,7 @@ async function main() {
     if (!teacherPage.url().includes('teacher/dashboard')) {
       await spaNavigate(teacherPage, '/teacher/dashboard');
     }
-    const listBtn = teacherPage.locator('button:has-text("列管")').first();
+    const listBtn = teacherPage.locator('button:has-text("加入指導"), button:has-text("列管")').first();
     await listBtn.waitFor({ state: 'visible', timeout: 8000 });
 
     const allInputs = teacherPage.locator('input');

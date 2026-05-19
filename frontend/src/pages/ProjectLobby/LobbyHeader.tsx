@@ -29,19 +29,19 @@ export function LobbyHeader({ project }: LobbyHeaderProps) {
         </Link>
       </div>
 
-      {/* Title row（左：活動標題 / 右：邀請老師指導區塊） */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-bold text-text">{project.name}</h1>
-            <PhaseIndicator phase={project.current_stage} />
-          </div>
-          <p className="mt-1.5 text-sm text-text-muted">
-            AI 貢獻度：{AI_LABELS[project.ai_contribution] ?? project.ai_contribution}
-          </p>
+      {/* Title row（活動名 + 階段 + AI 貢獻度） */}
+      <div>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-3xl font-bold text-text">{project.name}</h1>
+          <PhaseIndicator phase={project.current_stage} />
         </div>
+        <p className="mt-1.5 text-sm text-text-muted">
+          AI 貢獻度：{AI_LABELS[project.ai_contribution] ?? project.ai_contribution}
+        </p>
+      </div>
 
-        {/* Phase 22 / UX revamp：邀請老師指導 */}
+      {/* Phase 22 / UX revamp：邀請老師指導（獨立一條橫向 bar） */}
+      <div className="mt-5">
         <LobbyEnrollmentRow project={project} />
       </div>
 

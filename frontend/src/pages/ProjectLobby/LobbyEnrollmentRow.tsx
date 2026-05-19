@@ -25,11 +25,12 @@ type ViewState =
 
 /** Phase 22 / UX revamp：邀請老師指導
  *
- * 四種狀態：
- *  A student_unlinked  學生 creator、未列管 → headline + 兩種路徑（分享活動碼 / 輸入老師碼）
- *  B student_linked    學生 creator、已列管 → 狀態 chip + 解除 + 活動碼小字
- *  C teacher_view      老師（creator 或被列管） → 狀態 chip + 解除指導
- *  D hidden            非 creator、非 linked_teacher 的旁觀者 → 不顯示
+ * 整塊以「獨立一條橫向 bar」呈現，貼在活動標題下方。
+ *
+ *  A student_unlinked  學生 creator、未列管 → headline + 兩條路徑（左右並排，中間「或」）
+ *  B student_linked    學生 creator、已列管 → 狀態 chip + 活動碼小字 + 解除
+ *  C teacher_view      老師（creator 或 linked） → 狀態 chip + 解除指導
+ *  D hidden            旁觀者 → 不顯示
  */
 export function LobbyEnrollmentRow({ project }: Props) {
   const { user } = useAuthStore()
@@ -109,7 +110,7 @@ export function LobbyEnrollmentRow({ project }: Props) {
   }
 
   return (
-    <div className="flex w-full max-w-sm shrink-0 flex-col gap-2 rounded-xl border border-border-light bg-surface/60 px-4 py-3">
+    <div className="rounded-xl border border-border-light bg-surface/60 px-5 py-4">
       {/* Headline */}
       <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
         <GraduationCap size={14} />
@@ -118,10 +119,14 @@ export function LobbyEnrollmentRow({ project }: Props) {
         {view.kind === 'teacher_view' && '指導關係'}
       </div>
 
+      {/* ── A：未列管，兩條路徑左右並排 ── */}
       {view.kind === 'student_unlinked' && (
-        <>
+        <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start">
           {/* 路徑 1：分享我的活動代碼 */}
-          <Field label="我的活動代碼">
+          <div className="flex flex-1 flex-col gap-1.5">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
+              我的活動代碼
+            </span>
             <div className="flex items-center gap-2">
               <code className="rounded-md bg-bg-warm px-2.5 py-1 font-mono text-sm font-semibold tracking-widest text-text">
                 {project.invite_code ?? '—'}
@@ -136,22 +141,30 @@ export function LobbyEnrollmentRow({ project }: Props) {
                 {copied ? '已複製' : '複製'}
               </button>
             </div>
-            <Helper>把這個碼給老師，他在儀表板輸入後即可看到這個活動。</Helper>
-          </Field>
+            <p className="text-[11px] leading-snug text-text-muted">
+              把這個碼給老師，他在儀表板輸入後即可看到這個活動。
+            </p>
+          </div>
 
-          <div className="my-1 flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-muted/60">
-            <span className="h-px flex-1 bg-border-light" />
-            或
-            <span className="h-px flex-1 bg-border-light" />
+          {/* Divider — 桌面為直線「或」，行動為橫線 */}
+          <div className="flex items-center sm:flex-col sm:self-stretch sm:px-1">
+            <span className="h-px flex-1 bg-border-light sm:h-auto sm:w-px sm:flex-1" />
+            <span className="px-2 text-[11px] uppercase tracking-wider text-text-muted/70 sm:py-1">
+              或
+            </span>
+            <span className="h-px flex-1 bg-border-light sm:h-auto sm:w-px sm:flex-1" />
           </div>
 
           {/* 路徑 2：輸入老師代碼 */}
-          <Field label="輸入老師代碼">
+          <div className="flex flex-1 flex-col gap-1.5">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
+              輸入老師代碼
+            </span>
             <div className="flex items-center gap-2">
               <Input
                 value={code}
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="老師代碼，例：MD7K2A"
+                placeholder="例：MD7K2A"
                 className="h-7 w-36 font-mono text-sm uppercase tracking-widest"
                 maxLength={8}
               />
@@ -165,33 +178,23 @@ export function LobbyEnrollmentRow({ project }: Props) {
                 邀請
               </Button>
             </div>
-            <Helper>如果老師先給了你他的代碼，輸入後即可邀請他指導。</Helper>
+            <p className="text-[11px] leading-snug text-text-muted">
+              如果老師先給了你他的代碼，輸入後即可邀請他指導。
+            </p>
             {error && (
-              <span className="mt-0.5 block text-[11px] text-error">
-                {error}
-              </span>
+              <span className="text-[11px] text-error">{error}</span>
             )}
-          </Field>
-        </>
+          </div>
+        </div>
       )}
 
+      {/* ── B：學生已列管 ── */}
       {view.kind === 'student_linked' && project.linked_teacher && (
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="inline-flex h-7 items-center rounded-full bg-success-bg px-3 text-xs font-medium text-success">
-              已由 {project.linked_teacher.display_name} 指導
-            </span>
-            <button
-              type="button"
-              onClick={handleUnlink}
-              disabled={busy}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-text-muted transition-colors hover:bg-error-bg hover:text-error"
-            >
-              <X size={12} />
-              解除
-            </button>
-          </div>
-          <div className="flex items-center gap-2 text-[11px] text-text-muted">
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="inline-flex h-7 items-center rounded-full bg-success-bg px-3 text-xs font-medium text-success">
+            已由 {project.linked_teacher.display_name} 指導
+          </span>
+          <div className="flex items-center gap-1.5 text-[11px] text-text-muted">
             <span>活動代碼</span>
             <code className="rounded bg-bg-warm px-1.5 py-0.5 font-mono font-semibold tracking-widest text-text">
               {project.invite_code ?? '—'}
@@ -200,63 +203,48 @@ export function LobbyEnrollmentRow({ project }: Props) {
               type="button"
               onClick={handleCopy}
               disabled={!project.invite_code}
-              className="inline-flex items-center gap-0.5 rounded p-0.5 hover:text-text disabled:opacity-40"
+              className="inline-flex items-center rounded p-0.5 hover:text-text disabled:opacity-40"
               title="複製"
             >
               {copied ? <Check size={11} /> : <Copy size={11} />}
             </button>
           </div>
+          <button
+            type="button"
+            onClick={handleUnlink}
+            disabled={busy}
+            className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-text-muted transition-colors hover:bg-error-bg hover:text-error"
+          >
+            <X size={12} />
+            解除
+          </button>
           {error && (
-            <span className="text-[11px] text-error">{error}</span>
+            <span className="basis-full text-[11px] text-error">{error}</span>
           )}
         </div>
       )}
 
+      {/* ── C：老師 view ── */}
       {view.kind === 'teacher_view' && (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between gap-2">
-            <span className="inline-flex h-7 items-center rounded-full bg-success-bg px-3 text-xs font-medium text-success">
-              你是這個活動的指導老師
-            </span>
-            <button
-              type="button"
-              onClick={handleUnlink}
-              disabled={busy || isCreator}
-              title={isCreator ? '你是活動建立者，無法解除' : '解除指導'}
-              className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-text-muted transition-colors hover:bg-error-bg hover:text-error disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <X size={12} />
-              解除指導
-            </button>
-          </div>
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="inline-flex h-7 items-center rounded-full bg-success-bg px-3 text-xs font-medium text-success">
+            你是這個活動的指導老師
+          </span>
+          <button
+            type="button"
+            onClick={handleUnlink}
+            disabled={busy || isCreator}
+            title={isCreator ? '你是活動建立者，無法解除' : '解除指導'}
+            className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-text-muted transition-colors hover:bg-error-bg hover:text-error disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <X size={12} />
+            解除指導
+          </button>
           {error && (
-            <span className="text-[11px] text-error">{error}</span>
+            <span className="basis-full text-[11px] text-error">{error}</span>
           )}
         </div>
       )}
     </div>
-  )
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
-        {label}
-      </span>
-      {children}
-    </div>
-  )
-}
-
-function Helper({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-[11px] leading-snug text-text-muted">{children}</p>
   )
 }
