@@ -32,6 +32,10 @@ class Seat(Base):
     joined_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+    # Phase 22：席位首次發訊息／貼便利貼時鎖定，往後該席位的氣泡與便利貼預設色都用這個
+    sticky_color: Mapped[str | None] = mapped_column(
+        String(16), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default="now()"
     )

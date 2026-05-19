@@ -24,14 +24,14 @@ const STEPS: DriveStep[] = [
     popover: {
       title: '教師儀表板',
       description:
-        '這裡是你的指揮中心：監控所有課堂專案、管理學生帳號、掌握每組設計思考進度。',
+        '這裡是你的指揮中心：監控所有課堂學習活動、管理學生帳號、掌握每組設計思考進度。',
     },
   },
   {
     element: '[data-tour="teacher-create"]',
     popover: {
-      title: '建立新專案',
-      description: '點這顆按鈕開啟新課堂專案，設定主題與限制條件後分配給學生。',
+      title: '建立新學習活動',
+      description: '點這顆按鈕開啟新課堂學習活動，設定主題與限制條件後分配給學生。',
       side: 'left',
       align: 'start',
     },
@@ -40,7 +40,7 @@ const STEPS: DriveStep[] = [
     element: '[data-tour="teacher-tabs"]',
     popover: {
       title: '兩大功能分頁',
-      description: '「專案監控」追蹤所有課堂進度；「學生管理」可新增帳號、開放專案建立權限。',
+      description: '「學習活動監控」追蹤所有課堂進度；「學生管理」可新增帳號、開放學習活動建立權限。',
       side: 'bottom',
     },
   },
@@ -48,7 +48,7 @@ const STEPS: DriveStep[] = [
     element: '[data-tour="teacher-stage-distribution"]',
     popover: {
       title: '階段分布總覽',
-      description: '一眼看出全班專案散落在雙鑽石的哪些階段，誰收斂太慢、誰還在發散都看得出來。',
+      description: '一眼看出全班學習活動散落在雙鑽石的哪些階段，誰收斂太慢、誰還在發散都看得出來。',
       side: 'bottom',
     },
   },
@@ -56,14 +56,14 @@ const STEPS: DriveStep[] = [
     element: '[data-tour="teacher-alerts"]',
     popover: {
       title: '異常警示',
-      description: '系統會抓出進度停滯或團隊狀態異常的專案，主動提示你介入。',
+      description: '系統會抓出進度停滯或團隊狀態異常的學習活動，主動提示你介入。',
       side: 'bottom',
     },
   },
   {
     element: '[data-tour="teacher-monitor-card"]',
     popover: {
-      title: '單一專案監控卡',
+      title: '單一學習活動監控卡',
       description: '每張卡顯示一組的當前階段、micro-phase、團隊組成；點進去即可加入該組工作區。',
       side: 'top',
     },
@@ -71,8 +71,8 @@ const STEPS: DriveStep[] = [
   {
     element: '[data-tour="teacher-empty-cta"]',
     popover: {
-      title: '建立第一個專案',
-      description: '尚未有專案？從這裡開始。',
+      title: '建立第一個學習活動',
+      description: '尚未有學習活動？從這裡開始。',
       side: 'top',
     },
   },

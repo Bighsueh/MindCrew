@@ -1,0 +1,262 @@
+import { useState } from 'react'
+import {
+  Copy,
+  Check,
+  Link as LinkIcon,
+  X,
+  GraduationCap,
+} from 'lucide-react'
+import { Button } from '../../components/common/Button'
+import { Input } from '../../components/common/Input'
+import { linkTeacher, unlinkTeacher } from '../../services/projectService'
+import { useAuthStore } from '../../stores/authStore'
+import { useProjectStore } from '../../stores/projectStore'
+import type { Project } from '../../types/models'
+
+interface Props {
+  project: Project
+}
+
+type ViewState =
+  | { kind: 'student_unlinked' }
+  | { kind: 'student_linked' }
+  | { kind: 'teacher_view' }
+  | { kind: 'hidden' }
+
+/** Phase 22 / UX revamp：邀請老師指導
+ *
+ * 四種狀態：
+ *  A student_unlinked  學生 creator、未列管 → headline + 兩種路徑（分享活動碼 / 輸入老師碼）
+ *  B student_linked    學生 creator、已列管 → 狀態 chip + 解除 + 活動碼小字
+ *  C teacher_view      老師（creator 或被列管） → 狀態 chip + 解除指導
+ *  D hidden            非 creator、非 linked_teacher 的旁觀者 → 不顯示
+ */
+export function LobbyEnrollmentRow({ project }: Props) {
+  const { user } = useAuthStore()
+  const setCurrentProject = useProjectStore((s) => s.setCurrentProject)
+
+  const [copied, setCopied] = useState(false)
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const isCreator = !!user && user.id === project.creator_id
+  const isLinkedTeacher = !!user && user.id === project.linked_teacher?.id
+  const isTeacherRole = user?.role === 'teacher'
+
+  const view: ViewState = (() => {
+    if (isTeacherRole && (isCreator || isLinkedTeacher)) {
+      return { kind: 'teacher_view' }
+    }
+    if (isCreator) {
+      return project.linked_teacher
+        ? { kind: 'student_linked' }
+        : { kind: 'student_unlinked' }
+    }
+    return { kind: 'hidden' }
+  })()
+
+  if (view.kind === 'hidden') return null
+
+  const handleCopy = async () => {
+    if (!project.invite_code) return
+    try {
+      await navigator.clipboard.writeText(project.invite_code)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const handleLink = async () => {
+    const trimmed = code.trim().toUpperCase()
+    if (trimmed.length < 4) {
+      setError('請輸入老師代碼')
+      return
+    }
+    setError('')
+    setBusy(true)
+    try {
+      const updated = await linkTeacher(project.id, trimmed)
+      setCurrentProject(updated)
+      setCode('')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })
+        ?.response?.data?.detail
+      setError(detail ?? '邀請失敗，請確認代碼是否正確')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleUnlink = async () => {
+    if (!window.confirm('確定要解除指導關係嗎？解除後老師將不再看到這個活動。')) {
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const updated = await unlinkTeacher(project.id)
+      setCurrentProject(updated)
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })
+        ?.response?.data?.detail
+      setError(detail ?? '解除失敗')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex w-full max-w-sm shrink-0 flex-col gap-2 rounded-xl border border-border-light bg-surface/60 px-4 py-3">
+      {/* Headline */}
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
+        <GraduationCap size={14} />
+        {view.kind === 'student_unlinked' && '邀請老師指導這個活動'}
+        {view.kind === 'student_linked' && '指導老師'}
+        {view.kind === 'teacher_view' && '指導關係'}
+      </div>
+
+      {view.kind === 'student_unlinked' && (
+        <>
+          {/* 路徑 1：分享我的活動代碼 */}
+          <Field label="我的活動代碼">
+            <div className="flex items-center gap-2">
+              <code className="rounded-md bg-bg-warm px-2.5 py-1 font-mono text-sm font-semibold tracking-widest text-text">
+                {project.invite_code ?? '—'}
+              </code>
+              <button
+                type="button"
+                onClick={handleCopy}
+                disabled={!project.invite_code}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-text-muted transition-colors hover:bg-bg-warm hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {copied ? <Check size={12} /> : <Copy size={12} />}
+                {copied ? '已複製' : '複製'}
+              </button>
+            </div>
+            <Helper>把這個碼給老師，他在儀表板輸入後即可看到這個活動。</Helper>
+          </Field>
+
+          <div className="my-1 flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-muted/60">
+            <span className="h-px flex-1 bg-border-light" />
+            或
+            <span className="h-px flex-1 bg-border-light" />
+          </div>
+
+          {/* 路徑 2：輸入老師代碼 */}
+          <Field label="輸入老師代碼">
+            <div className="flex items-center gap-2">
+              <Input
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                placeholder="老師代碼，例：MD7K2A"
+                className="h-7 w-36 font-mono text-sm uppercase tracking-widest"
+                maxLength={8}
+              />
+              <Button
+                size="sm"
+                onClick={handleLink}
+                isLoading={busy}
+                disabled={!code.trim()}
+              >
+                <LinkIcon size={14} />
+                邀請
+              </Button>
+            </div>
+            <Helper>如果老師先給了你他的代碼，輸入後即可邀請他指導。</Helper>
+            {error && (
+              <span className="mt-0.5 block text-[11px] text-error">
+                {error}
+              </span>
+            )}
+          </Field>
+        </>
+      )}
+
+      {view.kind === 'student_linked' && project.linked_teacher && (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex h-7 items-center rounded-full bg-success-bg px-3 text-xs font-medium text-success">
+              已由 {project.linked_teacher.display_name} 指導
+            </span>
+            <button
+              type="button"
+              onClick={handleUnlink}
+              disabled={busy}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-text-muted transition-colors hover:bg-error-bg hover:text-error"
+            >
+              <X size={12} />
+              解除
+            </button>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-text-muted">
+            <span>活動代碼</span>
+            <code className="rounded bg-bg-warm px-1.5 py-0.5 font-mono font-semibold tracking-widest text-text">
+              {project.invite_code ?? '—'}
+            </code>
+            <button
+              type="button"
+              onClick={handleCopy}
+              disabled={!project.invite_code}
+              className="inline-flex items-center gap-0.5 rounded p-0.5 hover:text-text disabled:opacity-40"
+              title="複製"
+            >
+              {copied ? <Check size={11} /> : <Copy size={11} />}
+            </button>
+          </div>
+          {error && (
+            <span className="text-[11px] text-error">{error}</span>
+          )}
+        </div>
+      )}
+
+      {view.kind === 'teacher_view' && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex h-7 items-center rounded-full bg-success-bg px-3 text-xs font-medium text-success">
+              你是這個活動的指導老師
+            </span>
+            <button
+              type="button"
+              onClick={handleUnlink}
+              disabled={busy || isCreator}
+              title={isCreator ? '你是活動建立者，無法解除' : '解除指導'}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-text-muted transition-colors hover:bg-error-bg hover:text-error disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <X size={12} />
+              解除指導
+            </button>
+          </div>
+          {error && (
+            <span className="text-[11px] text-error">{error}</span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
+        {label}
+      </span>
+      {children}
+    </div>
+  )
+}
+
+function Helper({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] leading-snug text-text-muted">{children}</p>
+  )
+}

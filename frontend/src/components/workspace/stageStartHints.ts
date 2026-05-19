@@ -124,7 +124,7 @@ export const STAGE_START_HINTS: Record<StartActionStage, StageStartHint> = {
       },
       {
         id: 'copy_from_previous',
-        title: '從先前專案複製',
+        title: '從先前活動複製',
         body: '重用過去的訪談洞察',
         icon: Copy,
         role: 'coaching',

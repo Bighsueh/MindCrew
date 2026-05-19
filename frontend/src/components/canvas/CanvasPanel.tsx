@@ -7,6 +7,7 @@ import type { DTStage, MicroPhaseId } from '../../types/models'
 import { MiniToolbar } from './MiniToolbar'
 import { ZoomControls } from './ZoomControls'
 import { NoteAuthorOverlay } from './NoteAuthorOverlay'
+import { HumanNoteColorInjector } from './HumanNoteColorInjector'
 import { AnimatedYjsBridge } from './AnimatedYjsBridge'
 // Phase 17 Stream B (Spec 13) — Sticky-Only Strategy overlays
 import { ZoneOverlay } from './ZoneOverlay'
@@ -165,6 +166,8 @@ export function CanvasPanel({
         <MiniToolbar />
         <ZoomControls />
         <NoteAuthorOverlay />
+        {/* Phase 22：人類新貼便利貼時自動套席位鎖定色 */}
+        <HumanNoteColorInjector />
         {/* Phase 17 Stream B (Spec 13): zone overlay. Camera coords passthrough — store internal aligns. */}
         <ZoneOverlay cameraX={0} cameraY={0} cameraZ={1} />
       </Tldraw>

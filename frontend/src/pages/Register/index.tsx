@@ -5,17 +5,43 @@ import { useAuthStore } from '../../stores/authStore'
 import { usePageTransition } from '../../hooks/usePageTransition'
 import { Button } from '../../components/common/Button'
 import { Input } from '../../components/common/Input'
+import { cn } from '../../lib/utils'
+
+type RoleChoice = 'teacher' | 'student'
+
+const COPY: Record<RoleChoice, {
+  title: string
+  subtitle: string
+  displayNamePlaceholder: string
+  emailPlaceholder: string
+}> = {
+  teacher: {
+    title: '教師註冊',
+    subtitle: '建立您的教師帳號以管理課堂',
+    displayNamePlaceholder: '王小明老師',
+    emailPlaceholder: 'teacher@school.edu.tw',
+  },
+  student: {
+    title: '學生註冊',
+    subtitle: '建立您的學生帳號開始探索',
+    displayNamePlaceholder: '王小明',
+    emailPlaceholder: 'student@school.edu.tw',
+  },
+}
 
 export function RegisterPage() {
   const loginStore = useAuthStore((s) => s.login)
   const { navigateToApp } = usePageTransition()
 
+  const [role, setRole] = useState<RoleChoice>('student')
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+
+  const copy = COPY[role]
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -34,7 +60,7 @@ export function RegisterPage() {
     setIsLoading(true)
 
     try {
-      const data = await register({ email, password, display_name: displayName })
+      const data = await register({ email, password, display_name: displayName, role })
       loginStore(data.user)
       navigateToApp('/projects')
     } catch (err: unknown) {
@@ -51,8 +77,31 @@ export function RegisterPage() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      <h2 className="text-xl font-semibold text-text">教師註冊</h2>
-      <p className="text-sm text-text-muted">建立您的教師帳號以管理課堂</p>
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium text-text">我是…</label>
+        <div className="grid grid-cols-2 gap-2">
+          {(['teacher', 'student'] as RoleChoice[]).map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setRole(r)}
+              className={cn(
+                'rounded-lg border p-3 text-sm font-medium transition-all cursor-pointer',
+                role === r
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-surface text-text-muted hover:border-primary/40 hover:bg-primary/5',
+              )}
+            >
+              {r === 'teacher' ? '教師' : '學生'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-xl font-semibold text-text">{copy.title}</h2>
+        <p className="text-sm text-text-muted">{copy.subtitle}</p>
+      </div>
 
       {error && (
         <div className="rounded-md bg-error-bg px-4 py-3 text-sm text-error">
@@ -65,7 +114,7 @@ export function RegisterPage() {
         type="text"
         value={displayName}
         onChange={(e) => setDisplayName(e.target.value)}
-        placeholder="王小明老師"
+        placeholder={copy.displayNamePlaceholder}
         required
       />
 
@@ -74,7 +123,7 @@ export function RegisterPage() {
         type="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        placeholder="teacher@school.edu.tw"
+        placeholder={copy.emailPlaceholder}
         required
         autoComplete="email"
       />

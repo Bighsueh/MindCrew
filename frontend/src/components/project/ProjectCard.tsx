@@ -121,7 +121,7 @@ export function ProjectCard({ project, isOwner, onDelete }: ProjectCardProps) {
                   'hover:bg-surface-hover hover:text-text',
                   menuOpen ? 'bg-surface-hover text-text' : 'opacity-0 group-hover:opacity-100',
                 )}
-                aria-label="專案選單"
+                aria-label="活動選單"
               >
                 <MoreVertical size={16} />
               </button>
@@ -141,7 +141,7 @@ export function ProjectCard({ project, isOwner, onDelete }: ProjectCardProps) {
                                hover:bg-error-bg transition-colors cursor-pointer"
                   >
                     <Trash2 size={14} />
-                    刪除專案
+                    刪除活動
                   </button>
                 </div>
               )}

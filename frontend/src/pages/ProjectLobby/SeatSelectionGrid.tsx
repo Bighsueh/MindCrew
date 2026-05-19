@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Button } from '../../components/common/Button'
+import { SeatIcon } from '../../lib/seatIcons'
 import type { Seat, SeatRole } from '../../types/models'
 
 interface SeatSelectionGridProps {
@@ -17,6 +18,8 @@ interface SeatSelectionGridProps {
   joiningRole: SeatRole | null
   joinError: string
   isLocked: boolean
+  hideJoinButtons?: boolean
+  hideObserverHint?: boolean
 }
 
 // Phase 21：dormant 表示「AI 還沒被啟動」——第一位真人入座前的 lobby 狀態。
@@ -61,6 +64,8 @@ export function SeatSelectionGrid({
   joiningRole,
   joinError,
   isLocked,
+  hideJoinButtons = false,
+  hideObserverHint = false,
 }: SeatSelectionGridProps) {
   const supervisorSeat = seats.find((s) => s.seat_role === 'supervisor')
   const crewSeats = seats.filter((s) => s.seat_role !== 'supervisor')
@@ -78,7 +83,9 @@ export function SeatSelectionGrid({
       <div className="border-b border-border-light px-6 py-5">
         <h2 className="text-lg font-semibold text-text">選擇座位</h2>
         <p className="mt-0.5 text-sm text-text-muted">
-          選擇一個座位加入討論，或以觀察者身份旁聽
+          {hideObserverHint
+            ? '系統會自動為你安排席位'
+            : '查看席位佈局，或以觀察者身份進入工作區'}
         </p>
         <LobbyCounts summary={summary} />
       </div>
@@ -98,7 +105,7 @@ export function SeatSelectionGrid({
           const isJoining = joiningRole === seat.seat_role
           let disabledReason: string | undefined
           if (userHasSeat) {
-            disabledReason = '你已經在這個專案中佔有一個席位'
+            disabledReason = '你已經在這個學習活動中佔有一個席位'
           } else if (isLocked && !isJoining) {
             disabledReason = '正在加入其他席位…'
           }
@@ -110,6 +117,7 @@ export function SeatSelectionGrid({
               onJoin={onJoin}
               isJoining={isJoining}
               disabledReason={disabledReason}
+              hideJoinButton={hideJoinButtons || userHasSeat}
             />
           )
         })}
@@ -172,7 +180,7 @@ function SupervisorRow({ seat }: SupervisorRowProps) {
   return (
     <div className="border-b border-border bg-supervisor/5 px-5 py-4">
       <div className="flex items-center gap-3">
-        <SeatAvatar isAI isMe={false} isSupervisor isDormant={dormant} />
+        <SeatAvatar isAI isMe={false} isSupervisor isDormant={dormant} seatRole={seat.seat_role} />
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -186,7 +194,7 @@ function SupervisorRow({ seat }: SupervisorRowProps) {
             ) : (
               <span className="inline-flex items-center gap-1 rounded-full bg-supervisor/15 px-2 py-0.5 text-[11px] font-medium text-supervisor">
                 <Bot size={10} />
-                {agentLabel} · 代理中
+                AI · {agentLabel} · 代理中
               </span>
             )}
           </div>
@@ -212,7 +220,8 @@ function CrewRow({
   onJoin,
   isJoining,
   disabledReason,
-}: SeatRowProps) {
+  hideJoinButton,
+}: SeatRowProps & { hideJoinButton?: boolean }) {
   const isMyCurrentSeat =
     seat.occupant_type === 'human' && seat.user_id === currentUserId
   const isHumanOccupied =
@@ -234,6 +243,7 @@ function CrewRow({
         isMe={isMyCurrentSeat}
         isSupervisor={false}
         isDormant={dormant}
+        seatRole={seat.seat_role}
       />
 
       <div className="min-w-0 flex-1">
@@ -249,13 +259,15 @@ function CrewRow({
         </div>
       </div>
 
-      <SeatAction
-        isAI={isAI}
-        isJoining={isJoining}
-        seatRole={seat.seat_role as SeatRole}
-        onJoin={onJoin}
-        disabledReason={disabledReason}
-      />
+      {!hideJoinButton && (
+        <SeatAction
+          isAI={isAI}
+          isJoining={isJoining}
+          seatRole={seat.seat_role as SeatRole}
+          onJoin={onJoin}
+          disabledReason={disabledReason}
+        />
+      )}
     </div>
   )
 }
@@ -267,11 +279,13 @@ function SeatAvatar({
   isMe,
   isSupervisor,
   isDormant: dormant,
+  seatRole,
 }: {
   isAI: boolean
   isMe: boolean
   isSupervisor: boolean
   isDormant?: boolean
+  seatRole?: string
 }) {
   return (
     <div
@@ -286,7 +300,16 @@ function SeatAvatar({
       )}
     >
       {isAI ? (
-        dormant ? <Hourglass size={16} /> : <Bot size={16} />
+        dormant ? (
+          <Hourglass size={16} />
+        ) : (
+          <SeatIcon
+            seatRole={seatRole ?? 'crew_1'}
+            isAI
+            isSupervisor={isSupervisor}
+            size={16}
+          />
+        )
       ) : (
         <User size={16} />
       )}
@@ -320,7 +343,7 @@ function OccupantBadge({
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-secondary/40 px-2 py-0.5 text-[11px] text-text-muted">
         <Bot size={10} />
-        {agentLabel} · 代理中
+        AI · {agentLabel} · 代理中
       </span>
     )
   }

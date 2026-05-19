@@ -45,14 +45,14 @@ export function DeleteProjectDialog({
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="刪除專案">
+    <Modal isOpen={isOpen} onClose={handleClose} title="刪除學習活動">
       <div className="flex flex-col gap-4">
         <div className="flex items-start gap-3 rounded-lg bg-error-bg p-4">
           <AlertTriangle size={20} className="mt-0.5 shrink-0 text-error" />
           <div className="text-sm text-text">
             <p className="font-medium">此操作無法復原。</p>
             <p className="mt-1 text-text-muted">
-              專案中的所有對話紀錄、白板內容、Agent 決策日誌都將被永久刪除。
+              此學習活動中的所有對話紀錄、白板內容、Agent 決策日誌都將被永久刪除。
             </p>
           </div>
         </div>

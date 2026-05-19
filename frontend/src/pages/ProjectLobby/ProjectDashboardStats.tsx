@@ -40,7 +40,7 @@ export function ProjectDashboardStats({
 
   return (
     <div className={embedded ? '' : 'rounded-xl border border-border bg-surface p-5 shadow-sm'}>
-      <h3 className="mb-4 text-sm font-semibold text-text">專案概況</h3>
+      <h3 className="mb-4 text-sm font-semibold text-text">活動概況</h3>
 
       {/* Stat cards grid */}
       <div className="grid grid-cols-2 gap-3 mb-5">

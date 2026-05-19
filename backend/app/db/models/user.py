@@ -23,6 +23,10 @@ class User(Base):
     can_create_project: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    # Phase 22：教師簽名碼，學生於建立活動時輸入此碼即可被該教師列管
+    signature_code: Mapped[str | None] = mapped_column(
+        String(8), unique=True, nullable=True
+    )
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("user.id"), nullable=True
     )

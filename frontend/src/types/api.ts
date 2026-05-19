@@ -20,6 +20,7 @@ export interface RegisterRequest {
   email: string
   password: string
   display_name: string
+  role?: 'teacher' | 'student'
 }
 
 export interface LoginRequest {
@@ -66,6 +67,8 @@ export interface CreateProjectRequest {
   personas: CrewPersonaAssignment[]
   // specs/16-timer-system.md：建立者必須明確選 preset 或自訂；後端拒絕缺值。
   timer_config: TimerConfigInput
+  // Phase 22: 學生建立活動時可選填教師的 signature_code 即被列管
+  teacher_signature_code?: string
 }
 
 export interface GeneratePersonasRequest {

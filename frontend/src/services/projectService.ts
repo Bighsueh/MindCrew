@@ -77,6 +77,35 @@ export async function deleteProject(id: string): Promise<void> {
   await api.delete(`/projects/${id}`)
 }
 
+// Phase 22: 學生將自建活動列管於某老師
+export async function linkTeacher(
+  projectId: string,
+  signatureCode: string,
+): Promise<Project> {
+  const response = await api.post<Project>(
+    `/projects/${projectId}/link-teacher`,
+    { signature_code: signatureCode.trim().toUpperCase() },
+  )
+  return response.data
+}
+
+export async function unlinkTeacher(projectId: string): Promise<Project> {
+  const response = await api.delete<Project>(
+    `/projects/${projectId}/link-teacher`,
+  )
+  return response.data
+}
+
+// Phase 22: 教師用活動 invite_code 列管學生活動
+export async function trackProjectByInviteCode(
+  inviteCode: string,
+): Promise<Project> {
+  const response = await api.post<Project>('/teacher/projects/track', {
+    invite_code: inviteCode.trim().toUpperCase(),
+  })
+  return response.data
+}
+
 export async function getProject(id: string): Promise<Project> {
   const response = await api.get<Project>(`/projects/${id}`)
   return response.data

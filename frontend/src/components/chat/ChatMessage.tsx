@@ -1,5 +1,7 @@
 import { Bot } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { useAuthorColor } from '../../hooks/useAuthorColor'
+import { SeatIcon } from '../../lib/seatIcons'
 import type { Message, SeatRole } from '../../types/models'
 
 interface ChatMessageProps {
@@ -24,6 +26,12 @@ export function ChatMessage({ message, isOwn = false, seatRole }: ChatMessagePro
   const isSystem = message.sender_type === 'system'
   const isAI = message.sender_type === 'ai'
   const isSupervisor = seatRole === 'supervisor'
+  // Phase 22：拿席位識別色（兼用於 avatar、bubble、dot）
+  const { token: authorColorToken, scheme } = useAuthorColor(
+    message.sender_id,
+    message.sender_type,
+  )
+  const hasAuthorColor = authorColorToken !== null && !isSystem && !isSupervisor
 
   if (isSystem) {
     return (
@@ -42,11 +50,25 @@ export function ChatMessage({ message, isOwn = false, seatRole }: ChatMessagePro
         className={cn(
           'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-sm',
           isSupervisor && 'bg-supervisor/15 text-supervisor ring-2 ring-supervisor/30',
-          !isSupervisor && isAI && 'bg-accent/15 text-accent',
-          !isSupervisor && !isAI && 'bg-accent/15 text-accent',
+          !isSupervisor && !hasAuthorColor && 'bg-accent/15 text-accent',
         )}
+        style={
+          hasAuthorColor
+            ? { backgroundColor: scheme.bubbleBg, color: scheme.accent }
+            : undefined
+        }
+        title={authorColorToken ?? undefined}
       >
-        {isAI ? <Bot size={16} /> : (message.sender_name[0]?.toUpperCase() ?? '?')}
+        {isAI ? (
+          <SeatIcon
+            seatRole={seatRole ?? 'crew_1'}
+            isAI
+            isSupervisor={isSupervisor}
+            size={16}
+          />
+        ) : (
+          message.sender_name[0]?.toUpperCase() ?? '?'
+        )}
       </div>
 
       {/* Bubble */}
@@ -77,14 +99,23 @@ export function ChatMessage({ message, isOwn = false, seatRole }: ChatMessagePro
         <div
           className={cn(
             'rounded-2xl px-4 py-2 text-sm leading-relaxed',
-            isOwn
-              ? 'rounded-tr-sm bg-accent/10 text-text'
-              : isSupervisor
-                ? 'rounded-tl-sm border-l-3 border-supervisor bg-supervisor-light text-text'
-                : isAI
-                  ? 'rounded-tl-sm border-l-2 border-accent/30 bg-secondary/20 text-text'
-                  : 'rounded-tl-sm bg-bg-warm text-text',
+            isOwn ? 'rounded-tr-sm' : 'rounded-tl-sm',
+            isSupervisor && 'border-l-3 border-supervisor bg-supervisor-light text-text',
+            !isSupervisor && !hasAuthorColor && (isOwn
+              ? 'bg-accent/10 text-text'
+              : isAI
+                ? 'border-l-2 border-accent/30 bg-secondary/20 text-text'
+                : 'bg-bg-warm text-text'),
           )}
+          style={
+            hasAuthorColor && !isSupervisor
+              ? {
+                  backgroundColor: scheme.bubbleBg,
+                  color: scheme.text,
+                  borderLeft: isOwn ? undefined : `3px solid ${scheme.accent}`,
+                }
+              : undefined
+          }
         >
           {message.content}
         </div>

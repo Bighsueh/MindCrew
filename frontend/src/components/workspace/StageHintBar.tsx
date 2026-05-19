@@ -58,7 +58,7 @@ const STAGE_META: Record<DTStage, StageMeta> = {
   completed: {
     label: 'Completed',
     icon: Rocket,
-    defaultGoal: '專案已結束，回頭看看學到什麼。',
+    defaultGoal: '活動已結束，回頭看看學到什麼。',
   },
 }
 

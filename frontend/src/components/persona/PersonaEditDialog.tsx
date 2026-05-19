@@ -76,8 +76,8 @@ export function PersonaEditDialog({
   }
 
   const handleSubmit = async () => {
-    if (!draft.name.trim() || !draft.role.trim()) {
-      setError('「姓名」和「角色」皆為必填。')
+    if (!draft.name.trim()) {
+      setError('「姓名」為必填。')
       return
     }
     setError('')
@@ -107,13 +107,6 @@ export function PersonaEditDialog({
           value={draft.name}
           onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))}
           placeholder="例：陳秀英"
-          required
-        />
-        <Input
-          label="角色／身分"
-          value={draft.role}
-          onChange={(e) => setDraft((prev) => ({ ...prev, role: e.target.value }))}
-          placeholder="例：偏鄉家醫科診所護理師"
           required
         />
 
@@ -180,35 +173,42 @@ export function PersonaEditDialog({
           />
         </div>
 
-        <div className="flex flex-col gap-2 rounded-lg border border-border-light/60 p-3">
-          <div className="text-sm font-medium text-text">認知透鏡強度</div>
-          <p className="text-xs text-text-muted">
+        <details className="group flex flex-col gap-2 rounded-lg border border-border-light/60 p-3">
+          <summary className="cursor-pointer list-none text-sm font-medium text-text marker:hidden">
+            <span className="inline-flex items-center gap-2">
+              <span className="text-text-muted transition-transform group-open:rotate-90">▶</span>
+              進階：認知透鏡強度（AI 已自動配置）
+            </span>
+          </summary>
+          <p className="mt-2 text-xs text-text-muted">
             0.0 ~ 1.0。AI 生成的分數通常已合理，僅在需要時手動微調。
           </p>
-          {LENS_FIELDS.map((field) => {
-            const value = draft.lens_affinities[field.key]
-            return (
-              <div key={field.key} className="flex items-center gap-3 text-sm">
-                <div className="w-32 shrink-0">
-                  <div className="font-medium text-text">{field.label}</div>
-                  <div className="text-[11px] text-text-muted">{field.desc}</div>
+          <div className="mt-2 flex flex-col gap-2">
+            {LENS_FIELDS.map((field) => {
+              const value = draft.lens_affinities[field.key]
+              return (
+                <div key={field.key} className="flex items-center gap-3 text-sm">
+                  <div className="w-32 shrink-0">
+                    <div className="font-medium text-text">{field.label}</div>
+                    <div className="text-[11px] text-text-muted">{field.desc}</div>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={value}
+                    onChange={(e) => handleAffinity(field.key, Number(e.target.value))}
+                    className="flex-1 accent-primary"
+                  />
+                  <span className="w-12 text-right tabular-nums text-text-muted">
+                    {value.toFixed(2)}
+                  </span>
                 </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={value}
-                  onChange={(e) => handleAffinity(field.key, Number(e.target.value))}
-                  className="flex-1 accent-primary"
-                />
-                <span className="w-12 text-right tabular-nums text-text-muted">
-                  {value.toFixed(2)}
-                </span>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        </details>
 
         {error && (
           <div className="rounded-md bg-error-bg px-3 py-2 text-sm text-error">

@@ -66,7 +66,14 @@ export interface User {
   display_name: string
   role: UserRole
   can_create_project: boolean
+  /** Phase 22: 教師簽名碼（學生用此碼將活動列管於該教師）。 */
+  signature_code?: string | null
   created_at?: string
+}
+
+export interface LinkedTeacher {
+  id: string
+  display_name: string
 }
 
 export interface Seat {
@@ -81,6 +88,8 @@ export interface Seat {
   state: string
   // Phase 21：第一位真人入座前，AI 席位為 dormant（is_active=false）→ 顯示「待加入」。
   is_active?: boolean
+  /** Phase 22: 席位識別色（tldraw 8 色 token），用於聊天氣泡與便利貼預設色。 */
+  sticky_color?: string | null
   joined_at?: string | null
   updated_at: string
 }
@@ -104,6 +113,10 @@ export interface Project {
   seat_summary?: SeatSummary
   created_at: string
   updated_at: string
+  /** Phase 22: 活動邀請碼（教師可用此碼列管活動）。 */
+  invite_code?: string | null
+  /** Phase 22: 已列管的老師（null 表未列管）。 */
+  linked_teacher?: LinkedTeacher | null
 }
 
 export interface ProjectListItem {
@@ -116,6 +129,9 @@ export interface ProjectListItem {
   seat_summary: SeatSummary
   created_at: string
   updated_at: string
+  /** Phase 22 */
+  invite_code?: string | null
+  linked_teacher?: LinkedTeacher | null
 }
 
 export interface Message {

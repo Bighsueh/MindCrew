@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr
@@ -7,6 +8,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     display_name: str
+    role: Literal["teacher", "student"] = "teacher"
 
 
 class LoginRequest(BaseModel):
@@ -24,6 +26,8 @@ class UserResponse(BaseModel):
     display_name: str
     role: str
     can_create_project: bool
+    # Phase 22：教師專屬簽名碼，供學生於建立活動時輸入以列管
+    signature_code: str | None = None
 
     model_config = {"from_attributes": True}
 

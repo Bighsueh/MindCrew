@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '../../lib/utils'
@@ -24,6 +24,9 @@ const maxWidthClasses = {
 }
 
 export function Modal({ isOpen, onClose, title, children, maxWidth = 'md' }: ModalProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [hasMoreBelow, setHasMoreBelow] = useState(false)
+
   useEffect(() => {
     if (!isOpen) return
     const onKey = (e: KeyboardEvent) => {
@@ -36,6 +39,24 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = 'md' }: Mod
       document.body.style.overflow = ''
     }
   }, [isOpen, onClose])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const el = scrollRef.current
+    if (!el) return
+    const update = () => {
+      const more = el.scrollHeight - el.clientHeight - el.scrollTop > 4
+      setHasMoreBelow(more)
+    }
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', update)
+      ro.disconnect()
+    }
+  }, [isOpen, children])
 
   if (!isOpen) return null
 
@@ -66,7 +87,15 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = 'md' }: Mod
             </button>
           </div>
         )}
-        <div className="overflow-y-auto p-6">{children}</div>
+        <div
+          ref={scrollRef}
+          className="modal-scroll min-h-0 flex-1 overflow-y-auto p-6"
+        >
+          {children}
+        </div>
+        {hasMoreBelow && (
+          <div className="pointer-events-none h-6 shrink-0 -mt-6 bg-gradient-to-b from-transparent to-surface" />
+        )}
       </div>
     </div>,
     document.body,

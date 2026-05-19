@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Bot, Crown, User } from 'lucide-react'
+import { Bot } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { Seat } from '../../types/models'
 import { SeatPopover, type SeatStatus } from './SeatPopover'
+import { SeatIcon } from '../../lib/seatIcons'
 
 interface SeatChipProps {
   seat: Seat
@@ -41,7 +42,6 @@ export function SeatChip({
     return () => window.clearTimeout(t)
   }, [speechBubble?.key])
 
-  const Icon = isSupervisor ? Crown : isAI ? Bot : User
 
   return (
     <div className="relative flex-shrink-0">
@@ -69,7 +69,12 @@ export function SeatChip({
         aria-haspopup="dialog"
         aria-expanded={isPopoverOpen}
       >
-        <Icon size={12} />
+        <SeatIcon
+          seatRole={seat.seat_role}
+          isAI={isAI}
+          isSupervisor={isSupervisor}
+          size={12}
+        />
         <span>{label}</span>
 
         {isAI && !isSupervisor && (
