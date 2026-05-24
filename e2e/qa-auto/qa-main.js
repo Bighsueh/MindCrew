@@ -17,6 +17,10 @@ const BACKEND_URL = 'http://localhost:8000'
 const SCREENSHOT_DIR = path.join(__dirname, 'screenshots')
 const RESULTS_FILE = path.join(__dirname, 'qa-results.json')
 
+const TEST_EMAIL = 'qa_auto@mindcrew.test'
+const TEST_PASSWORD =
+  process.env.E2E_TEST_PASSWORD || 'change-me-set-E2E_TEST_PASSWORD'
+
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true })
 
 const results = []
@@ -144,10 +148,10 @@ async function testDockerHealth() {
 }
 
 async function getAuthToken() {
-  const r = await apiPost('/api/auth/login', { email: 'qa_auto@mindcrew.test', password: '[REDACTED]' })
+  const r = await apiPost('/api/auth/login', { email: TEST_EMAIL, password: TEST_PASSWORD })
   if (r.status === 200) return r.body.access_token
   const r2 = await apiPost('/api/auth/register', {
-    email: 'qa_auto@mindcrew.test', password: '[REDACTED]',
+    email: TEST_EMAIL, password: TEST_PASSWORD,
     display_name: 'QA Auto Teacher', role: 'teacher',
   })
   if (r2.status === 200 || r2.status === 201) return r2.body.access_token
@@ -160,8 +164,8 @@ async function testCreateProjectFlow() {
   // B1: 登入
   try {
     await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle', timeout: 30000 })
-    await page.fill('input[type="email"]', 'qa_auto@mindcrew.test')
-    await page.fill('input[type="password"]', '[REDACTED]')
+    await page.fill('input[type="email"]', TEST_EMAIL)
+    await page.fill('input[type="password"]', TEST_PASSWORD)
     await page.click('button[type="submit"]')
     await page.waitForURL('**/projects', { timeout: 20000 })
     await page.waitForTimeout(600)
