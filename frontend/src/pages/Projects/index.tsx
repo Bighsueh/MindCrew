@@ -69,7 +69,7 @@ export function ProjectsPage() {
   // 首次進入自動跑 driver.js 漫遊（每個 session 一次）
   // 等 fetchProjects 拿到資料 + DOM render 完再啟動，否則 projects-card anchor 還不存在
   useProjectsTourAutoStart({
-    role: user?.role,
+    role: user?.role === 'teacher' || user?.role === 'student' ? user.role : null,
     delayMs: isLoading ? 800 : 400,
   })
 
@@ -129,7 +129,7 @@ export function ProjectsPage() {
         <div data-tour="projects-hero" className="flex items-end justify-between">
           <div>
             <h1 className="text-3xl font-bold text-text">{greeting}</h1>
-            <p className="mt-1 text-base text-text-muted">管理你的設計思考學習活動</p>
+            <p className="mt-1 text-base text-text-muted">管理你的設計思考設計專案</p>
           </div>
           {canCreateProject && (
             <Button
@@ -138,7 +138,7 @@ export function ProjectsPage() {
               onClick={() => setShowCreate(true)}
             >
               <Plus size={16} />
-              新增學習活動
+              新增設計專案
             </Button>
           )}
         </div>
@@ -177,7 +177,7 @@ export function ProjectsPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜尋學習活動名稱…"
+            placeholder="搜尋設計專案名稱…"
             className="w-full rounded-xl border border-border-light bg-surface py-2.5 pl-9 pr-3 text-sm text-text shadow-sm
                        placeholder:text-text-muted
                        focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
@@ -197,9 +197,9 @@ export function ProjectsPage() {
             <StickyNoteSVG color="#D4E4C8" rotation={3} text="點子" float floatDelay="1s" />
             <StickyNoteSVG color="#C8D8E8" rotation={-2} text="方案" float floatDelay="2s" />
           </div>
-          <h3 className="mt-6 text-2xl font-bold text-text">尚無學習活動</h3>
+          <h3 className="mt-6 text-2xl font-bold text-text">尚無設計專案</h3>
           <p className="mt-2 text-base text-text-muted">
-            {canCreateProject ? '點擊「新增學習活動」開始你的設計思考之旅。' : '等待老師邀請你加入學習活動。'}
+            {canCreateProject ? '點擊「新增設計專案」開始你的設計思考之旅。' : '等待老師邀請你加入設計專案。'}
           </p>
           {canCreateProject && (
             <Button
@@ -207,14 +207,14 @@ export function ProjectsPage() {
               className="mt-5 rounded-full px-8"
               onClick={() => setShowCreate(true)}
             >
-              建立第一個學習活動
+              建立第一個設計專案
             </Button>
           )}
         </div>
       ) : filteredProjects.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl bg-bg-warm py-12 text-center">
           <Search size={32} className="text-text-muted/40" />
-          <p className="mt-3 text-sm text-text-muted">找不到符合條件的學習活動</p>
+          <p className="mt-3 text-sm text-text-muted">找不到符合條件的設計專案</p>
         </div>
       ) : (
         <div className="flex flex-col gap-8">

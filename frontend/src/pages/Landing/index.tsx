@@ -43,12 +43,12 @@ const FEATURES = [
   {
     icon: Zap,
     title: '全 AI 自主模式',
-    desc: '建立學習活動後讓 AI 自行運作，事後回來看成果。人類可隨時加入或離開。',
+    desc: '建立設計專案後讓 AI 自行運作，事後回來看成果。人類可隨時加入或離開。',
   },
   {
     icon: LayoutGrid,
     title: '教師儀表板',
-    desc: '一覽所有學習活動的即時狀態、觀察模式不佔席位、課後紀錄完整回顧。',
+    desc: '一覽所有設計專案的即時狀態、觀察模式不佔席位、課後紀錄完整回顧。',
   },
   {
     icon: Lightbulb,
@@ -58,14 +58,14 @@ const FEATURES = [
   {
     icon: BarChart3,
     title: 'LLM 用量追蹤',
-    desc: '追蹤每個學習活動的 AI 運算資源消耗，精確到各 Agent 的 input/output token 分布。',
+    desc: '追蹤每個設計專案的 AI 運算資源消耗，精確到各 Agent 的 input/output token 分布。',
   },
 ] as const
 
 const FAQ_ITEMS = [
   {
     q: '學生可以自行註冊嗎？',
-    a: '可以。學生能自助註冊帳號並建立屬於自己的學習活動；教師也仍可在儀表板中統一建立與管理學生帳號。',
+    a: '可以。學生能自助註冊帳號並建立屬於自己的設計專案；教師也仍可在儀表板中統一建立與管理學生帳號。',
   },
   {
     q: 'AI 會不會太主動，壓過學生的發言？',
@@ -77,7 +77,7 @@ const FAQ_ITEMS = [
   },
   {
     q: '可以只讓 AI 跑完整個流程嗎？',
-    a: '可以。建立學習活動後不加入任何席位，AI Agent 會自主完成四階段流程。你可以隨時加入，也可以事後查看完整紀錄。',
+    a: '可以。建立設計專案後不加入任何席位，AI Agent 會自主完成四階段流程。你可以隨時加入，也可以事後查看完整紀錄。',
   },
 ] as const
 
@@ -162,7 +162,7 @@ export function LandingPage() {
             <TransitionLink
               to="/register"
               className="group flex items-center gap-2 rounded-full bg-primary px-8 py-3.5 text-sm font-semibold text-text-inverse transition-all hover:bg-primary-light hover:shadow-lg cursor-pointer"
-              title="建立帳號後即可開始你的設計思考學習活動"
+              title="建立帳號後即可開始你的設計思考設計專案"
             >
               免費註冊
               <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" />
@@ -203,7 +203,7 @@ export function LandingPage() {
                 AI 隊友隨時待命，在你需要發散的時候帶來多元觀點，在收斂的時候協助歸納整理。
               </p>
               <p className="mt-4 text-base leading-relaxed text-text-muted-on-dark">
-                無論是課堂教學、團隊腦力激盪，或是獨立研究——打開學習活動，AI 團隊已就位。
+                無論是課堂教學、團隊腦力激盪，或是獨立研究——打開設計專案，AI 團隊已就位。
               </p>
             </ScrollReveal>
           </div>

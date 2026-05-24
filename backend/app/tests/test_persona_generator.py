@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -13,13 +14,19 @@ from app.agents.personas.generator import (
 )
 
 
+_TEST_UID = uuid4()
+
+
 @dataclass
 class _StubResponse:
     content: str
 
 
 class _StubLLM:
-    """Records calls and returns canned responses in order."""
+    """Records calls and returns canned responses in order.
+
+    Phase 25+ accepts **kwargs (owning_user_id, caller, etc.) from factory.
+    """
 
     def __init__(self, responses: list[str]):
         self._responses = list(responses)
@@ -28,13 +35,9 @@ class _StubLLM:
     async def chat_completion(
         self,
         messages: list[dict[str, str]],
-        *,
-        temperature: float = 0.7,
-        max_tokens: int = 1024,
+        **kwargs: Any,
     ) -> _StubResponse:
-        self.calls.append(
-            {"messages": messages, "temperature": temperature, "max_tokens": max_tokens}
-        )
+        self.calls.append({"messages": messages, **kwargs})
         if not self._responses:
             raise RuntimeError("No more stub responses")
         return _StubResponse(content=self._responses.pop(0))
@@ -142,6 +145,7 @@ async def test_generator_produces_four_personas_from_two_stage_calls() -> None:
         description="協助獨居長者使用智慧家電",
         constraints="預算極低且使用者多為 70 歲以上",
         num_personas=4,
+        owning_user_id=_TEST_UID,
     )
     assert len(personas) == 4
     assert llm.calls and len(llm.calls) == 2
@@ -170,6 +174,7 @@ async def test_generator_raises_on_no_personas() -> None:
             description=None,
             constraints=None,
             num_personas=4,
+            owning_user_id=_TEST_UID,
         )
 
 
@@ -183,6 +188,7 @@ async def test_generator_requires_title() -> None:
             description=None,
             constraints=None,
             num_personas=4,
+            owning_user_id=_TEST_UID,
         )
 
 
@@ -192,7 +198,8 @@ async def test_generator_recovers_from_empty_stage1() -> None:
     llm = _StubLLM(["{ not valid json }", _STAGE2_REPLY])
     generator = PersonaGenerator(llm_service=llm)
     personas = await generator.generate(
-        title="x", description=None, constraints=None, num_personas=4
+        title="x", description=None, constraints=None, num_personas=4,
+        owning_user_id=_TEST_UID,
     )
     assert len(personas) == 4
 
@@ -212,18 +219,9 @@ class _StubStreamLLM(_StubLLM):
     async def chat_completion_stream(
         self,
         messages: list[dict[str, str]],
-        *,
-        temperature: float = 0.7,
-        max_tokens: int = 1024,
+        **kwargs: Any,
     ):
-        self.calls.append(
-            {
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": True,
-            }
-        )
+        self.calls.append({"messages": messages, "stream": True, **kwargs})
         for chunk in self._chunks:
             yield chunk
 
@@ -247,6 +245,7 @@ async def test_generate_stream_emits_stage_and_persona_events() -> None:
             description=None,
             constraints=None,
             num_personas=4,
+            owning_user_id=_TEST_UID,
         )
     ]
     types = [ev["type"] for ev in events]
@@ -273,6 +272,7 @@ async def test_generate_stream_errors_on_empty_title() -> None:
             description=None,
             constraints=None,
             num_personas=4,
+            owning_user_id=_TEST_UID,
         )
     ]
     assert events == [{"type": "error", "detail": "title is required"}]

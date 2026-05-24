@@ -26,7 +26,9 @@ export function LoginPage() {
     try {
       const data = await login({ email, password })
       loginStore(data.user)
-      navigateToApp(from)
+      // Admins land on the management console; others use the requested/default destination.
+      const dest = data.user.role === 'admin' ? '/admin' : from
+      navigateToApp(dest)
     } catch {
       setError('帳號或密碼錯誤，請重試。')
     } finally {
@@ -45,13 +47,13 @@ export function LoginPage() {
       )}
 
       <Input
-        label="電子郵件"
-        type="email"
+        label="電子郵件 / 管理員帳號"
+        type="text"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         placeholder="your@email.com"
         required
-        autoComplete="email"
+        autoComplete="username"
       />
 
       <Input

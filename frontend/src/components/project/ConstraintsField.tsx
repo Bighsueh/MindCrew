@@ -1,234 +1,181 @@
-import { useMemo } from 'react'
+import { useState } from 'react'
+import { Loader2, Sparkles } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { suggestConstraints } from '../../services/projectService'
+import type { ConstraintSuggestions } from '../../types/models'
 
-export type ConstraintsMode = 'simple' | 'advanced'
-
-export type BudgetLevel =
-  | ''
-  | '無預算（NT$ 0）'
-  | '微型（NT$ 1,000 以下）'
-  | '小型（NT$ 1,000 – 10,000）'
-  | '中型（NT$ 10,000 – 100,000）'
-  | '大型（NT$ 100,000 以上）'
-  | '不限'
-
-export interface SimpleConstraints {
-  budget: BudgetLevel
-  targetUsers: string[]
-  targetUsersOther: string
-  fieldSites: string[]
-  fieldSitesOther: string
-}
-
-export const EMPTY_SIMPLE_CONSTRAINTS: SimpleConstraints = {
-  budget: '',
-  targetUsers: [],
-  targetUsersOther: '',
-  fieldSites: [],
-  fieldSitesOther: '',
-}
-
-const BUDGET_OPTIONS: BudgetLevel[] = [
-  '無預算（NT$ 0）',
-  '微型（NT$ 1,000 以下）',
-  '小型（NT$ 1,000 – 10,000）',
-  '中型（NT$ 10,000 – 100,000）',
-  '大型（NT$ 100,000 以上）',
-  '不限',
-]
-
-const TARGET_USER_OPTIONS = [
-  '兒童',
-  '青少年',
-  '上班族',
-  '長者',
-  '身障者',
-  '偏鄉居民',
-]
-
-const FIELD_SITE_OPTIONS = [
-  '校園',
-  '社區',
-  '線上',
-  '實體商店',
-  '公共空間',
-  '醫療場域',
-]
-
-export function buildSimpleConstraintsText(simple: SimpleConstraints): string {
-  const parts: string[] = []
-  if (simple.budget) parts.push(`預算：${simple.budget}`)
-
-  const users = [...simple.targetUsers]
-  if (simple.targetUsersOther.trim()) users.push(simple.targetUsersOther.trim())
-  if (users.length > 0) parts.push(`目標使用者：${users.join('、')}`)
-
-  const sites = [...simple.fieldSites]
-  if (simple.fieldSitesOther.trim()) sites.push(simple.fieldSitesOther.trim())
-  if (sites.length > 0) parts.push(`落地場域：${sites.join('、')}`)
-
-  return parts.join('；')
-}
+/**
+ * Phase 27：ConstraintsField — Open Brief 動態建議版。
+ *
+ * **設計紀律**（見 `specs/17 §11`）：
+ * - 完全移除「目標族群 / 落地場域 / 預算」的預設 checkbox 選項
+ *   ——那些是設計師要去探索的問題空間，不是出題者預先框死的條件
+ * - AI 建議僅以可點擊的 chip 呈現；點擊後**附加**到 textarea 而不是覆寫
+ *   ——使用者已寫的內容永遠優先
+ * - 文案強調「建議方向，不是必填條件」
+ */
 
 interface Props {
-  mode: ConstraintsMode
-  onModeChange: (mode: ConstraintsMode) => void
-  simple: SimpleConstraints
-  onSimpleChange: (next: SimpleConstraints) => void
-  advancedText: string
-  onAdvancedTextChange: (next: string) => void
+  /** Project name — AI 建議需要它，必填才能啟用「✨ 建議」按鈕 */
+  projectName: string
+  /** Project description — 與 name 一起送給 AI；可空（但建議按鈕仍可用） */
+  projectDescription: string
+  value: string
+  onChange: (next: string) => void
   helperText?: string
 }
 
+type CategoryKey = 'budget' | 'audience' | 'venue' | 'other'
+
+const CATEGORY_LABELS: Record<CategoryKey, string> = {
+  budget: '預算',
+  audience: '可能族群',
+  venue: '可能場域',
+  other: '其他約束',
+}
+
+function chipsFromSuggestions(
+  s: ConstraintSuggestions,
+): Record<CategoryKey, string[]> {
+  return {
+    budget: s.budget_hints ?? [],
+    audience: s.audience_hints ?? [],
+    venue: s.venue_hints ?? [],
+    other: s.other_hints ?? [],
+  }
+}
+
+function appendChip(existing: string, chip: string): string {
+  // 永遠附加 — 避免 substring 誤判（例：chip "低" 會被 "預算極低" 包含）。
+  // 是否重複交給 `adopted` Set 在 UI 層判斷。
+  const trimmed = existing.trim()
+  if (!trimmed) return chip
+  const sep = /[。.;\n]$/.test(trimmed) ? ' ' : '；'
+  return `${trimmed}${sep}${chip}`
+}
+
 export function ConstraintsField({
-  mode,
-  onModeChange,
-  simple,
-  onSimpleChange,
-  advancedText,
-  onAdvancedTextChange,
+  projectName,
+  projectDescription,
+  value,
+  onChange,
   helperText,
 }: Props) {
-  const preview = useMemo(() => buildSimpleConstraintsText(simple), [simple])
+  const [suggestions, setSuggestions] = useState<
+    Record<CategoryKey, string[]> | null
+  >(null)
+  const [adopted, setAdopted] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const toggle = (key: 'targetUsers' | 'fieldSites', value: string) => {
-    const current = simple[key]
-    const next = current.includes(value)
-      ? current.filter((v) => v !== value)
-      : [...current, value]
-    onSimpleChange({ ...simple, [key]: next })
+  const canRequest = projectName.trim().length > 0 && !loading
+
+  const handleRequest = async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      const result = await suggestConstraints({
+        title: projectName.trim(),
+        description: projectDescription.trim(),
+      })
+      setSuggestions(chipsFromSuggestions(result))
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'AI 建議失敗，請稍後再試或自行填寫。'
+      setError(message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleAdopt = (chip: string) => {
+    if (adopted.has(chip)) return  // 已採納過則 no-op，避免重複附加
+    onChange(appendChip(value, chip))
+    setAdopted((prev) => {
+      const next = new Set(prev)
+      next.add(chip)
+      return next
+    })
   }
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-text">學習活動限制（選填，但強烈建議）</label>
-        <div className="flex gap-1 rounded-full bg-bg-warm/60 p-0.5 text-xs">
-          {(['simple', 'advanced'] as ConstraintsMode[]).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => onModeChange(m)}
-              className={cn(
-                'rounded-full px-3 py-1 transition-all cursor-pointer',
-                mode === m
-                  ? 'bg-primary text-text-inverse shadow-sm'
-                  : 'text-text-muted hover:text-text',
-              )}
-            >
-              {m === 'simple' ? '簡單' : '進階'}
-            </button>
-          ))}
-        </div>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <label className="text-sm font-medium text-text">
+          設計限制條件（選填，但強烈建議）
+        </label>
+        <button
+          type="button"
+          onClick={handleRequest}
+          disabled={!canRequest}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-all cursor-pointer',
+            canRequest
+              ? 'bg-primary/10 text-primary hover:bg-primary/15'
+              : 'bg-bg-warm/60 text-text-muted cursor-not-allowed',
+          )}
+        >
+          {loading ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <Sparkles size={12} />
+          )}
+          {suggestions ? '重新請 AI 建議' : '由 AI 建議條件'}
+        </button>
       </div>
       {helperText && <p className="text-xs text-text-muted">{helperText}</p>}
 
-      {mode === 'simple' ? (
-        <div className="flex flex-col gap-4 rounded-lg border border-border-light bg-surface/60 p-4">
-          {/* 預算 */}
-          <div className="flex flex-col gap-1.5">
-            <div className="text-xs font-semibold text-text">預算範圍</div>
-            <div className="flex flex-wrap gap-1.5">
-              {BUDGET_OPTIONS.map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() =>
-                    onSimpleChange({
-                      ...simple,
-                      budget: simple.budget === opt ? '' : opt,
-                    })
-                  }
-                  className={cn(
-                    'rounded-full border px-3 py-1 text-xs transition-all cursor-pointer',
-                    simple.budget === opt
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border bg-surface text-text-muted hover:border-primary/40',
-                  )}
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
-          </div>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="例：預算極低、3 個月內 MVP、需符合無障礙設計法規…（也可以等 AI 建議後採納）"
+        rows={4}
+        className="rounded-md border border-border px-3 py-2.5 text-sm bg-surface text-text placeholder:text-text-muted resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+      />
 
-          {/* 目標使用者 */}
-          <div className="flex flex-col gap-1.5">
-            <div className="text-xs font-semibold text-text">目標使用者族群</div>
-            <div className="flex flex-wrap gap-1.5">
-              {TARGET_USER_OPTIONS.map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => toggle('targetUsers', opt)}
-                  className={cn(
-                    'rounded-full border px-3 py-1 text-xs transition-all cursor-pointer',
-                    simple.targetUsers.includes(opt)
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border bg-surface text-text-muted hover:border-primary/40',
-                  )}
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
-            <input
-              type="text"
-              value={simple.targetUsersOther}
-              onChange={(e) =>
-                onSimpleChange({ ...simple, targetUsersOther: e.target.value })
-              }
-              placeholder="其他（自填，例：新住民、自閉症兒童）"
-              className="mt-1 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-            />
-          </div>
-
-          {/* 落地場域 */}
-          <div className="flex flex-col gap-1.5">
-            <div className="text-xs font-semibold text-text">落地場域</div>
-            <div className="flex flex-wrap gap-1.5">
-              {FIELD_SITE_OPTIONS.map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => toggle('fieldSites', opt)}
-                  className={cn(
-                    'rounded-full border px-3 py-1 text-xs transition-all cursor-pointer',
-                    simple.fieldSites.includes(opt)
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border bg-surface text-text-muted hover:border-primary/40',
-                  )}
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
-            <input
-              type="text"
-              value={simple.fieldSitesOther}
-              onChange={(e) =>
-                onSimpleChange({ ...simple, fieldSitesOther: e.target.value })
-              }
-              placeholder="其他（自填，例：博物館、安養院）"
-              className="mt-1 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-            />
-          </div>
-
-          {preview && (
-            <div className="rounded-md bg-bg-warm/60 px-3 py-2 text-xs text-text-muted">
-              <span className="font-semibold text-text">送出內容：</span>
-              {preview}
-            </div>
-          )}
+      {error && (
+        <div className="rounded-md bg-error-bg px-3 py-2 text-xs text-error">
+          {error}
         </div>
-      ) : (
-        <textarea
-          value={advancedText}
-          onChange={(e) => onAdvancedTextChange(e.target.value)}
-          placeholder="列出這個學習活動的關鍵限制條件…例：預算極低、使用者多為長者、必須在 3 個月內落地。"
-          rows={4}
-          className="rounded-md border border-border px-3 py-2.5 text-sm bg-surface text-text placeholder:text-text-muted resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-        />
+      )}
+
+      {suggestions && (
+        <div className="flex flex-col gap-2 rounded-lg border border-border-light bg-bg-warm/40 p-3">
+          <p className="text-xs text-text-muted">
+            AI 建議方向（點 chip 採納；不會覆寫你已寫的內容）
+          </p>
+          {(Object.keys(CATEGORY_LABELS) as CategoryKey[]).map((key) => {
+            const chips = suggestions[key]
+            if (!chips || chips.length === 0) return null
+            return (
+              <div key={key} className="flex flex-col gap-1">
+                <div className="text-[11px] font-semibold text-text">
+                  {CATEGORY_LABELS[key]}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {chips.map((chip) => {
+                    const used = adopted.has(chip)
+                    return (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => handleAdopt(chip)}
+                        className={cn(
+                          'rounded-full border px-3 py-1 text-xs transition-all cursor-pointer',
+                          used
+                            ? 'border-success/60 bg-success/10 text-success'
+                            : 'border-border bg-surface text-text hover:border-primary/40 hover:bg-primary/5',
+                        )}
+                      >
+                        {used ? `✓ ${chip}` : `+ ${chip}`}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )

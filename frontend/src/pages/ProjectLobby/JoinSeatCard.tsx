@@ -26,7 +26,7 @@ export function JoinSeatCard({
         </div>
         <h3 className="mb-1 text-base font-semibold text-text">進入工作區</h3>
         <p className="mb-auto text-xs leading-relaxed text-text-muted">
-          你已加入這個學習活動，點擊下方按鈕開始參與討論。
+          你已加入這個設計專案，點擊下方按鈕開始參與討論。
         </p>
         <Button onClick={onEnter} className="mt-5 w-full" disabled={isLocked}>
           <span className="flex items-center justify-center gap-1.5">
@@ -39,7 +39,7 @@ export function JoinSeatCard({
   }
 
   const disabledReason = projectFull
-    ? '此學習活動已有人類參與者'
+    ? '此設計專案已有人類參與者'
     : !canJoin
       ? '目前沒有可用席位'
       : undefined
@@ -49,7 +49,7 @@ export function JoinSeatCard({
       <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
         <LogIn size={20} />
       </div>
-      <h3 className="mb-1 text-base font-semibold text-text">加入這個學習活動</h3>
+      <h3 className="mb-1 text-base font-semibold text-text">加入這個設計專案</h3>
       <p className="mb-auto text-xs leading-relaxed text-text-muted">
         點擊下方按鈕，系統會自動為你安排席位並啟動 AI 組員。
       </p>

@@ -1,8 +1,18 @@
+import { useMemo } from 'react'
 import { Bot } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useAuthorColor } from '../../hooks/useAuthorColor'
 import { SeatIcon } from '../../lib/seatIcons'
 import type { Message, SeatRole } from '../../types/models'
+import {
+  chatActivityKey,
+  computeChatHighlightStyle,
+  parseCreatedAt,
+} from '../canvas/activityHighlight'
+import {
+  selectActiveAnchor,
+  useActivityHighlightStore,
+} from '../../stores/activityHighlightStore'
 
 interface ChatMessageProps {
   message: Message
@@ -33,6 +43,29 @@ export function ChatMessage({ message, isOwn = false, seatRole }: ChatMessagePro
   )
   const hasAuthorColor = authorColorToken !== null && !isSystem && !isSupervisor
 
+  // Phase 24：activity highlight
+  const myKey = useMemo(
+    () => chatActivityKey(message.sender_type, message.sender_name),
+    [message.sender_type, message.sender_name],
+  )
+  const myAnchorMs = useMemo(
+    () => parseCreatedAt(parseUTCDate(message.created_at).toISOString()),
+    [message.created_at],
+  )
+  const active = useActivityHighlightStore(selectActiveAnchor)
+  const setHover = useActivityHighlightStore((s) => s.setHover)
+  const clearHover = useActivityHighlightStore((s) => s.clearHover)
+  const togglePinned = useActivityHighlightStore((s) => s.togglePinned)
+
+  const highlightStyle = !isSystem
+    ? computeChatHighlightStyle({
+        key: myKey,
+        anchorMs: myAnchorMs,
+        active,
+        accentColor: scheme.accent,
+      })
+    : undefined
+
   if (isSystem) {
     return (
       <div className="flex justify-center my-2">
@@ -43,8 +76,32 @@ export function ChatMessage({ message, isOwn = false, seatRole }: ChatMessagePro
     )
   }
 
+  const handleEnter = (): void => {
+    setHover({ key: myKey, anchorMs: myAnchorMs, source: 'chat' })
+  }
+  const handleLeave = (): void => {
+    clearHover()
+  }
+  const handleClick = (): void => {
+    togglePinned({ key: myKey, anchorMs: myAnchorMs, source: 'chat' })
+  }
+
   return (
-    <div className={cn('flex gap-2 mb-3', isOwn ? 'flex-row-reverse' : 'flex-row')}>
+    <div
+      data-activity-highlight="chat"
+      data-activity-key={myKey}
+      tabIndex={0}
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+      onFocus={handleEnter}
+      onBlur={handleLeave}
+      onClick={handleClick}
+      className={cn(
+        'flex gap-2 mb-3 cursor-pointer rounded-lg p-1 transition-shadow outline-none',
+        isOwn ? 'flex-row-reverse' : 'flex-row',
+      )}
+      style={highlightStyle}
+    >
       {/* Avatar */}
       <div
         className={cn(

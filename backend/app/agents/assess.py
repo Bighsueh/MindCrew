@@ -11,6 +11,7 @@ from app.agents.assess_heuristics import (
     has_relevant_event_ngram,
     heuristic_has_stance,
 )
+from app.agents.llm_context import LLMCallContext
 from app.llm.factory import LLMProviderFactory
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ class AssessEngine:
         last_idle_event_time: float | None = None,
         another_agent_acting: bool = False,
         throttle_min_interval: float = 8.0,
+        llm_ctx: "LLMCallContext | None" = None,
     ) -> AssessResult:
         """Evaluate rules and return an AssessResult."""
         now = time.time()
@@ -135,7 +137,7 @@ class AssessEngine:
         # 先用 LLM 處理，未來可規則化
         if comm_goal in ("debate", "mild_competition") and not is_supervisor:
             if len(recent_chat) >= 1:
-                has_stance = await self._has_stance_in_recent(recent_chat[-3:], my_seat)
+                has_stance = await self._has_stance_in_recent(recent_chat[-3:], my_seat, llm_ctx=llm_ctx)
                 if has_stance:
                     return AssessResult(
                         decision="intervene",
@@ -280,7 +282,7 @@ class AssessEngine:
             if my_last_content:
                 for intent in blackboard["other_agent_intentions"]:
                     other_topic = intent.get("focus_topic", "")
-                    if other_topic and await self._topic_overlap(other_topic, my_last_content):
+                    if other_topic and await self._topic_overlap(other_topic, my_last_content, llm_ctx=llm_ctx):
                         return AssessResult(
                             decision="intervene",
                             rule="rule_5_5_reengagement",
@@ -294,7 +296,7 @@ class AssessEngine:
                     sender_type = msg.get("sender_type", "")
                     if my_seat.lower() not in sender.lower() and "ai" in str(sender_type).lower():
                         msg_content = msg.get("content", "")
-                        if msg_content and await self._topic_overlap(msg_content, my_last_content):
+                        if msg_content and await self._topic_overlap(msg_content, my_last_content, llm_ctx=llm_ctx):
                             return AssessResult(
                                 decision="intervene",
                                 rule="rule_5_5_peer_relevance",
@@ -515,15 +517,24 @@ class AssessEngine:
                 break
         return count
 
-    async def _topic_overlap(self, text_a: str, text_b: str) -> bool:
+    async def _topic_overlap(
+        self,
+        text_a: str,
+        text_b: str,
+        *,
+        llm_ctx: LLMCallContext | None = None,
+    ) -> bool:
         """Return True if two texts are topically related.
 
-        # 先用 LLM 處理，未來可規則化
+        Falls back to a heuristic n-gram check when ``llm_ctx`` is missing
+        (so the engine still works in tests / non-agent contexts).
         """
         ngrams_a = extract_cjk_ngrams(text_a)
         ngrams_b = extract_cjk_ngrams(text_b)
         if not ngrams_a or not ngrams_b:
             return False
+        if llm_ctx is None:
+            return len(ngrams_a & ngrams_b) >= 4
         try:
             llm_service = LLMProviderFactory.get_service()
             response = await llm_service.chat_completion(
@@ -536,13 +547,22 @@ class AssessEngine:
                 ],
                 temperature=0.0,
                 max_tokens=10,
+                caller="assess_topic_overlap",
+                owning_user_id=llm_ctx.owning_user_id,
+                project_id=llm_ctx.project_id,
             )
             return "high" in response.content.lower()
         except Exception:
             logger.debug("_topic_overlap LLM fallback to heuristic")
             return len(ngrams_a & ngrams_b) >= 4
 
-    async def _has_stance_in_recent(self, messages: list[dict], my_seat: str) -> bool:
+    async def _has_stance_in_recent(
+        self,
+        messages: list[dict],
+        my_seat: str,
+        *,
+        llm_ctx: LLMCallContext | None = None,
+    ) -> bool:
         """Check if recent messages contain a stance from a different agent.
 
         # 先用 LLM 處理，未來可規則化
@@ -561,6 +581,8 @@ class AssessEngine:
         if not candidates:
             return False
         combined = "\n---\n".join(c[:150] for c in candidates)
+        if llm_ctx is None:
+            return heuristic_has_stance(candidates)
         try:
             llm_service = LLMProviderFactory.get_service()
             response = await llm_service.chat_completion(
@@ -574,6 +596,9 @@ class AssessEngine:
                 ],
                 temperature=0.0,
                 max_tokens=10,
+                caller="assess_stance",
+                owning_user_id=llm_ctx.owning_user_id,
+                project_id=llm_ctx.project_id,
             )
             return "true" in response.content.lower()
         except Exception:

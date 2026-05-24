@@ -22,7 +22,10 @@ from app.agents.personas.generator import (
     PersonaGenerationError,
     PersonaGenerator,
 )
-from app.agents.personas.models import persona_to_dict
+from app.agents.personas.models import (
+    StakeholderSuggestion,
+    persona_to_dict,
+)
 from app.auth.jwt import get_current_user
 from app.db.models.project import Project
 from app.db.models.seat import Seat
@@ -34,12 +37,34 @@ from app.projects.schemas import (
     PersonaPayload,
     SeatPersonaUpdateRequest,
     SeatResponse,
+    StakeholderSelectionPayload,
 )
 from app.projects.service import ProjectService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["personas"])
+
+
+def _convert_stakeholder_selections(
+    payloads: list["StakeholderSelectionPayload"] | None,
+) -> list[StakeholderSuggestion] | None:
+    """Phase 27：把 Pydantic StakeholderSelectionPayload → dataclass。
+
+    Returns ``None`` when caller did not pick any (legacy v1.x path);
+    returns a list of dataclasses when caller picked ≥1 (Phase 27 path).
+    """
+    if not payloads:
+        return None
+    return [
+        StakeholderSuggestion(
+            id=item.id or "",
+            name=item.name,
+            role=item.role,
+            relevance=item.relevance or "",
+        )
+        for item in payloads
+    ]
 
 
 @router.post(
@@ -57,12 +82,15 @@ async def generate_personas(
     with ``POST /api/projects``.
     """
     generator = PersonaGenerator()
+    stakeholders_dataclasses = _convert_stakeholder_selections(request.stakeholders)
     try:
         personas = await generator.generate(
             title=request.title,
             description=request.description,
             constraints=request.constraints,
             num_personas=request.num_personas,
+            owning_user_id=current_user.id,
+            stakeholders=stakeholders_dataclasses,
         )
     except PersonaGenerationError as exc:
         logger.warning("Persona generation failed: %s", exc)
@@ -95,6 +123,7 @@ async def generate_personas_stream(
     endpoint or display the message.
     """
     generator = PersonaGenerator()
+    stakeholders_dataclasses = _convert_stakeholder_selections(request.stakeholders)
 
     async def event_stream() -> AsyncIterator[bytes]:
         try:
@@ -103,6 +132,8 @@ async def generate_personas_stream(
                 description=request.description,
                 constraints=request.constraints,
                 num_personas=request.num_personas,
+                owning_user_id=current_user.id,
+                stakeholders=stakeholders_dataclasses,
             ):
                 event_name = str(event.get("type") or "message")
                 payload = {k: v for k, v in event.items() if k != "type"}

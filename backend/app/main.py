@@ -35,6 +35,7 @@ from app.ws.yjs_ws import router as yjs_ws_router
 from app.stages.router import router as stages_router
 from app.teacher.router import router as teacher_router
 from app.coach.router import router as coach_router
+from app.admin.router import router as admin_router
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +45,12 @@ async def lifespan(app: FastAPI):
     # Startup
     await event_bus.initialize()
 
-    # Verify LLM endpoint connectivity
+    # Warm up multi-provider registry and verify LLM endpoint connectivity
     try:
         from app.llm.factory import LLMProviderFactory
+        from app.llm.registry import ProviderRegistry
 
+        await ProviderRegistry.warmup()
         llm = LLMProviderFactory.get_service()
         healthy = await llm.health_check()
         if healthy:
@@ -163,3 +166,4 @@ app.include_router(yjs_ws_router)
 app.include_router(stages_router)
 app.include_router(teacher_router)
 app.include_router(coach_router)
+app.include_router(admin_router)

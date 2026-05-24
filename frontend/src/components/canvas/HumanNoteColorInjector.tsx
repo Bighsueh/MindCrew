@@ -32,9 +32,24 @@ export function HumanNoteColorInjector() {
 
         const nextProps =
           myColor && props.color !== myColor ? { ...props, color: myColor } : props
+        // Phase 24：補上 created_at 以支援 Activity Highlight 時間配對
+        const hasAuthor =
+          typeof meta.author === 'string' && (meta.author as string).length > 0
+        const hasCreatedAt =
+          typeof meta.created_at === 'string' && (meta.created_at as string).length > 0
+        const needsAuthor = !!user && !hasAuthor
+        const needsCreatedAt = !hasCreatedAt
         const nextMeta =
-          user && !meta.author
-            ? { ...meta, author: `${user.display_name}(human)` }
+          needsAuthor || needsCreatedAt
+            ? {
+                ...meta,
+                ...(needsAuthor && user
+                  ? { author: `${user.display_name}(human)` }
+                  : {}),
+                ...(needsCreatedAt
+                  ? { created_at: new Date().toISOString() }
+                  : {}),
+              }
             : meta
 
         if (nextProps !== props || nextMeta !== meta) {
@@ -42,7 +57,8 @@ export function HumanNoteColorInjector() {
             id: shape.id,
             type: shape.type,
             props: nextProps,
-            meta: nextMeta,
+            // tldraw 對 meta 型別嚴格（JsonObject），這裡走 runtime 已知為 JSON-safe
+            meta: nextMeta as unknown as Record<string, string>,
           })
         }
       },

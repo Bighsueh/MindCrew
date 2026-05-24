@@ -22,15 +22,15 @@ const TEACHER_STEPS: DriveStep[] = [
   {
     element: '[data-tour="projects-hero"]',
     popover: {
-      title: '歡迎來到學習活動列表',
+      title: '歡迎來到設計專案列表',
       description:
-        '這裡管理你所有的設計思考活動。每個學習活動會走完雙鑽石的四個階段，從訪談到原型一氣呵成。',
+        '這裡管理你所有的設計思考活動。每個設計專案會走完雙鑽石的四個階段，從訪談到原型一氣呵成。',
     },
   },
   {
     element: '[data-tour="projects-create"]',
     popover: {
-      title: '建立新學習活動',
+      title: '建立新設計專案',
       description:
         '點這顆按鈕開啟新的設計思考活動，可以設定主題、限制條件、AI 貢獻度。',
       side: 'left',
@@ -40,8 +40,8 @@ const TEACHER_STEPS: DriveStep[] = [
   {
     element: '[data-tour="projects-stats"]',
     popover: {
-      title: '學習活動總覽',
-      description: '一眼看出全部學習活動數、進行中、已完成的數量。',
+      title: '設計專案總覽',
+      description: '一眼看出全部設計專案數、進行中、已完成的數量。',
       side: 'bottom',
     },
   },
@@ -50,15 +50,15 @@ const TEACHER_STEPS: DriveStep[] = [
     popover: {
       title: '依階段篩選',
       description:
-        '依雙鑽石階段（Discover / Define / Develop / Deliver）過濾，快速找到還沒收斂的學習活動。',
+        '依雙鑽石階段（Discover / Define / Develop / Deliver）過濾，快速找到還沒收斂的設計專案。',
       side: 'bottom',
     },
   },
   {
     element: '[data-tour="projects-search"]',
     popover: {
-      title: '搜尋學習活動',
-      description: '用名稱或描述關鍵字搜尋你關心的學習活動。',
+      title: '搜尋設計專案',
+      description: '用名稱或描述關鍵字搜尋你關心的設計專案。',
       side: 'bottom',
       align: 'end',
     },
@@ -78,14 +78,14 @@ const STUDENT_STEPS: DriveStep[] = [
     element: '[data-tour="projects-hero"]',
     popover: {
       title: '歡迎',
-      description: '這裡是你被邀請加入的設計思考學習活動。',
+      description: '這裡是你被邀請加入的設計思考設計專案。',
     },
   },
   {
     element: '[data-tour="projects-stats"]',
     popover: {
-      title: '學習活動總覽',
-      description: '看看目前進行中與已完成的學習活動數量。',
+      title: '設計專案總覽',
+      description: '看看目前進行中與已完成的設計專案數量。',
       side: 'bottom',
     },
   },
@@ -93,7 +93,7 @@ const STUDENT_STEPS: DriveStep[] = [
     element: '[data-tour="projects-filters"]',
     popover: {
       title: '篩選與搜尋',
-      description: '依雙鑽石階段過濾，或用關鍵字找你要進去的學習活動。',
+      description: '依雙鑽石階段過濾，或用關鍵字找你要進去的設計專案。',
       side: 'bottom',
     },
   },
@@ -118,7 +118,7 @@ const SESSION_FLAG_KEY = 'mindcrew.projectsTour.shown'
 export function startProjectsTour(role: ProjectsTourRole): void {
   const allSteps = role === 'teacher' ? TEACHER_STEPS : STUDENT_STEPS
 
-  // 過濾掉找不到 anchor 的步驟，避免 driver.js 卡住（例：學生無 [data-tour="projects-create"]、無學習活動無 card）
+  // 過濾掉找不到 anchor 的步驟，避免 driver.js 卡住（例：學生無 [data-tour="projects-create"]、無設計專案無 card）
   const steps = allSteps.filter((step) => {
     const selector = step.element as string | undefined
     if (!selector) return true

@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from app.agents.assess import AssessEngine, AssessResult
+from app.agents.llm_context import LLMCallContext
 from app.agents.blackboard import BlackboardManager
 from app.agents.blackboard_writer import write_intention_from_think_result
 from app.agents.context_buffer import ContextBuffer
@@ -52,6 +53,7 @@ class BaseAgent:
         agent_id: str,
         seat_role: str,
         agent_name: str,
+        owning_user_id: UUID,
         ai_contribution: str = "medium",
         is_supervisor: bool = False,
     ) -> None:
@@ -61,6 +63,7 @@ class BaseAgent:
         self._agent_name = agent_name
         self._contribution = ai_contribution
         self._is_supervisor = is_supervisor
+        self._owning_user_id = owning_user_id
         self._running = False
 
         # Sub-components (created lazily to respect the factory pattern)
@@ -109,6 +112,19 @@ class BaseAgent:
         self._entry_completed: bool = False
         # Round gate: supervisor signals after first action
         self._first_action_done: bool = False
+
+    def _make_llm_ctx(self, caller: str) -> LLMCallContext:
+        """Build an attribution bundle for one LLM call from this agent.
+
+        The owning user comes from the project's linked teacher (resolved at
+        construction); ``triggered_by_user_id`` is None for autonomous agent
+        ticks.
+        """
+        return LLMCallContext(
+            owning_user_id=self._owning_user_id,
+            project_id=self._project_id,
+            caller=caller,
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -291,6 +307,7 @@ class BaseAgent:
             last_idle_event_time=context.get("_last_event_time"),
             another_agent_acting=another_acting,
             throttle_min_interval=self._throttle.params.min_interval,
+            llm_ctx=self._make_llm_ctx("assess"),
         )
 
         if assess_result.decision == "observe":
@@ -368,7 +385,9 @@ class BaseAgent:
 
         # Step 3: Think
         think_engine = self._get_think_engine()
-        think_result = await think_engine.generate_actions(context)
+        think_result = await think_engine.generate_actions(
+            context, llm_ctx=self._make_llm_ctx("agent_think")
+        )
 
         if not think_result.actions or (
             len(think_result.actions) == 1
@@ -451,7 +470,9 @@ class BaseAgent:
             return
         try:
             llm_service = LLMProviderFactory.get_service()
-            eval_result = await self._evaluator.evaluate(context, llm_service)
+            eval_result = await self._evaluator.evaluate(
+                context, llm_service, llm_ctx=self._make_llm_ctx("evaluator")
+            )
             logger.info(
                 "Supervisor %s stage eval: total=%.1f, passed=%s, action=%s",
                 self._agent_id,

@@ -61,6 +61,8 @@ export interface CreateProjectRequest {
   name: string
   description: string
   constraints?: string
+  /** Phase 27：使用者於 Step 2 勾選的利害關係人；長度必須 == ai_crew_count（提供時）。 */
+  stakeholders?: StakeholderSelectionInput[]
   ai_contribution: AIContribution
   // Phase 21: 教師可選 AI 組員人數（1–4），預設 3。Persona 數量必須等於此值。
   ai_crew_count: number
@@ -71,11 +73,35 @@ export interface CreateProjectRequest {
   teacher_signature_code?: string
 }
 
+/** Phase 27：post body 用的 stakeholder shape（後端 Pydantic 對應）。 */
+export interface StakeholderSelectionInput {
+  id: string
+  name: string
+  role: string
+  relevance: string
+}
+
 export interface GeneratePersonasRequest {
   title: string
   description?: string
   constraints?: string
   num_personas?: number
+  /** Phase 27：使用者勾選的利害關係人；提供則跳過內部 stakeholder mapping。 */
+  stakeholders?: StakeholderSelectionInput[]
+}
+
+/** Phase 27：POST /api/projects/draft/suggest-constraints body。 */
+export interface SuggestConstraintsRequest {
+  title: string
+  description: string
+}
+
+/** Phase 27：POST /api/projects/draft/suggest-stakeholders body。 */
+export interface SuggestStakeholdersRequest {
+  title: string
+  description?: string
+  constraints?: string
+  existing_names?: string[]
 }
 
 export interface GeneratePersonasResponse {

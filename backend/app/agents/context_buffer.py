@@ -89,6 +89,9 @@ class ProjectStateSnapshot:
     project_description: str
     # Phase 17 — sticky-only sub-phase pointer
     current_sub_phase: str | None = None
+    # Phase 27 — 建立時使用者勾選的利害關係人（Discover 階段 prompt 注入素材）
+    stakeholders: list[dict] = field(default_factory=list)
+    task_brief_kind: str = "legacy"
 
 
 @dataclass(frozen=True)
@@ -318,6 +321,9 @@ class ContextBuffer:
             "time_budget_used_pct": sub_phase_frame.time_budget_used_pct,
             # Phase 19 fields
             "my_persona": persona_frame.my_persona,
+            # Phase 27 fields — 建立時勾選的利害關係人（Discover 階段使用）
+            "stakeholders": state.stakeholders,
+            "task_brief_kind": state.task_brief_kind,
         }
         if phase_strategy_dict:
             context["phase_strategy"] = phase_strategy_dict
@@ -509,6 +515,13 @@ class ContextBuffer:
             current_sub_phase = (
                 getattr(project, "current_sub_phase", None) if project else None
             )
+            # Phase 27 — stakeholders 是 list[dict]，舊 project 為 []
+            stakeholders_raw = (
+                list(project.stakeholders or []) if project else []
+            )
+            task_brief_kind = (
+                getattr(project, "task_brief_kind", "legacy") if project else "legacy"
+            )
 
             stage_duration = await self._compute_stage_duration(
                 session, project, current_stage
@@ -534,6 +547,8 @@ class ContextBuffer:
             project_name=project_name,
             project_description=project_description,
             current_sub_phase=current_sub_phase,
+            stakeholders=stakeholders_raw,
+            task_brief_kind=task_brief_kind,
         )
 
     async def _compute_stage_duration(

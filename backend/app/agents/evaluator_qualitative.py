@@ -5,7 +5,10 @@ Extracted from evaluator.py to keep files under 500 lines.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.agents.llm_context import LLMCallContext
 
 from app.llm.json_utils import parse_llm_json
 
@@ -54,6 +57,7 @@ async def run_qualitative(
     *,
     project_name: str = "",
     project_description: str = "",
+    llm_ctx: "LLMCallContext | None" = None,
 ) -> dict | None:
     """Run qualitative LLM stage evaluation. Returns a dict or None on failure."""
     stage_display = _STAGE_NAMES.get(stage, stage)
@@ -102,9 +106,17 @@ async def run_qualitative(
         logger.warning("Prompt too large (%d chars), skipping qualitative eval", len(prompt_text))
         return None
 
+    if llm_ctx is None:
+        logger.debug("evaluator_qualitative skipped (no llm_ctx)")
+        return None
     try:
         response = await llm_service.chat_completion(
-            messages=messages, temperature=0.3, max_tokens=safe_max
+            messages=messages,
+            temperature=0.3,
+            max_tokens=safe_max,
+            caller="evaluator_qualitative",
+            owning_user_id=llm_ctx.owning_user_id,
+            project_id=llm_ctx.project_id,
         )
         data = parse_llm_json(response.content)
         if data is None:

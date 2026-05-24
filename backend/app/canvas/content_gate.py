@@ -238,6 +238,7 @@ async def check_text_with_llm(
     context: dict | None = None,
     project_id=None,
     agent_id: str | None = None,
+    owning_user_id=None,
 ) -> GateResult:
     """Tier-1 + Tier-2 evaluation (Phase 18 Step A0).
 
@@ -267,6 +268,7 @@ async def check_text_with_llm(
             context=context or {},
             project_id=project_id,
             agent_id=agent_id,
+            owning_user_id=owning_user_id,
         )
     except Exception:
         # LLM 路徑也失敗：保守 pass

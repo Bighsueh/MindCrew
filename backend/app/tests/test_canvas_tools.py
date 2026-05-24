@@ -150,3 +150,45 @@ async def test_tool_create_note() -> None:
         assert result["note_id"] == "new_note_id"
         # Verify semantic cache was invalidated
         mock_sa.return_value.invalidate_semantic_cache.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_tool_create_note_passes_meta_created_at() -> None:
+    """Phase 24.A：tool_create_note 必須傳 created_at（ISO Z）給 canvas_ops.add_note。
+
+    這是 Activity Highlight（聊天氣泡 ⇄ 便利貼）時間配對的前置條件——
+    AI 建立的便利貼必須帶上時間戳，才能落在 30s 視窗內被高亮。
+    """
+    import re
+
+    project_id = uuid4()
+    analysis = _make_analysis()
+
+    with (
+        patch("app.canvas.tools_manipulation.get_spatial_analyzer") as mock_sa,
+        patch("app.canvas.tools_manipulation.canvas_ops") as mock_ops,
+        patch("app.canvas.tools_manipulation.get_layout_engine") as mock_le,
+    ):
+        mock_sa.return_value.analyze = AsyncMock(return_value=analysis)
+        mock_sa.return_value.invalidate_semantic_cache = AsyncMock()
+        mock_ops.add_note = AsyncMock(return_value="new_note_id")
+        mock_le.return_value.resolve_position = MagicMock(return_value=(500.0, 300.0))
+
+        from app.canvas.tools_manipulation import tool_create_note
+        await tool_create_note(
+            project_id=project_id,
+            text="同作者高亮測試",
+            position="cluster:c1",
+        )
+
+        mock_ops.add_note.assert_called_once()
+        kwargs = mock_ops.add_note.call_args.kwargs
+        assert "created_at" in kwargs, "add_note 必須收到 created_at kwarg"
+        created_at = kwargs["created_at"]
+        # ISO 8601 with Z suffix (UTC)
+        assert isinstance(created_at, str)
+        assert created_at.endswith("Z"), f"created_at 必須以 Z 結尾，實得: {created_at}"
+        # 寬鬆驗證 ISO 格式 YYYY-MM-DDTHH:MM:SS(.ffffff)?Z
+        assert re.match(
+            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$", created_at
+        ), f"created_at 非 ISO Z 格式: {created_at}"

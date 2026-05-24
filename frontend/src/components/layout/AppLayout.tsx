@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
-import { LayoutDashboard, FolderOpen, LogOut, HelpCircle } from 'lucide-react'
+import { LayoutDashboard, FolderOpen, LogOut, HelpCircle, ShieldCheck } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import {
   startProjectsTour,
@@ -17,20 +17,29 @@ export function AppLayout() {
   const location = useLocation()
 
   const isTeacher = user?.role === 'teacher'
+  const isAdmin = user?.role === 'admin'
 
-  const navItems = [
-    { to: '/projects', label: '學習活動', icon: FolderOpen },
-    ...(isTeacher
-      ? [{ to: '/teacher/dashboard', label: '教師儀表板', icon: LayoutDashboard }]
-      : []),
-  ]
+  const navItems = isAdmin
+    ? [{ to: '/admin/providers', label: '管理後台', icon: ShieldCheck }]
+    : [
+        { to: '/projects', label: '設計專案', icon: FolderOpen },
+        ...(isTeacher
+          ? [{ to: '/teacher/dashboard', label: '教師儀表板', icon: LayoutDashboard }]
+          : []),
+      ]
 
   return (
     <div className="flex min-h-screen flex-col bg-bg">
       <header className="sticky top-0 z-40 bg-bg/95 backdrop-blur-md shadow-sm">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-          <Link to="/projects" className="font-brand text-xl text-primary transition-opacity hover:opacity-80">
-            MindCrew
+          <Link
+            to={isAdmin ? '/admin/providers' : '/projects'}
+            className="flex items-center gap-2 transition-opacity hover:opacity-80"
+          >
+            <span className="font-brand text-xl text-primary">MindCrew</span>
+            <span className="hidden rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent sm:inline">
+              設計思考練功坊
+            </span>
           </Link>
 
           <nav className="flex items-center gap-1">
@@ -65,6 +74,7 @@ export function AppLayout() {
               if (!isProjects && !isTeacherDash) return null
               const onClick = () => {
                 if (isProjects) {
+                  if (user.role !== 'teacher' && user.role !== 'student') return
                   clearProjectsTourFlag()
                   startProjectsTour(user.role)
                 } else {

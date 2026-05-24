@@ -27,7 +27,7 @@ export interface MacroStageMeta {
 export const MACRO_STAGES: MacroStageMeta[] = [
   {
     stage: 'discover',
-    label: 'Discover 了解使用者',
+    label: '🔍發現（同理） Discover 了解使用者',
     shape: '發散',
     summary: '先弄清楚「使用者真正在意什麼」——多聽、多看、不急著想答案。',
     micro: [
@@ -50,7 +50,7 @@ export const MACRO_STAGES: MacroStageMeta[] = [
   },
   {
     stage: 'define',
-    label: 'Define 找出問題',
+    label: '📌定義（聚焦） Define 找出問題',
     shape: '收斂',
     summary: '從一堆資訊裡挑出最關鍵的痛點，問對問題比急著想答案更重要。',
     micro: [
@@ -73,7 +73,7 @@ export const MACRO_STAGES: MacroStageMeta[] = [
   },
   {
     stage: 'develop',
-    label: 'Develop 想各種解法',
+    label: '💡發展（發想） Develop 想各種解法',
     shape: '純發散',
     summary: '針對選定的問題盡量丟點子，這一階段「點子多」比「點子好」重要。',
     micro: [
@@ -96,7 +96,7 @@ export const MACRO_STAGES: MacroStageMeta[] = [
   },
   {
     stage: 'deliver',
-    label: 'Deliver 做出來測一下',
+    label: '🚀交付（落地） Deliver 做出來測一下',
     shape: '收斂+產出',
     summary: '把想法做成最簡單的版本給人試用，看真的有解決問題嗎；學到的回頭再改。',
     micro: [

@@ -108,10 +108,28 @@ class ProjectService:
             )
             linked_teacher_id = teacher.id
 
+        # Phase 27：stakeholders 已由 schema validator 確保（若提供則 len == ai_crew_count）。
+        # 有 stakeholders 表示走 Open Brief 三步驟 wizard，標記 task_brief_kind='open'。
+        stakeholders_payload: list[dict[str, str]] = []
+        if request.stakeholders:
+            stakeholders_payload = [
+                {
+                    "id": s.id or "",
+                    "name": s.name,
+                    "role": s.role,
+                    "relevance": s.relevance or "",
+                    "selected": True,
+                }
+                for s in request.stakeholders
+            ]
+        task_brief_kind = "open" if stakeholders_payload else "legacy"
+
         project = Project(
             name=request.name,
             description=request.description,
             constraints=request.constraints,
+            stakeholders=stakeholders_payload,
+            task_brief_kind=task_brief_kind,
             creator_id=user.id,
             ai_contribution=request.ai_contribution,
             invite_code=invite_code,
@@ -164,6 +182,8 @@ class ProjectService:
             name=project.name,
             description=project.description,
             constraints=project.constraints,
+            stakeholders=list(project.stakeholders or []),
+            task_brief_kind=project.task_brief_kind,
             current_stage=project.current_stage,
             ai_contribution=project.ai_contribution,
             status=project.status,
@@ -214,6 +234,8 @@ class ProjectService:
             name=project.name,
             description=project.description,
             constraints=project.constraints,
+            stakeholders=list(project.stakeholders or []),
+            task_brief_kind=project.task_brief_kind,
             current_stage=project.current_stage,
             ai_contribution=project.ai_contribution,
             status=project.status,
@@ -335,6 +357,8 @@ class ProjectService:
             name=project.name,
             description=project.description,
             constraints=project.constraints,
+            stakeholders=list(project.stakeholders or []),
+            task_brief_kind=project.task_brief_kind,
             current_stage=project.current_stage,
             ai_contribution=project.ai_contribution,
             status=project.status,
@@ -500,7 +524,9 @@ class ProjectService:
             ],
         )
 
-    async def generate_summary(self, project_id: UUID) -> ProjectSummaryResponse:
+    async def generate_summary(
+        self, project_id: UUID, *, owning_user_id: UUID
+    ) -> ProjectSummaryResponse:
         project = await self.repo.get_by_id(project_id)
         if not project:
             raise HTTPException(
@@ -556,6 +582,10 @@ class ProjectService:
             ],
             temperature=0.3,
             max_tokens=512,
+            caller="project_summary",
+            owning_user_id=owning_user_id,
+            triggered_by_user_id=owning_user_id,
+            project_id=project_id,
         )
 
         try:

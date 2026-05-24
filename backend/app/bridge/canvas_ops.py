@@ -40,8 +40,13 @@ class CanvasOps:
         author_id: str = "system",
         author_name: str = "System",
         author_type: str = "ai",
+        created_at: str | None = None,
     ) -> str:
-        """Add a note. Returns the new note_id."""
+        """Add a note. Returns the new note_id.
+
+        Phase 24.A: 若提供 created_at（ISO Z 字串），sidecar 會用該時間覆蓋自動生成值，
+        讓 Activity Highlight 的時間配對在 AI 建立的便利貼上也成立。
+        """
         client = _get_client()
         author = f"{author_name}({author_type})"
         body: dict[str, Any] = {
@@ -51,6 +56,8 @@ class CanvasOps:
         }
         if position is not None:
             body["position"] = position
+        if created_at is not None:
+            body["createdAt"] = created_at
 
         resp = await client.post(
             f"/api/projects/{project_id}/notes", json=body

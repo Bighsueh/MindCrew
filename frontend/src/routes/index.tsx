@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { App } from '../App'
 import { ProtectedRoute } from '../components/common/ProtectedRoute'
+import { AdminRoute } from '../components/common/AdminRoute'
 import { AppLayout } from '../components/layout/AppLayout'
 import { AuthLayout } from '../components/layout/AuthLayout'
 import { TransitionLayout } from '../components/layout/TransitionLayout'
@@ -14,6 +15,9 @@ const ProjectsPage = lazy(() => import('../pages/Projects').then(m => ({ default
 const ProjectLobbyPage = lazy(() => import('../pages/ProjectLobby').then(m => ({ default: m.ProjectLobbyPage })))
 const WorkspacePage = lazy(() => import('../pages/Workspace').then(m => ({ default: m.WorkspacePage })))
 const TeacherDashboardPage = lazy(() => import('../pages/TeacherDashboard').then(m => ({ default: m.TeacherDashboardPage })))
+const AdminProvidersPage = lazy(() => import('../pages/AdminConsole/Providers').then(m => ({ default: m.AdminProvidersPage })))
+const AdminLogsPage = lazy(() => import('../pages/AdminConsole/Logs').then(m => ({ default: m.AdminLogsPage })))
+const AdminStatsPage = lazy(() => import('../pages/AdminConsole/Stats').then(m => ({ default: m.AdminStatsPage })))
 
 function SuspenseOutlet({ children }: { readonly children: React.ReactNode }) {
   return <Suspense fallback={<Loading fullScreen text="載入中…" />}>{children}</Suspense>
@@ -71,6 +75,22 @@ export const router = createBrowserRouter([
         element: <ProtectedRoute />,
         children: [
           { path: 'projects/:id/workspace', element: <SuspenseOutlet><WorkspacePage /></SuspenseOutlet> },
+        ],
+      },
+
+      // 管理員後台 — AdminRoute 守衛（role === 'admin'）
+      {
+        element: <AdminRoute />,
+        children: [
+          {
+            element: <AppLayout />,
+            children: [
+              { path: 'admin', element: <Navigate to="/admin/providers" replace /> },
+              { path: 'admin/providers', element: <SuspenseOutlet><AdminProvidersPage /></SuspenseOutlet> },
+              { path: 'admin/logs', element: <SuspenseOutlet><AdminLogsPage /></SuspenseOutlet> },
+              { path: 'admin/stats', element: <SuspenseOutlet><AdminStatsPage /></SuspenseOutlet> },
+            ],
+          },
         ],
       },
 

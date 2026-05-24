@@ -290,7 +290,8 @@ export function addNote(
   content: string,
   author: string,
   color: string = 'yellow',
-  position?: string | { x: number; y: number }
+  position?: string | { x: number; y: number },
+  createdAt?: string
 ): NoteShape {
   const doc = getOrCreateDocSync(projectId)
   const shapes = getShapesMap(doc)
@@ -308,7 +309,8 @@ export function addNote(
     width: 200,
     height: 150,
     groupId: null,
-    createdAt: new Date().toISOString(),
+    // Phase 24.A：呼叫端可指定 createdAt（後端 AI 路徑）；否則自動產生（直連 API 路徑）
+    createdAt: createdAt ?? new Date().toISOString(),
   }
 
   doc.transact(() => {

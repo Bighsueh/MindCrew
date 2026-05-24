@@ -18,6 +18,14 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     constraints: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Phase 27：建立時使用者勾選的利害關係人；shape: list[{id, name, role, relevance, selected}]
+    stakeholders: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    # Phase 27：'open' = Phase 27 後 open brief 流程；'legacy' = 之前的資料
+    task_brief_kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="legacy", server_default="legacy"
+    )
     creator_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("user.id"), nullable=False
     )

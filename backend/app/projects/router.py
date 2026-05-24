@@ -1,9 +1,17 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.constraints import (
+    ConstraintSuggester,
+    ConstraintSuggestionError,
+)
+from app.agents.personas.generator import (
+    PersonaGenerationError,
+    PersonaGenerator,
+)
 from app.auth.jwt import get_current_user
 from app.db.models.user import User
 from app.db.session import get_db_session
@@ -19,6 +27,11 @@ from app.projects.schemas import (
     ProjectTimerInitRequest,
     ProjectUpdateRequest,
     SeatResponse,
+    StakeholderSuggestionPayload,
+    SuggestConstraintsRequest,
+    SuggestConstraintsResponse,
+    SuggestStakeholdersRequest,
+    SuggestStakeholdersResponse,
 )
 from app.projects.service import ProjectService
 from app.seats.manager import seat_manager
@@ -26,6 +39,89 @@ from app.seats.manager import seat_manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+
+# ---------------------------------------------------------------------------
+# Phase 27: Open Brief 三步驟 wizard draft endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/draft/suggest-constraints",
+    response_model=SuggestConstraintsResponse,
+)
+async def suggest_constraints(
+    request: SuggestConstraintsRequest,
+    current_user: User = Depends(get_current_user),
+) -> SuggestConstraintsResponse:
+    """Phase 27 Step 1：根據 title+description 列建議的限制條件（chip 形式）。
+
+    詳 `specs/17 §3.0.2` 與 `specs/17 §11` Open Brief 原則。
+    """
+    suggester = ConstraintSuggester()
+    try:
+        suggestions = await suggester.suggest(
+            title=request.title,
+            description=request.description,
+            owning_user_id=current_user.id,
+        )
+    except ConstraintSuggestionError as exc:
+        logger.warning("Constraint suggestion failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="AI 限制條件建議失敗，請稍後再試或自行填寫。",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    return SuggestConstraintsResponse(**suggestions.as_dict())
+
+
+@router.post(
+    "/draft/suggest-stakeholders",
+    response_model=SuggestStakeholdersResponse,
+)
+async def suggest_stakeholders(
+    request: SuggestStakeholdersRequest,
+    current_user: User = Depends(get_current_user),
+) -> SuggestStakeholdersResponse:
+    """Phase 27 Step 2：根據 title+description+constraints 列 6–10 位具體利害關係人。
+
+    詳 `specs/17 §3.0.1`。
+    """
+    generator = PersonaGenerator()
+    try:
+        suggestions = await generator.suggest_stakeholders(
+            title=request.title,
+            description=request.description,
+            constraints=request.constraints,
+            owning_user_id=current_user.id,
+            existing_names=request.existing_names,
+        )
+    except PersonaGenerationError as exc:
+        logger.warning("Stakeholder suggestion failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="AI 利害關係人建議失敗，請稍後再試。",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    payloads = [
+        StakeholderSuggestionPayload(
+            id=s.id,
+            name=s.name,
+            role=s.role,
+            relevance=s.relevance,
+        )
+        for s in suggestions
+    ]
+    return SuggestStakeholdersResponse(suggestions=payloads)
 
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -151,7 +247,7 @@ async def generate_summary(
     session: AsyncSession = Depends(get_db_session),
 ) -> ProjectSummaryResponse:
     service = ProjectService(session)
-    return await service.generate_summary(project_id)
+    return await service.generate_summary(project_id, owning_user_id=current_user.id)
 
 
 @router.post("/{project_id}/leave")

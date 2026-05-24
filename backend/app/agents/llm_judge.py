@@ -284,6 +284,7 @@ async def judge_content(
     project_id: UUID | None = None,
     agent_id: str | None = None,
     skip_cache: bool = False,
+    owning_user_id: UUID | None = None,
 ) -> JudgeResult:
     """單一文字 + 單一 rule 的 LLM 判斷。
 
@@ -314,9 +315,19 @@ async def judge_content(
         if cached is not None:
             return cached
 
-    # Tier 2 LLM
+    # Tier 2 LLM — skip if no owning user (every call must be attributable).
+    if owning_user_id is None:
+        return JudgeResult(
+            verdict="pass",
+            confidence=0.0,
+            reasoning_zh="無 owning_user_id，跳過 LLM 判斷，保守通過",
+            rule_module=rule_module,
+            fallback_used=True,
+        )
     try:
-        result = await _llm_judge_single(text, rule_module, context)
+        result = await _llm_judge_single(
+            text, rule_module, context, owning_user_id=owning_user_id, project_id=project_id
+        )
     except Exception as exc:
         logger.warning(
             "LLM judge failed for rule=%s text='%s...': %s — fallback to pass",
@@ -343,6 +354,7 @@ async def judge_batch(
     context: dict[str, Any] | None = None,
     project_id: UUID | None = None,
     agent_id: str | None = None,
+    owning_user_id: UUID | None = None,
 ) -> BatchJudgeResult:
     """批次評估：同一段文字對多個 rule 跑一個 LLM call（省 token）。"""
     if not text or not text.strip():
@@ -373,9 +385,23 @@ async def judge_batch(
     if not uncached:
         return BatchJudgeResult(results=results, total_llm_ms=0, cache_hits=cache_hits)
 
+    if owning_user_id is None:
+        # No owner — skip LLM; mark all uncached as conservative pass.
+        for m in uncached:
+            results[m] = JudgeResult(
+                verdict="pass",
+                confidence=0.0,
+                reasoning_zh="無 owning_user_id，跳過 LLM 判斷，保守通過",
+                rule_module=m,
+                fallback_used=True,
+            )
+        return BatchJudgeResult(results=results, total_llm_ms=0, cache_hits=cache_hits)
+
     started = time.time()
     try:
-        llm_results = await _llm_judge_batch(text, uncached, context)
+        llm_results = await _llm_judge_batch(
+            text, uncached, context, owning_user_id=owning_user_id, project_id=project_id
+        )
     except Exception as exc:
         logger.warning(
             "LLM batch judge failed: %s — all uncached fallback to pass",
@@ -413,6 +439,9 @@ async def _llm_judge_single(
     text: str,
     rule_module: str,
     context: dict[str, Any],
+    *,
+    owning_user_id: UUID,
+    project_id: UUID | None = None,
 ) -> JudgeResult:
     """單規則 LLM call。"""
     rule_prompt = _RULE_PROMPTS.get(rule_module, _DEFAULT_PROMPT.format(rule_module=rule_module))
@@ -436,6 +465,9 @@ async def _llm_judge_single(
         ],
         temperature=0.1,
         max_tokens=200,
+        caller="llm_judge_single",
+        owning_user_id=owning_user_id,
+        project_id=project_id,
     )
     parsed = parse_llm_json(response.content)
     if not isinstance(parsed, dict):
@@ -462,6 +494,9 @@ async def _llm_judge_batch(
     text: str,
     rule_modules: list[str],
     context: dict[str, Any],
+    *,
+    owning_user_id: UUID,
+    project_id: UUID | None = None,
 ) -> dict[str, JudgeResult]:
     """批次 LLM call：一次評估多個規則。"""
     rules_block = "\n\n".join(
@@ -489,6 +524,9 @@ async def _llm_judge_batch(
         ],
         temperature=0.1,
         max_tokens=600,
+        caller="llm_judge_batch",
+        owning_user_id=owning_user_id,
+        project_id=project_id,
     )
     parsed = parse_llm_json(response.content)
     if not isinstance(parsed, dict):

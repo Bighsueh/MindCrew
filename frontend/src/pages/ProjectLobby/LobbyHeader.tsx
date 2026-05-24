@@ -25,7 +25,7 @@ export function LobbyHeader({ project }: LobbyHeaderProps) {
           className="flex items-center gap-1 rounded-md px-2 py-1 hover:text-text hover:bg-surface transition-colors"
         >
           <ChevronLeft size={16} />
-          返回學習活動
+          返回設計專案
         </Link>
       </div>
 

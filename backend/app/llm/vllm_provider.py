@@ -13,14 +13,27 @@ logger = logging.getLogger(__name__)
 
 
 class VLLMProvider(LLMProvider):
-    """LLM provider backed by a vLLM-compatible OpenAI endpoint."""
+    """LLM provider backed by a vLLM-compatible OpenAI endpoint.
 
-    def __init__(self) -> None:
+    Phase 25：base_url / api_key / model 必須由呼叫端（``ProviderRegistry``）
+    從 DB row 明確帶入；不再從 env 帶 fallback。沒帶 → 直接拋錯。
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+    ) -> None:
+        if not base_url or not model:
+            raise ValueError(
+                "VLLMProvider requires base_url and model — configure via admin console."
+            )
         self._client = AsyncOpenAI(
-            base_url=settings.VLLM_BASE_URL,
-            api_key=settings.VLLM_API_KEY,
+            base_url=base_url,
+            api_key=api_key or "dummy",
         )
-        self._model = settings.VLLM_MODEL_NAME
+        self._model = model
         self._timeout = settings.LLM_CALL_TIMEOUT_SECONDS
         self._connect_timeout = settings.LLM_STREAM_CONNECT_TIMEOUT_SECONDS
 
@@ -30,7 +43,13 @@ class VLLMProvider(LLMProvider):
         temperature: float = 0.7,
         max_tokens: int = 1024,
     ) -> LLMResponse:
-        """Send a streaming chat completion request, with a hard timeout."""
+        """Send a streaming chat completion request, with a hard timeout.
+
+        ``stream_options.include_usage=True`` is required (per the OpenAI
+        streaming spec) for the final chunk to carry prompt/completion token
+        counts — without it ``chunk.usage`` is always None and the admin
+        stats end up flat-at-zero.
+        """
         try:
             stream = await asyncio.wait_for(
                 self._client.chat.completions.create(
@@ -39,6 +58,7 @@ class VLLMProvider(LLMProvider):
                     temperature=temperature,
                     max_tokens=max_tokens,
                     stream=True,
+                    stream_options={"include_usage": True},
                 ),
                 timeout=self._connect_timeout,
             )
@@ -100,6 +120,7 @@ class VLLMProvider(LLMProvider):
                     temperature=temperature,
                     max_tokens=max_tokens,
                     stream=True,
+                    stream_options={"include_usage": True},
                 ),
                 timeout=self._connect_timeout,
             )

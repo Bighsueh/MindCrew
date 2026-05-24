@@ -66,10 +66,25 @@ def _expected_crew_slots(ai_crew_count: int) -> tuple[str, ...]:
     return tuple(f"crew_{i}" for i in range(1, ai_crew_count + 1))
 
 
+class StakeholderSelectionPayload(BaseModel):
+    """Phase 27：使用者從 AI 建議的利害關係人地圖中勾選的一位。"""
+
+    id: str = Field("", max_length=64)
+    name: str = Field(..., min_length=1, max_length=64)
+    role: str = Field(..., min_length=1, max_length=128)
+    relevance: str = Field("", max_length=128)
+
+
 class ProjectCreateRequest(BaseModel):
     name: str
     description: str | None = None
     constraints: str | None = None
+    # Phase 27：建立時使用者勾選的利害關係人（長度必須 == ai_crew_count）。
+    stakeholders: list[StakeholderSelectionPayload] = Field(
+        default_factory=list,
+        max_length=MAX_AI_CREW,
+        description="Phase 27 open brief 三步驟 wizard Step 2 勾選結果",
+    )
     ai_contribution: str = "medium"
     # Phase 21: 教師可自訂 AI 組員人數（1..4），預設 3。
     ai_crew_count: int = Field(default=3, ge=MIN_AI_CREW, le=MAX_AI_CREW)
@@ -102,6 +117,14 @@ class ProjectCreateRequest(BaseModel):
         if extra:
             raise ValueError(
                 f"personas: 多出 {sorted(extra)}，僅允許 {list(expected)}"
+            )
+        # Phase 27：stakeholders 若提供，數量必須與 ai_crew_count 對齊。
+        # 為了向下相容（v1.x 舊客戶端可能沒帶 stakeholders），允許空陣列
+        # 並由 service 層補 task_brief_kind='legacy'。
+        if self.stakeholders and len(self.stakeholders) != self.ai_crew_count:
+            raise ValueError(
+                f"stakeholders: 提供時長度需 == ai_crew_count={self.ai_crew_count}，"
+                f"但收到 {len(self.stakeholders)} 位"
             )
         return self
 
@@ -139,6 +162,9 @@ class ProjectResponse(BaseModel):
     name: str
     description: str | None
     constraints: str | None = None
+    # Phase 27：建立時使用者勾選的利害關係人；舊 project 為 []
+    stakeholders: list[dict[str, Any]] = Field(default_factory=list)
+    task_brief_kind: str = "legacy"
     current_stage: str
     ai_contribution: str
     status: str
@@ -231,6 +257,8 @@ class PersonaGenerateRequest(BaseModel):
     description: str | None = Field(default=None, max_length=2048)
     constraints: str | None = Field(default=None, max_length=2048)
     num_personas: int = Field(default=4, ge=1, le=8)
+    # Phase 27：使用者於 Step 2 勾選的利害關係人；若提供則跳過內部 stakeholder mapping
+    stakeholders: list[StakeholderSelectionPayload] | None = None
 
 
 class PersonaGenerateResponse(BaseModel):
@@ -239,3 +267,57 @@ class PersonaGenerateResponse(BaseModel):
 
 class SeatPersonaUpdateRequest(BaseModel):
     persona: PersonaPayload
+
+
+# ---------------------------------------------------------------------------
+# Phase 27: Draft endpoints (Open Brief 三步驟 wizard)
+# ---------------------------------------------------------------------------
+
+
+class SuggestConstraintsRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=256)
+    description: str = Field("", max_length=2048)
+
+
+class SuggestConstraintsResponse(BaseModel):
+    budget_hints: list[str] = Field(default_factory=list)
+    audience_hints: list[str] = Field(default_factory=list)
+    venue_hints: list[str] = Field(default_factory=list)
+    other_hints: list[str] = Field(default_factory=list)
+
+
+class SuggestStakeholdersRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=256)
+    description: str | None = Field(default=None, max_length=2048)
+    constraints: str | None = Field(default=None, max_length=2048)
+    existing_names: list[str] | None = Field(
+        default=None,
+        max_length=20,  # avoid runaway prompt injection
+        description="若使用者按「再請 AI 建議幾位」追加，傳入既有名單以避免重複",
+    )
+
+    @field_validator("existing_names")
+    @classmethod
+    def _cap_existing_names(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        capped: list[str] = []
+        for name in value:
+            if not isinstance(name, str):
+                continue
+            # strip newlines (prompt-injection hardening) + bound length
+            cleaned = name.replace("\n", " ").replace("\r", " ").strip()
+            if cleaned:
+                capped.append(cleaned[:64])
+        return capped
+
+
+class StakeholderSuggestionPayload(BaseModel):
+    id: str = Field(..., min_length=1, max_length=64)
+    name: str = Field(..., min_length=1, max_length=64)
+    role: str = Field(..., min_length=1, max_length=128)
+    relevance: str = Field("", max_length=128)
+
+
+class SuggestStakeholdersResponse(BaseModel):
+    suggestions: list[StakeholderSuggestionPayload]

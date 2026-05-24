@@ -64,7 +64,7 @@ export function ProjectPersonasPanel({
     <Modal isOpen={isOpen} onClose={onClose} title="AI 隊友人設" maxWidth="xl">
       <div className="flex flex-col gap-4">
         <p className="text-sm text-text-muted leading-relaxed">
-          這裡是目前學習活動的 AI 隊友。點任一張卡片可以調整他的身分、專長、個性與認知透鏡。
+          這裡是目前設計專案的 AI 隊友。點任一張卡片可以調整他的身分、專長、個性與認知透鏡。
           人設修改後，該位 AI 會立即套用新的人設重新啟動。
         </p>
         {error && (

@@ -8,10 +8,13 @@ import type {
   AdvanceStageRequest,
   AdvanceStageResponse,
   MessagesResponse,
+  SuggestConstraintsRequest,
+  SuggestStakeholdersRequest,
   UpdateSeatPersonaRequest,
 } from '../types/api'
 import type {
   CrewSeatRole,
+  ConstraintSuggestions,
   Persona,
   Project,
   ProjectListItem,
@@ -22,6 +25,7 @@ import type {
   AgentTrace,
   CanvasStateResponse,
   ProjectSummaryResponse,
+  StakeholderSuggestion,
 } from '../types/models'
 
 export async function createProject(data: CreateProjectRequest): Promise<Project> {
@@ -187,6 +191,30 @@ export async function getAgentTraces(
     { params },
   )
   return response.data
+}
+
+// ── Phase 27: Open Brief 三步驟 wizard draft endpoints ───────────────────
+
+/** Step 1：AI 建議限制條件（chip 形式採納）。 */
+export async function suggestConstraints(
+  data: SuggestConstraintsRequest,
+): Promise<ConstraintSuggestions> {
+  const response = await api.post<ConstraintSuggestions>(
+    '/projects/draft/suggest-constraints',
+    data,
+  )
+  return response.data
+}
+
+/** Step 2：AI 列 6–10 位具體利害關係人讓使用者勾選。 */
+export async function suggestStakeholders(
+  data: SuggestStakeholdersRequest,
+): Promise<StakeholderSuggestion[]> {
+  const response = await api.post<{ suggestions: StakeholderSuggestion[] }>(
+    '/projects/draft/suggest-stakeholders',
+    data,
+  )
+  return response.data.suggestions
 }
 
 // ── Persona system (Phase 19) ────────────────────────────────────────────

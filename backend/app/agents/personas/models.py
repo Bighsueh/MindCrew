@@ -208,13 +208,58 @@ def fallback_persona_for(seat_role: str) -> Persona | None:
     return persona_from_dict(payload) if payload else None
 
 
+# ---------------------------------------------------------------------------
+# Phase 27: StakeholderSuggestion — concrete people the user picks from
+# (see specs/17-dynamic-persona-system.md §3.0.1)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StakeholderSuggestion:
+    """One AI-suggested potential stakeholder for the user to pick from.
+
+    These are concrete people (not abstract categories). The user picks N of
+    them, which then seed the persona instantiation stage and persist into
+    ``project.stakeholders``.
+    """
+
+    id: str          # uuid; frontend tracks selection across requests
+    name: str        # 中文短稱，如「林阿嬤」
+    role: str        # 一行身份，如「獨居山區的 78 歲農婦」
+    relevance: str   # < 40 字說明為何相關
+
+
+def stakeholder_suggestion_to_dict(s: StakeholderSuggestion) -> dict[str, str]:
+    return {"id": s.id, "name": s.name, "role": s.role, "relevance": s.relevance}
+
+
+def stakeholder_suggestion_from_dict(
+    data: dict[str, Any] | None,
+) -> StakeholderSuggestion | None:
+    if not isinstance(data, dict):
+        return None
+    name = str(data.get("name", "")).strip()
+    role = str(data.get("role", "")).strip()
+    if not name or not role:
+        return None
+    return StakeholderSuggestion(
+        id=str(data.get("id", "")).strip(),
+        name=name,
+        role=role,
+        relevance=str(data.get("relevance", "")).strip(),
+    )
+
+
 __all__ = [
     "LENS_VALUES",
     "Persona",
     "PersonalityAxis",
     "LensAffinities",
+    "StakeholderSuggestion",
     "persona_to_dict",
     "persona_from_dict",
+    "stakeholder_suggestion_to_dict",
+    "stakeholder_suggestion_from_dict",
     "build_fallback_personas",
     "fallback_persona_for",
 ]

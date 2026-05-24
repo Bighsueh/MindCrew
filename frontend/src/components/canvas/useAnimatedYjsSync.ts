@@ -57,6 +57,9 @@ function buildRecord(
     meta: {
       author: typeof shape.author === 'string' ? shape.author : '',
       _moving_by: (shape._moving_by as string) || '',
+      // Phase 24：把 sidecar 寫入的 createdAt 帶進 tldraw meta，
+      // 供 Activity Highlight（聊天氣泡 ⇄ 便利貼）時間配對使用。
+      created_at: typeof shape.createdAt === 'string' ? shape.createdAt : '',
     },
     props: {
       text: (shape.content as string) || '',

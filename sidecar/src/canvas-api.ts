@@ -20,7 +20,7 @@ export const canvasRouter = Router()
 // POST /api/projects/:id/notes — add note
 canvasRouter.post('/projects/:id/notes', (req: Request, res: Response) => {
   const { id } = req.params
-  const { content, author, color, position } = req.body
+  const { content, author, color, position, createdAt } = req.body
 
   if (!content || !author) {
     res.status(400).json({ detail: 'content and author are required' })
@@ -33,7 +33,9 @@ canvasRouter.post('/projects/:id/notes', (req: Request, res: Response) => {
     return
   }
 
-  const note = addNote(id, content, author, color || 'yellow', position)
+  const createdAtOverride =
+    typeof createdAt === 'string' && createdAt.length > 0 ? createdAt : undefined
+  const note = addNote(id, content, author, color || 'yellow', position, createdAtOverride)
   res.status(201).json(note)
 })
 

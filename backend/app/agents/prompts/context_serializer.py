@@ -23,6 +23,31 @@ def build_context_description(context: dict) -> str:
             bg += f"\n專案說明：{project_desc}"
         parts.append(bg)
 
+    # Phase 27 — Open Brief 流程下使用者於 Step 2 勾選的利害關係人
+    # Discover 階段（micro 1.x）是主要消費者，但其他階段也讓 agent 知道
+    # 設計對象範圍以保持 narrative 一致。空陣列（legacy project）graceful skip。
+    stakeholders = context.get("stakeholders") or []
+    if isinstance(stakeholders, list) and stakeholders:
+        sh_lines: list[str] = []
+        for idx, sh in enumerate(stakeholders, start=1):
+            if not isinstance(sh, dict):
+                continue
+            name = str(sh.get("name", "")).strip()
+            role = str(sh.get("role", "")).strip()
+            relevance = str(sh.get("relevance", "")).strip()
+            if not name or not role:
+                continue
+            line = f"{idx}. {name}（{role}）"
+            if relevance:
+                line += f" — {relevance}"
+            sh_lines.append(line)
+        if sh_lines:
+            parts.append(
+                "【已選定利害關係人】（建立時由人類勾選作為設計對象，"
+                "Discover 階段的便利貼 / 問題 / 訪談請以這些人為錨點）\n"
+                + "\n".join(sh_lines)
+            )
+
     stage = context.get("current_stage", "unknown")
     duration = context.get("stage_duration_minutes", 0)
     parts.append(f"【目前狀態】當前階段：{stage}，已進行 {duration} 分鐘。")

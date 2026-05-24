@@ -475,12 +475,14 @@ class SeatManager:
         is_supervisor = seat_role == "supervisor"
         persona = await self._fetch_seat_persona(project_id, seat_role)
         agent_name = self._role_to_display_name(seat_role, persona)
+        owning_user_id = await self._resolve_owning_user(project_id)
 
         agent = BaseAgent(
             project_id=project_id,
             agent_id=agent_id,
             seat_role=seat_role,
             agent_name=agent_name,
+            owning_user_id=owning_user_id,
             ai_contribution=ai_contribution,
             is_supervisor=is_supervisor,
         )
@@ -676,6 +678,43 @@ class SeatManager:
         except Exception as exc:
             logger.warning("Failed to fetch ai_contribution: %s", exc)
         return "medium"
+
+    async def _resolve_owning_user(self, project_id: UUID) -> UUID:
+        """Pick the user that owns LLM calls fired by this project's agents.
+
+        Strategy:
+          1. project.linked_teacher_id (Phase 22) — preferred.
+          2. project.owner_id — created the project.
+          3. seeded admin user — last-resort fallback so the NOT NULL FK
+             on llm_request_logs is always satisfied.
+        """
+        from app.db.models.project import Project
+        from app.db.models.user import User
+
+        try:
+            async with async_session_factory() as session:
+                project = (
+                    await session.execute(select(Project).where(Project.id == project_id))
+                ).scalar_one_or_none()
+                if project is not None:
+                    if project.linked_teacher_id is not None:
+                        return project.linked_teacher_id
+                    if getattr(project, "owner_id", None) is not None:
+                        return project.owner_id
+                admin = (
+                    await session.execute(
+                        select(User).where(User.role == "admin").limit(1)
+                    )
+                ).scalar_one_or_none()
+                if admin is not None:
+                    return admin.id
+        except Exception as exc:
+            logger.warning("_resolve_owning_user fallback (%s): %s", project_id, exc)
+        # Final fallback: re-raise the choice to the LLM layer by returning a
+        # known-bad uuid. log_service will fail to insert and warn, but the
+        # critical path stays up.
+        from uuid import uuid4
+        return uuid4()
 
     @staticmethod
     async def _update_seat_in_session(

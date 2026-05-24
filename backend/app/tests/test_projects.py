@@ -302,21 +302,24 @@ async def test_leave_keeps_seat_dormant_when_no_humans_remain(client: AsyncClien
 
 
 @pytest.mark.asyncio
-async def test_leave_ai_takes_over_when_other_humans_remain(client: AsyncClient):
-    """若仍有其他人類在場，AI 立即接手離席者的位子（既有行為）。"""
-    teacher_token = await _register_teacher(client, "proj_resv_t@test.com")
+async def test_join_second_human_returns_409_project_full(client: AsyncClient):
+    """Phase 23 v1.4：每專案最多 1 位人類。第二位 user join → 409。
+
+    spec/17 §3.4 + spec/06 §2.3：detail 必須等於 'This project already has a human participant'。
+    """
+    teacher_token = await _register_teacher(client, "proj_full_t@test.com")
     create_resp = await client.post(
         "/api/projects",
-        json={"name": "Reserve Multi", "personas": VALID_PERSONAS_PAYLOAD, "timer_config": VALID_TIMER_CONFIG},
+        json={"name": "Full Project", "personas": VALID_PERSONAS_PAYLOAD, "timer_config": VALID_TIMER_CONFIG},
         headers={"Authorization": f"Bearer {teacher_token}"},
     )
     project_id = create_resp.json()["id"]
 
-    # 第二位帳號（學生）作為 second human
+    # 註冊第二位學生帳號
     await client.post(
         "/api/teacher/students",
         json={
-            "email": "proj_resv_s@test.com",
+            "email": "proj_full_s@test.com",
             "password": "pass",
             "display_name": "Student B",
             "can_create_project": False,
@@ -325,35 +328,74 @@ async def test_leave_ai_takes_over_when_other_humans_remain(client: AsyncClient)
     )
     login_resp = await client.post(
         "/api/auth/login",
-        json={"email": "proj_resv_s@test.com", "password": "pass"},
+        json={"email": "proj_full_s@test.com", "password": "pass"},
     )
     student_token = login_resp.json()["access_token"]
 
-    await client.post(
+    # 教師先佔 crew_1
+    first = await client.post(
         f"/api/projects/{project_id}/join",
         json={"seat_role": "crew_1"},
         headers={"Authorization": f"Bearer {teacher_token}"},
     )
-    await client.post(
+    assert first.status_code == 200
+
+    # 第二位 user 嘗試佔 crew_2 → 預期 409 project-has-human
+    second = await client.post(
         f"/api/projects/{project_id}/join",
         json={"seat_role": "crew_2"},
         headers={"Authorization": f"Bearer {student_token}"},
     )
+    assert second.status_code == 409
+    assert second.json()["detail"] == "This project already has a human participant"
 
-    # 老師離席；學生仍在場 → crew_1 應由 AI 立即接手 (is_active=True)
-    leave_resp = await client.post(
-        f"/api/projects/{project_id}/leave",
+
+@pytest.mark.asyncio
+async def test_join_user_already_occupies_beats_project_full(client: AsyncClient):
+    """Phase 23 v1.4 檢查順序：user-already-occupies 優先於 project-has-human。"""
+    teacher_token = await _register_teacher(client, "proj_order_t@test.com")
+    create_resp = await client.post(
+        "/api/projects",
+        json={"name": "Order Project", "personas": VALID_PERSONAS_PAYLOAD, "timer_config": VALID_TIMER_CONFIG},
         headers={"Authorization": f"Bearer {teacher_token}"},
     )
-    assert leave_resp.status_code == 200
+    project_id = create_resp.json()["id"]
 
-    after = await client.get(
-        f"/api/projects/{project_id}",
+    first = await client.post(
+        f"/api/projects/{project_id}/join",
+        json={"seat_role": "crew_1"},
         headers={"Authorization": f"Bearer {teacher_token}"},
     )
-    crew1 = next(s for s in after.json()["seats"] if s["seat_role"] == "crew_1")
-    assert crew1["occupant_type"] == "ai"
-    assert crew1["is_active"] is True
+    assert first.status_code == 200
+
+    # 同一位 user 再 join crew_2 → 應該打到「user 已佔位」(409) 而非「project 已有人類」
+    again = await client.post(
+        f"/api/projects/{project_id}/join",
+        json={"seat_role": "crew_2"},
+        headers={"Authorization": f"Bearer {teacher_token}"},
+    )
+    assert again.status_code == 409
+    assert again.json()["detail"] == "You already occupy a seat in this project"
+
+
+@pytest.mark.asyncio
+async def test_join_supervisor_returns_403(client: AsyncClient):
+    """Phase 18 supervisor AI-only lock 仍是最高優先（403），不會被 409 蓋過。"""
+    teacher_token = await _register_teacher(client, "proj_sup_t@test.com")
+    create_resp = await client.post(
+        "/api/projects",
+        json={"name": "Sup Project", "personas": VALID_PERSONAS_PAYLOAD, "timer_config": VALID_TIMER_CONFIG},
+        headers={"Authorization": f"Bearer {teacher_token}"},
+    )
+    project_id = create_resp.json()["id"]
+
+    resp = await client.post(
+        f"/api/projects/{project_id}/join",
+        json={"seat_role": "supervisor"},
+        headers={"Authorization": f"Bearer {teacher_token}"},
+    )
+    assert resp.status_code == 403
+    assert "Supervisor" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio

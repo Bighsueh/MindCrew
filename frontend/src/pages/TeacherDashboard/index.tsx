@@ -165,7 +165,7 @@ export function TeacherDashboardPage() {
             onClick={() => setShowCreateProject(true)}
           >
             <Plus size={16} />
-            建立新學習活動
+            建立新設計專案
           </Button>
         </div>
       </div>
@@ -191,13 +191,13 @@ export function TeacherDashboardPage() {
             </button>
           </div>
           <p className="text-xs text-text-muted">
-            學生建立學習活動時輸入此代碼，活動就會出現在你的儀表板。
+            學生建立設計專案時輸入此代碼，活動就會出現在你的儀表板。
           </p>
         </div>
 
         <div className="flex flex-col gap-1.5 sm:items-end">
           <span className="text-xs font-medium uppercase tracking-wide text-text-muted">
-            加入學生的學習活動
+            加入學生的設計專案
           </span>
           <div className="flex items-center gap-2">
             <Input
@@ -239,7 +239,7 @@ export function TeacherDashboardPage() {
               )}
               onClick={() => setActiveTab(tab)}
             >
-              {tab === 'projects' ? '學習活動監控' : '學生管理'}
+              {tab === 'projects' ? '設計專案監控' : '學生管理'}
               {activeTab === tab && (
                 <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-primary" />
               )}
@@ -257,14 +257,14 @@ export function TeacherDashboardPage() {
             </div>
           ) : overview === null || overview.projects.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-2xl bg-bg-warm py-16">
-              <p className="text-2xl font-bold text-text">尚無學習活動</p>
-              <p className="mt-2 text-base text-text-muted">建立你的第一個 Design Thinking 學習活動</p>
+              <p className="text-2xl font-bold text-text">尚無設計專案</p>
+              <p className="mt-2 text-base text-text-muted">建立你的第一個 Design Thinking 設計專案</p>
               <Button
                 data-tour="teacher-empty-cta"
                 className="mt-5 rounded-full px-8"
                 onClick={() => setShowCreateProject(true)}
               >
-                建立第一個學習活動
+                建立第一個設計專案
               </Button>
             </div>
           ) : (
@@ -388,7 +388,7 @@ export function TeacherDashboardPage() {
               }
               className="h-4 w-4 rounded border-border text-primary"
             />
-            <span>允許建立學習活動</span>
+            <span>允許建立設計專案</span>
           </label>
 
           {addStudentError && (

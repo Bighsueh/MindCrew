@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -204,6 +205,8 @@ async def tool_create_note(
     seat_color = await lookup_color_for_author(project_id, author_id, author_type)
     effective_color = seat_color or color
 
+    # Phase 24.A：寫入 ISO Z 時間戳供 Activity Highlight 配對（同作者 + 30s 視窗）。
+    created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     note_id = await canvas_ops.add_note(
         project_id=project_id,
         content=converted_text,
@@ -212,6 +215,7 @@ async def tool_create_note(
         author_id=author_id,
         author_name=author_name,
         author_type=author_type,
+        created_at=created_at,
     )
 
     # 紀錄 gate_violation metadata（人類強制送出時）

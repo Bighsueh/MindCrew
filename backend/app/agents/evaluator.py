@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from app.agents.blackboard import BlackboardManager
+from app.agents.llm_context import LLMCallContext
 from app.db.models.stage_evaluation_log import StageEvaluationLog
 from app.db.session import async_session_factory
 from app.agents.context_buffer import get_evaluator_canvas
@@ -113,7 +114,9 @@ class StageEvaluator:
             return events_since >= required
         return True
 
-    async def evaluate(self, context: dict, llm_service: Any) -> EvaluationResult:
+    async def evaluate(
+        self, context: dict, llm_service: Any, *, llm_ctx: LLMCallContext
+    ) -> EvaluationResult:
         """Run a full evaluation cycle.
 
         1. Compute quantitative score
@@ -163,9 +166,9 @@ class StageEvaluator:
 
         if micro_phase:
             from app.agents.micro_phase_scoring import compute_micro_phase_quantitative
-            quant_score = await compute_micro_phase_quantitative(micro_phase, canvas_state, recent_chat, seats, llm_service=llm_service)
+            quant_score = await compute_micro_phase_quantitative(micro_phase, canvas_state, recent_chat, seats, llm_service=llm_service, llm_ctx=llm_ctx)
         else:
-            quant_score = await self._compute_quantitative(stage, canvas_state, recent_chat, seats, llm_service=llm_service)
+            quant_score = await self._compute_quantitative(stage, canvas_state, recent_chat, seats, llm_service=llm_service, llm_ctx=llm_ctx)
 
         # Stage-specific weighting (Phase 1: 50:50 to ensure notes matter, others: 40:60)
         if stage == "discover":
@@ -189,6 +192,7 @@ class StageEvaluator:
             qual_result = await self._run_qualitative(
                 stage, canvas_state, recent_chat, llm_service,
                 project_name=project_name, project_description=project_description,
+                llm_ctx=llm_ctx,
             )
             if qual_result:
                 qual_score = qual_result.get("overall_score", 0.0)
@@ -326,7 +330,7 @@ class StageEvaluator:
         await self._log_to_db(stage, result, micro_phase=micro_phase)
 
         # Compute and write Topic Saturation to Blackboard (Summarizer role)
-        await self._compute_topic_saturation(stage, canvas_state, recent_chat, llm_service)
+        await self._compute_topic_saturation(stage, canvas_state, recent_chat, llm_service, llm_ctx)
 
         return result
 
@@ -338,8 +342,9 @@ class StageEvaluator:
     async def _compute_quantitative(
         self, stage: str, canvas: dict, recent_chat: list[dict], seats: list[dict],
         llm_service: Any = None,
+        llm_ctx: LLMCallContext | None = None,
     ) -> float:
-        return await compute_quantitative(stage, canvas, recent_chat, seats, llm_service=llm_service)
+        return await compute_quantitative(stage, canvas, recent_chat, seats, llm_service=llm_service, llm_ctx=llm_ctx)
 
     @staticmethod
     def _time_pressure_adjustment(
@@ -387,6 +392,7 @@ class StageEvaluator:
         *,
         project_name: str = "",
         project_description: str = "",
+        llm_ctx: LLMCallContext | None = None,
     ) -> dict | None:
         from app.agents.evaluator_qualitative import run_qualitative
         return await run_qualitative(
@@ -396,6 +402,7 @@ class StageEvaluator:
             llm_service=llm_service,
             project_name=project_name,
             project_description=project_description,
+            llm_ctx=llm_ctx,
         )
 
     # ------------------------------------------------------------------
@@ -489,6 +496,7 @@ class StageEvaluator:
         canvas: dict,
         chat: list[dict],
         llm_service: Any,
+        llm_ctx: LLMCallContext | None = None,
     ) -> None:
         """Delegate to topic_saturation module."""
         await compute_and_write_topic_saturation(
@@ -497,6 +505,7 @@ class StageEvaluator:
             canvas=canvas,
             chat=chat,
             llm_service=llm_service,
+            llm_ctx=llm_ctx,
         )
 
     # ------------------------------------------------------------------

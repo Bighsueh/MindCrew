@@ -6,7 +6,10 @@ the delivery criteria in DT-Phase-Facilitation-Guide.md and spec §5.2.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.agents.llm_context import LLMCallContext
 
 logger = logging.getLogger(__name__)
 
@@ -386,6 +389,7 @@ async def compute_micro_phase_quantitative(
     seats: list[dict],
     *,
     llm_service: Any = None,
+    llm_ctx: "LLMCallContext | None" = None,
 ) -> float:
     """Dispatch to per-micro-phase scoring with optional LLM calibration.
 
@@ -419,7 +423,7 @@ async def compute_micro_phase_quantitative(
 
     rule_score = score
 
-    if llm_service is None:
+    if llm_service is None or llm_ctx is None:
         return rule_score
 
     try:
@@ -436,6 +440,9 @@ async def compute_micro_phase_quantitative(
             ],
             temperature=0.0,
             max_tokens=10,
+            caller="micro_phase_scoring",
+            owning_user_id=llm_ctx.owning_user_id,
+            project_id=llm_ctx.project_id,
         )
         llm_score = float(response.content.strip())
         llm_score = max(0.0, min(100.0, llm_score))

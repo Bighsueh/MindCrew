@@ -13,6 +13,8 @@ from app.db.base import Base
 from app.db.models import user, project, seat, message  # noqa: F401
 from app.db.models import stage_history, agent_decision_trace, stage_evaluation_log  # noqa: F401
 from app.db.models import micro_phase_history  # noqa: F401
+from app.db.models import llm_provider, llm_request_log  # noqa: F401
+from app.db.models import llm_request_payload, admin_payload_access  # noqa: F401
 
 config = context.config
 

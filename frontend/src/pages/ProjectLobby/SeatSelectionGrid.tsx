@@ -105,7 +105,7 @@ export function SeatSelectionGrid({
           const isJoining = joiningRole === seat.seat_role
           let disabledReason: string | undefined
           if (userHasSeat) {
-            disabledReason = '你已經在這個學習活動中佔有一個席位'
+            disabledReason = '你已經在這個設計專案中佔有一個席位'
           } else if (isLocked && !isJoining) {
             disabledReason = '正在加入其他席位…'
           }

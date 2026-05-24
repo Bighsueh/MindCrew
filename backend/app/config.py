@@ -11,18 +11,8 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # LLM
-    LLM_PROVIDER: str = "vllm"
-    VLLM_BASE_URL: str = "https://vllm.example.com/v1"
-    VLLM_MODEL_NAME: str = "/models/gemma-4-26B-A4B-it"
-    VLLM_API_KEY: str = "dummy"
-
-    # LLM Fallback
-    LLM_FALLBACK_PROVIDER: str | None = None
-    AZURE_OPENAI_ENDPOINT: str | None = None
-    AZURE_OPENAI_API_KEY: str | None = None
-    AZURE_OPENAI_DEPLOYMENT: str | None = None
-    AZURE_OPENAI_API_VERSION: str | None = None
+    # LLM — Phase 25：所有 provider 設定改由 DB 提供（admin 後台管理）。
+    # 此處只保留呼叫端共用的限制與 timeout，不再有任何 endpoint / key 的預設值。
 
     # LLM Limits
     LLM_MAX_TOKENS_PER_CALL: int = 2048
@@ -30,6 +20,8 @@ class Settings(BaseSettings):
     LLM_GLOBAL_RPM_LIMIT: int = 300
     LLM_CALL_TIMEOUT_SECONDS: int = 60
     LLM_STREAM_CONNECT_TIMEOUT_SECONDS: int = 15
+    LLM_PROVIDER_COOLDOWN_SECONDS: int = 30
+    LLM_PROVIDER_REGISTRY_TTL_SECONDS: int = 30
 
     # Embedding (Qwen3-Embedding-8B)
     EMBEDDING_BASE_URL: str = "https://embedding.example.com/v1"
@@ -42,6 +34,11 @@ class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
     CORS_ORIGINS: str = "http://localhost:5173"
+
+    # Secret encryption (Phase 26 / S2)
+    # Fernet key (url-safe base64, 32 bytes). Required in non-dev.
+    # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    LLM_PROVIDER_KEY_MASTER: str = ""
 
     class Config:
         env_file = ".env"

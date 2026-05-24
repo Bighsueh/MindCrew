@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from app.agents.llm_context import LLMCallContext
 
 from app.agents.blackboard import BlackboardManager
 from app.agents.blackboard_schemas import TopicSaturation
@@ -23,6 +26,7 @@ async def compute_and_write_topic_saturation(
     canvas: dict,
     chat: list[dict],
     llm_service: Any,
+    llm_ctx: "LLMCallContext | None" = None,
 ) -> None:
     """Compute topic saturation via LLM and write to Blackboard."""
     try:
@@ -78,8 +82,16 @@ async def compute_and_write_topic_saturation(
             {"role": "user", "content": prompt},
         ]
 
+        if llm_ctx is None:
+            logger.debug("topic_saturation skipped (no llm_ctx)")
+            return
         response = await llm_service.chat_completion(
-            messages=messages, temperature=0.3, max_tokens=512
+            messages=messages,
+            temperature=0.3,
+            max_tokens=512,
+            caller="topic_saturation",
+            owning_user_id=llm_ctx.owning_user_id,
+            project_id=llm_ctx.project_id,
         )
         data = parse_llm_json(response.content)
         if data is None:

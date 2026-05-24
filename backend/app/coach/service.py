@@ -138,6 +138,10 @@ class DTCoachService:
                         messages=messages,
                         temperature=0.7,
                         max_tokens=512,
+                        caller="dt_coach",
+                        owning_user_id=user_id,
+                        triggered_by_user_id=user_id,
+                        project_id=project_id,
                     )
                     reply_text = chinese_converter.convert(response.content)
                     sender_type = "ai"

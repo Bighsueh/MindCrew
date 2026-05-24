@@ -1,6 +1,6 @@
 // ── Domain model types ──────────────────────────────────────────────────────
 
-export type UserRole = 'teacher' | 'student'
+export type UserRole = 'teacher' | 'student' | 'admin'
 export type AIContribution = 'low' | 'medium' | 'high'
 export type DTStage = 'discover' | 'define' | 'develop' | 'deliver' | 'completed'
 
@@ -104,6 +104,10 @@ export interface Project {
   name: string
   description?: string
   constraints?: string
+  /** Phase 27：建立時使用者勾選的利害關係人（舊 project 為 []）。 */
+  stakeholders?: Stakeholder[]
+  /** Phase 27：'open' = Open Brief 流程；'legacy' = Phase 27 前資料。 */
+  task_brief_kind?: 'open' | 'legacy'
   creator_id: string
   current_stage: DTStage
   current_micro_phase?: MicroPhaseId
@@ -117,6 +121,31 @@ export interface Project {
   invite_code?: string | null
   /** Phase 22: 已列管的老師（null 表未列管）。 */
   linked_teacher?: LinkedTeacher | null
+}
+
+/** Phase 27：使用者建立 project 時勾選的利害關係人（持久化到 project.stakeholders）。 */
+export interface Stakeholder {
+  id: string
+  name: string
+  role: string
+  relevance: string
+  selected?: boolean
+}
+
+/** Phase 27：AI 在 Step 2 列出的具體候選利害關係人（供 StakeholderPicker 勾選）。 */
+export interface StakeholderSuggestion {
+  id: string
+  name: string
+  role: string
+  relevance: string
+}
+
+/** Phase 27：AI 在 Step 1 建議的限制條件（chip 形式採納，不可預勾）。 */
+export interface ConstraintSuggestions {
+  budget_hints: string[]
+  audience_hints: string[]
+  venue_hints: string[]
+  other_hints: string[]
 }
 
 export interface ProjectListItem {

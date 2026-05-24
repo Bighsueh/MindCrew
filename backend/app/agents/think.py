@@ -5,6 +5,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 
+from app.agents.llm_context import LLMCallContext
 from app.agents.prompts.assembler import PromptAssembler
 from app.chinese.converter import chinese_converter
 from app.config import settings
@@ -106,7 +107,9 @@ class ThinkEngine:
         self._assembler = PromptAssembler()
         self._llm_service = LLMProviderFactory.get_service()
 
-    async def generate_actions(self, context: dict) -> ThinkResult:
+    async def generate_actions(
+        self, context: dict, *, llm_ctx: LLMCallContext
+    ) -> ThinkResult:
         """Call the LLM and parse the response into structured actions.
 
         All text content fields are post-processed through OpenCC.
@@ -137,6 +140,10 @@ class ThinkEngine:
                 messages=messages,
                 temperature=0.7,
                 max_tokens=settings.LLM_MAX_TOKENS_PER_CALL,
+                caller=llm_ctx.caller or "agent_think",
+                owning_user_id=llm_ctx.owning_user_id,
+                triggered_by_user_id=llm_ctx.triggered_by_user_id,
+                project_id=llm_ctx.project_id,
             )
         except Exception as exc:
             logger.error("LLM call failed in ThinkEngine: %s", exc)
@@ -146,7 +153,7 @@ class ThinkEngine:
                 actions=[{"type": "no_action", "reason": f"LLM 錯誤：{exc}"}],
                 raw_response="",
                 prompt_text=prompt_text,
-                model=settings.VLLM_MODEL_NAME,
+                model="unknown",
                 tokens_in=0,
                 tokens_out=0,
                 latency_ms=end_ms - start_ms,

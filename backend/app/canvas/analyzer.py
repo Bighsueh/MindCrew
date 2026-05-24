@@ -278,11 +278,21 @@ class SpatialAnalyzer:
             logger.warning("LLM service unavailable for cluster labels")
             return {}
 
+        # Cluster labels are decorative; without an attributable owner we
+        # skip the LLM call rather than break the NOT NULL constraint on
+        # llm_request_logs.owning_user_id. Pass owning_user_id via
+        # ``analyzer._owning_user_id`` when the caller has one.
+        owning_user_id = getattr(self, "_owning_user_id", None)
+        if owning_user_id is None:
+            return {}
+
         async def llm_call(messages: list[dict], max_tokens: int = 32) -> str:
             response = await llm_service.chat_completion(
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=0.3,
+                owning_user_id=owning_user_id,
+                caller="canvas_cluster_labels",
             )
             return response.content
 

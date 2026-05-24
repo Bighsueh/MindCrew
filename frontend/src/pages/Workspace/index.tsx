@@ -32,6 +32,7 @@ import { cn } from '../../lib/utils'
 import type { ChatKind } from '../../stores/chatStore'
 import type { DTStage, MicroPhaseId } from '../../types/models'
 import type { StartActionStage } from '../../components/canvas/CanvasEmptyState'
+import { useActivityHighlightGlobal } from '../../components/canvas/useActivityHighlightGlobal'
 import { useWorkspaceWS } from './useWorkspaceWS'
 import { useWorkspaceCoachState } from './useWorkspaceCoachState'
 import { useStageOrchestration } from './useStageOrchestration'
@@ -62,6 +63,9 @@ export function WorkspacePage() {
   const { currentStage, currentMicroPhase, setCurrentStage, setCurrentMicroPhase } =
     useStageStore()
   const { user } = useAuthStore()
+
+  // Phase 24：workspace 範圍內，點空白或按 Esc → 清除 activity highlight pin
+  useActivityHighlightGlobal()
 
   const [showAdvanceModal, setShowAdvanceModal] = useState(false)
   const [showPersonasPanel, setShowPersonasPanel] = useState(false)

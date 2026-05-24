@@ -12,6 +12,7 @@ import { SeatSelectionGrid } from './SeatSelectionGrid'
 import { ObserverCard } from './ObserverCard'
 import { JoinSeatCard } from './JoinSeatCard'
 import { InfoTabs } from './InfoTabs'
+import { StakeholderPanel } from './StakeholderPanel'
 import type { SeatRole } from '../../types/models'
 
 export function ProjectLobbyPage() {
@@ -55,9 +56,9 @@ export function ProjectLobbyPage() {
       const detail = errObj?.response?.data?.detail ?? ''
       if (status === 409) {
         if (detail.includes('already has a human participant')) {
-          setJoinError('此學習活動已有人類參與者。')
+          setJoinError('此設計專案已有人類參與者。')
         } else if (detail.includes('already occupy')) {
-          setJoinError('你已經在這個學習活動中佔有一個席位。')
+          setJoinError('你已經在這個設計專案中佔有一個席位。')
         } else {
           setJoinError('此席位已被其他人類佔用，請選擇其他席位。')
         }
@@ -155,6 +156,8 @@ export function ProjectLobbyPage() {
           />
         )}
       </div>
+
+      <StakeholderPanel stakeholders={currentProject.stakeholders ?? []} />
 
       <div ref={infoTabsRef} className="mt-6">
         <InfoTabs

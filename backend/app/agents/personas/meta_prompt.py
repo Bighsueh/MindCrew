@@ -147,3 +147,90 @@ def build_persona_user_prompt(
         f"請從上述類別中挑選 {num_personas} 個最能形成「跨領域差異組合」的類別，"
         "為每一個產出 1 位具體人設。記得：差異化、具體化、不對稱組合、利用限制、避免刻板。"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 27: 用「使用者勾選的具體人」當作 Stage 2 的輸入
+# ---------------------------------------------------------------------------
+
+
+def build_persona_user_prompt_from_stakeholders(
+    title: str,
+    description: str | None,
+    constraints: str | None,
+    stakeholders_json: str,
+    num_personas: int,
+) -> str:
+    """Phase 27：使用者已從利害關係人地圖中勾選 N 位對象，請把每一位實體化為 Persona。"""
+    return (
+        f"【主題】{title}\n"
+        f"【情境描述】{description or '（無）'}\n"
+        f"【專案限制】{constraints or '（無）'}\n\n"
+        f"【使用者已勾選的利害關係人（{num_personas} 位）】\n{stakeholders_json}\n\n"
+        f"請把上述 {num_personas} 位利害關係人**一對一**實體化為 {num_personas} 位 Persona："
+        "保留 name 與 role 的基本身分（可微調用字使其更生動），補上 expertise、"
+        "personality_axis、personality_desc、backstory、lens_affinities。"
+        "順序必須與上方清單一致。記得：具體化、不對稱組合、避免刻板。"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 27: Stakeholder Suggestion — 列出具體的人 (6–10 位) 讓使用者勾選
+# 取代既有「stakeholder 類別 mapping」流程於 user-in-the-loop 場景
+# ---------------------------------------------------------------------------
+
+STAKEHOLDER_SUGGESTION_SYSTEM_PROMPT: str = """\
+你是設計思考工作坊的「利害關係人盤點專家」。任務是針對使用者給的開放任務簡報，列出 6–10 位**具體的**潛在利害關係人，讓使用者勾選想訪談 / 想派出的對象。
+
+【規則】
+1. **是具體的人，不是抽象類別**——禁止「使用者」「決策者」「相關業者」這種泛稱；
+   要「林阿嬤，獨居山區的 78 歲農婦」「陳組長，連鎖賣場儲位規劃組長 12 年資歷」這種具象描述。
+2. **6–10 位**，至少包含以下四類各 1 位（可重疊但需涵蓋）：
+   - 直接受影響者（每天親身體驗這問題的人）
+   - 跨界類比者（其他領域的相鄰問題，能帶來意外連結）
+   - 反對者 / 質疑前提者
+   - 觀察者（外部視角，例如記者 / 教授 / 政策研究者）
+3. **彼此差異最大化**：不同產業、不同生活情境、不同社會位置。
+4. **relevance 要短**：< 40 字，講清楚為什麼這個人跟主題相關。
+5. **善用 constraints**：如果有寫限制條件，讓某些人選自然反映那些限制。
+6. **不可預設使用者解法或結論**——你只是列出可能的訪談對象，不要在 relevance 中暗示設計方向。
+
+【輸出格式】嚴格 JSON：
+{
+  "suggestions": [
+    {
+      "name": "中文具體姓名（2-3 字，可加稱謂如阿嬤 / 老闆 / 老師）",
+      "role": "20 字內具體身份（含工作場景或人生狀態）",
+      "relevance": "< 40 字，為什麼這個人與本主題相關"
+    },
+    ...（共 6–10 位）
+  ]
+}
+
+只回應 JSON，不要任何其他文字。\
+"""
+
+
+def build_stakeholder_suggestion_user_prompt(
+    title: str,
+    description: str | None,
+    constraints: str | None,
+    *,
+    existing_names: list[str] | None = None,
+) -> str:
+    """Phase 27 Step 2：列具體的人讓使用者勾選。
+
+    ``existing_names`` 可選——若使用者按了「再請 AI 建議幾位」追加，傳入既有名單以避免重複。
+    """
+    avoid_clause = ""
+    if existing_names:
+        joined = "、".join(name for name in existing_names if name)
+        if joined:
+            avoid_clause = f"\n【請避免與以下既有人選重複】{joined}\n"
+    return (
+        f"【主題】{title}\n"
+        f"【任務描述】{description or '（使用者未提供）'}\n"
+        f"【設計限制條件】{constraints or '（使用者未提供）'}\n"
+        f"{avoid_clause}\n"
+        "請依規則列出 6–10 位具體的潛在利害關係人。"
+    )
