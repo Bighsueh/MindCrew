@@ -1,6 +1,4 @@
 """Chat REST router：GET /api/projects/{id}/messages 支援 chat_id 過濾。
-
-依 specs/13-personal-chat.md §5.1：
   - ``chat_id`` query 可為 ``"group"`` / ``"personal"`` / 完整 chat_id 字串。
   - 預設 ``None`` 視為 group（向下相容既有 client）。
   - 指向別人的 personal → 403；未知格式 → 400。
@@ -17,8 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.jwt import get_current_user
 from app.chat.schemas import MessagesListResponse
 from app.chat.service import ChatService
+from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.session import get_db_session
+from app.projects.deps import require_project_viewer
 
 router = APIRouter(prefix="/api/projects", tags=["chat"])
 
@@ -49,6 +49,7 @@ async def get_project_messages(
     ),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
+    _project: Project = Depends(require_project_viewer),
 ) -> MessagesListResponse:
     """Retrieve chat history for a project with cursor-based pagination.
 

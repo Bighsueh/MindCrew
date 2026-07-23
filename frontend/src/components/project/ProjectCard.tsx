@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Users, Bot, MoreVertical, Trash2, Clock } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { formatRelativeTime } from '../../utils/formatters'
+import { formatRelativeTime, STAGE_LABELS_PLAIN } from '../../utils/formatters'
 import type { ProjectListItem, DTStage } from '../../types/models'
 
 interface ProjectCardProps {
@@ -11,37 +11,26 @@ interface ProjectCardProps {
   onDelete: (project: ProjectListItem) => void
 }
 
-const STAGE_ORDER: DTStage[] = ['discover', 'define', 'develop', 'deliver']
+const STAGE_ORDER: DTStage[] = ['discover', 'define']
 
 const STAGE_BORDER_COLORS: Record<DTStage, string> = {
+  warmup: 'bg-border',
   discover: 'bg-primary',
   define: 'bg-accent',
-  develop: 'bg-warning',
-  deliver: 'bg-success',
   completed: 'bg-success',
 }
 
 const STAGE_BG_TINTS: Record<DTStage, string> = {
+  warmup: 'hover:bg-[#f8f8f8]/40',
   discover: 'hover:bg-[#fefce8]/40',
   define: 'hover:bg-[#fef3e2]/40',
-  develop: 'hover:bg-[#fdf5ee]/40',
-  deliver: 'hover:bg-[#faf0e6]/40',
   completed: 'hover:bg-[#f0fdf4]/30',
 }
 
-const STAGE_LABELS: Record<DTStage, string> = {
-  discover: 'Discover',
-  define: 'Define',
-  develop: 'Develop',
-  deliver: 'Deliver',
-  completed: '已完成',
-}
-
 const STAGE_TAG_COLORS: Record<DTStage, string> = {
+  warmup: 'bg-border/20 text-text-muted',
   discover: 'bg-primary/10 text-primary',
   define: 'bg-accent/20 text-accent',
-  develop: 'bg-warning/10 text-warning',
-  deliver: 'bg-success/10 text-success',
   completed: 'bg-success/10 text-success',
 }
 
@@ -160,7 +149,7 @@ export function ProjectCard({ project, isOwner, onDelete }: ProjectCardProps) {
               STAGE_TAG_COLORS[project.current_stage],
             )}
           >
-            {STAGE_LABELS[project.current_stage]}
+            {STAGE_LABELS_PLAIN[project.current_stage]}
           </span>
 
           <span className="flex items-center gap-1">

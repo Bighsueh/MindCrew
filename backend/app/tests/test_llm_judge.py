@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
+from uuid import UUID
 
 import pytest
 
@@ -79,10 +80,13 @@ def mock_llm_failure(monkeypatch):
 
 
 class TestSingleJudge:
+    _USER = UUID("00000000-0000-0000-0000-000000000001")
+
     async def test_pass_verdict(self, mock_llm_pass) -> None:
         result = await judge_content(
             text='"我都搞不清楚要按哪裡"｜情緒：焦躁',
             rule_module="no_interpretation",
+            owning_user_id=self._USER,
         )
         assert result.verdict == "pass"
         assert result.confidence == 0.9
@@ -93,6 +97,7 @@ class TestSingleJudge:
             text="做一個結帳優化 App",
             rule_module="no_solution_language",
             context={"sub_phase": "2.2", "zone": "pov_wall"},
+            owning_user_id=self._USER,
         )
         assert result.verdict == "violate"
         assert is_violating(result) is True
@@ -134,6 +139,7 @@ class TestBatchJudge:
         batch = await judge_batch(
             text="使用者覺得這個按鈕太小",
             rule_modules=["no_solution_language", "no_criticism"],
+            owning_user_id=UUID("00000000-0000-0000-0000-000000000001"),
         )
         # Only one LLM call regardless of rule count
         assert fake.chat_completion.await_count == 1
@@ -202,14 +208,17 @@ class TestVerdictHelpers:
 class TestSupportedModules:
     def test_includes_all_phase_17_gates(self) -> None:
         modules = set(list_supported_modules())
+        # Phase 42 C1：no_interpretation／empathy_says_no_inference 隨舊 1.5/1.6
+        # 移除；新增 no_feature_jump（1.2 跳功能軟擋二判）。
         required = {
-            "no_interpretation",
-            "empathy_says_no_inference",
             "no_solution_language",
+            "no_feature_jump",
             "no_feasibility_talk",
             "no_production_code",
         }
         assert required <= modules
+        assert "no_interpretation" not in modules
+        assert "empathy_says_no_inference" not in modules
 
     def test_includes_phase_18_new_modules(self) -> None:
         modules = set(list_supported_modules())
@@ -254,6 +263,8 @@ class TestParseRobustness:
         )
 
         result = await judge_content(
-            text="x", rule_module="no_solution_language",
+            text="x",
+            rule_module="no_solution_language",
+            owning_user_id=UUID("00000000-0000-0000-0000-000000000001"),
         )
         assert result.verdict == "borderline"

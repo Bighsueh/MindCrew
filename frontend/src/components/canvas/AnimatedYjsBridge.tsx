@@ -12,8 +12,12 @@ import { useEditor } from '@tldraw/tldraw'
 import type { TLStore } from '@tldraw/tldraw'
 import type * as Y from 'yjs'
 import { useAnimatedYjsSync } from './useAnimatedYjsSync'
+import { useHumanDragSync } from './useHumanDragSync'
+import { adjustedDuration } from '../../lib/animationCapability'
 
-const TRANSITION_DURATION_MS = 500
+// Phase 42 D1b (spec 12 §3.3 v4.1)：單張動畫時長下限 600ms（與 index.css 一致）；
+// 依 animationCapability 縮放（reduced 砍半、off 0）。disable timer 用縮放後值＋buffer。
+const TRANSITION_DURATION_MS = 600
 const TRANSITION_BUFFER_MS = 200
 
 interface AnimatedYjsBridgeProps {
@@ -46,7 +50,7 @@ export function AnimatedYjsBridge({ shapesMap, store }: AnimatedYjsBridgeProps) 
     if (!el) return
 
     // Don't enable if user is currently interacting (dragging)
-    if (editor.getInstanceState().isPointing) return
+    if (editor.inputs.isPointing) return
 
     el.classList.add('ai-animating')
     // Reset the disable timer — will be set by onPositionChangeEnd
@@ -57,7 +61,7 @@ export function AnimatedYjsBridge({ shapesMap, store }: AnimatedYjsBridgeProps) 
     clearTimeout(timerRef.current)
     timerRef.current = window.setTimeout(() => {
       containerRef.current?.classList.remove('ai-animating')
-    }, TRANSITION_DURATION_MS + TRANSITION_BUFFER_MS)
+    }, adjustedDuration(TRANSITION_DURATION_MS) + TRANSITION_BUFFER_MS)
   }, [])
 
   // Remove transition immediately on any pointer interaction
@@ -84,6 +88,8 @@ export function AnimatedYjsBridge({ shapesMap, store }: AnimatedYjsBridgeProps) 
   }, [])
 
   useAnimatedYjsSync(shapesMap, store, enableTransition, scheduleDisableTransition)
+  // Phase 42 C0 ⑥(a)：真人拖曳回寫 Yjs（move-delta 事件的資料前提）
+  useHumanDragSync(shapesMap, store)
 
   return null
 }

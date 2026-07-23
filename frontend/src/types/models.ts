@@ -2,13 +2,20 @@
 
 export type UserRole = 'teacher' | 'student' | 'admin'
 export type AIContribution = 'low' | 'medium' | 'high'
-export type DTStage = 'discover' | 'define' | 'develop' | 'deliver' | 'completed'
+// 暖場(warmup)為第一級 macro stage(Alternative Uses 破冰遊戲);navbar 顯示三階段。
+export type DTStage = 'warmup' | 'discover' | 'define' | 'completed'
 
+/** Phase 28：可切換的三模式輪流規則。詳 ``。 */
+export type TurnPolicy = 'cued' | 'round_robin' | 'open_floor'
+
+/** 對應後端 `TurnDecision.allowed_actions` 的子集。 */
+export type TurnAllowedAction = 'speak' | 'pass' | 'handoff' | 'raise_hand'
+
+// Phase 42 C1（spec 22 v2.0 §2.3a）：新 6 桶；舊 1.3（Persona）隨格移除。
 export type MicroPhaseId =
-  | "1.1" | "1.2" | "1.3"
+  | "0.0"
+  | "1.1" | "1.2"
   | "2.1" | "2.2" | "2.3"
-  | "3.1" | "3.2" | "3.3"
-  | "4.1" | "4.2" | "4.3"
 
 export interface MicroPhaseInfo {
   current_micro_phase: MicroPhaseId
@@ -29,8 +36,15 @@ export interface MicroPhaseHistoryEntry {
   created_at: string
 }
 export type ProjectStatus = 'active' | 'completed' | 'archived'
-export type SeatRole = 'supervisor' | 'crew_1' | 'crew_2' | 'crew_3' | 'crew_4'
-export type CrewSeatRole = Exclude<SeatRole, 'supervisor'>
+// human_creator：真人專屬席（額外 +1，綁定 creator）。crew_* 永遠是常駐 AI。
+export type SeatRole =
+  | 'supervisor'
+  | 'human_creator'
+  | 'crew_1'
+  | 'crew_2'
+  | 'crew_3'
+  | 'crew_4'
+export type CrewSeatRole = Exclude<SeatRole, 'supervisor' | 'human_creator'>
 export type OccupantType = 'human' | 'ai'
 export type SenderType = 'human' | 'ai' | 'system'
 
@@ -121,7 +135,13 @@ export interface Project {
   invite_code?: string | null
   /** Phase 22: 已列管的老師（null 表未列管）。 */
   linked_teacher?: LinkedTeacher | null
+  /** Phase 28: 目前的輪流規則（cued / round_robin / open_floor）。 */
+  turn_policy?: TurnPolicy
+  /** 當前 viewer 對此專案的角色：'creator'（可入座）/ 'observer'（列管老師・admin，只能旁觀）/ null（無權）。 */
+  viewer_role?: ViewerRole | null
 }
+
+export type ViewerRole = 'creator' | 'observer'
 
 /** Phase 27：使用者建立 project 時勾選的利害關係人（持久化到 project.stakeholders）。 */
 export interface Stakeholder {
@@ -161,6 +181,15 @@ export interface ProjectListItem {
   /** Phase 22 */
   invite_code?: string | null
   linked_teacher?: LinkedTeacher | null
+  /** Phase 28 */
+  turn_policy?: TurnPolicy
+}
+
+/** Phase 28：當前回合狀態 (由 WS turn_state event 推送)。 */
+export interface TurnState {
+  policy: TurnPolicy
+  next_speaker: SeatRole | null
+  allowed_actions: TurnAllowedAction[]
 }
 
 export interface Message {
@@ -174,6 +203,8 @@ export interface Message {
   created_at: string
   /** chat_id: `${project_id}:group` 或 `${project_id}:personal:${user_id}`，NULL 視為 group。 */
   chat_id?: string
+  /** 純前端：樂觀送出、尚未被 server echo 對帳的暫態訊息（reconcile 後清除）。後端不會帶此欄。 */
+  pending?: boolean
 }
 
 export interface StageInfo {
@@ -313,14 +344,29 @@ export interface ProjectMonitorItem {
   participation: ParticipationSummary
   ai_activity: AIActivitySummary
   alerts: AlertItem[]
+  /** Phase 28：當前輪流規則（後端 admin/overview endpoint 補欄位後生效）。 */
+  turn_policy?: TurnPolicy
 }
 
+// Phase 29 (spec/04-06 §4.10): develop / deliver removed.
 export interface StageDistribution {
   discover: number
   define: number
-  develop: number
-  deliver: number
   completed: number
+}
+
+// Phase 34 (spec/26-first-diamond-closing.md): 第一鑽石終局產出。
+// 由 backend closing ritual 寫入 project.first_diamond_output。
+export interface FirstDiamondOutput {
+  personas?: Array<{
+    name: string
+    fields?: Record<string, string>
+    completeness?: number
+  }>
+  chosen_problem_statement?: string | null
+  chosen_hmw?: string | null
+  completed_at?: string
+  summary?: string
 }
 
 export interface ProjectOverviewResponse {

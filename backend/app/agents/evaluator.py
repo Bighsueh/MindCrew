@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -14,7 +13,6 @@ from app.db.session import async_session_factory
 from app.agents.context_buffer import get_evaluator_canvas
 from app.agents.evaluator_scoring import compute_quantitative
 from app.agents.topic_saturation import compute_and_write_topic_saturation
-from app.agents.stage_advancement import advance_stage, propose_advance
 from app.stages.micro_phases import get_next_micro_phase, is_macro_boundary
 
 logger = logging.getLogger(__name__)
@@ -40,6 +38,13 @@ _THRESHOLDS: dict[str, float] = {
     "high": 60.0,
 }
 
+# Phase 42 B1：暖場「45s 最低停留＋真人 ≥15 字放行」模型移除——退場改
+# (達標 AND 全員參與) OR 硬上限（G02／spec 28 v2.1 §5.1：live 實證 crew 失能時
+# 舊字面「(達標 OR 上限) AND 全員」會軟卡、與 §5.3 防死鎖矛盾），判定在
+# progression/warmup_exit.py。（Phase 42 補正 R5：本註解原寫舊公式，更正。）
+# Phase 42 A1：v4.18 的無引導者邊界 70% 提前放行閥已移除（spec 04-06 §5.8 v4.25）——
+# 防死鎖職責統一由「組長 time-box 誠實收尾」與 progression watcher 兜底覆蓋。
+
 
 @dataclass
 class EvaluationResult:
@@ -56,10 +61,12 @@ class EvaluationResult:
 
 
 class StageEvaluator:
-    """Supervisor-only component: evaluates stage completion and triggers advancement.
+    """Supervisor-only component: evaluates stage completion and feeds signals.
 
     Uses both quantitative metrics (no LLM) and qualitative LLM analysis.
-    Implements the cooling-period + human-proposal flow from spec §4.4.
+    Phase 42 A1（spec 04-06 §5.8 v4.25）：不再靜默跨 micro/macro 邊界，
+    評估通過後改寫「邊界訊號」進組長的本關訊號面板，由組長宣布推進；
+    暖場（_evaluate_warmup）自 B1 起同此模型（三情境訊號，spec 28 v2.0 §5）。
     """
 
     def __init__(
@@ -75,9 +82,6 @@ class StageEvaluator:
         self._last_eval_time: float = 0.0
         self._consecutive_pass_count: int = 0
         self._threshold: float = _THRESHOLDS.get(ai_contribution, 70.0)
-        self._proposal_pending: bool = False
-        self._proposal_event: asyncio.Event = asyncio.Event()
-        self._proposal_agreed: bool = False
         self._blind_spot_challenge_sent: bool = False
         self._last_guidance_text: str = ""
         self._last_guidance_time: float = 0.0
@@ -138,6 +142,11 @@ class StageEvaluator:
         seats: list[dict] = context.get("seats", [])
         project_name: str = context.get("project_name", "")
         project_description: str = context.get("project_description", "")
+
+        # 暖場 macro stage:不跑 discover 計分(沒 artifact 會卡死)。改用「人有參與 + 最低停留」
+        # 決定推進;全 AI 不卡死;time-box 為安全閥(避免人 AFK 永久卡住,並標記未達標)。
+        if stage == "warmup":
+            return await self._evaluate_warmup(recent_chat)
 
         # Track if any Crew responded since last guidance (for dedup).
         # Phase 19: also recognise persona display names (any AI seat that is
@@ -280,39 +289,62 @@ class StageEvaluator:
         else:
             required_passes = _COOLING_COUNTS.get(self._contribution, 2)
 
+        # v4.15 一致性 guard：micro 內細格未走完前不跨 micro/macro 邊界。
+        # 讓 progression_watcher 先把 current_sub_phase 走到該 micro 的最後一格。
+        current_sub_phase = context.get("current_sub_phase")
+        _at_micro_end = True
+        if micro_phase and current_sub_phase:
+            from app.stages.sub_phases import SUB_PHASES, SUB_PHASE_ORDER
+            _sp = SUB_PHASES.get(current_sub_phase)
+            if _sp is not None and _sp.parent_micro_phase == micro_phase:
+                _subs = [
+                    s for s in SUB_PHASE_ORDER
+                    if SUB_PHASES[s].parent_micro_phase == micro_phase
+                ]
+                _at_micro_end = (not _subs) or (_subs[-1] == current_sub_phase)
+
+        # Phase 42 A1（spec 04-06 §5.8 v4.25）：Evaluator 不再自行跨界——
+        # v4.18 無引導者 70% 邊界閥與 propose_advance 60s 同意窗一併移除。
+        # 評估通過＋已在 micro 末端 → 寫「邊界訊號」給組長（本關訊號面板），
+        # 由組長宣布推進、系統執行；組長失能由 progression watcher 兜底。
         action_taken = "none"
 
         if not passed and weak_areas:
             action_taken = "guided_weak_areas"
             await self._publish_weak_area_guidance(weak_areas)
         elif passed and self._consecutive_pass_count >= required_passes:
+            if micro_phase and not _at_micro_end:
+                # 細格尚未走到 micro 末端 → 本輪不給邊界訊號（不重置 consecutive_pass）。
+                action_taken = "await_sub_phase_walk"
             # Discover: blind spot challenge gate (two-pass) — only with humans, macro stage mode
-            if stage == "discover" and not micro_phase and not self._blind_spot_challenge_sent and has_humans:
+            elif (
+                stage == "discover"
+                and not micro_phase
+                and not self._blind_spot_challenge_sent
+                and has_humans
+            ):
                 await self._publish_blind_spot_challenge()
                 self._blind_spot_challenge_sent = True
                 self._consecutive_pass_count = required_passes - 1
                 action_taken = "blind_spot_challenge"
-            elif micro_phase:
-                # Micro-phase aware advancement
-                next_mp = get_next_micro_phase(micro_phase)
-                if next_mp is None:
-                    action_taken = "terminal_micro_phase"  # 4.3 is terminal
-                elif is_macro_boundary(micro_phase, next_mp):
-                    # Cross macro phase boundary — use existing propose/advance flow
-                    if has_humans:
-                        action_taken = await self._propose_advance(stage, total)
-                    else:
-                        action_taken = await self._advance_stage(stage)
-                else:
-                    # Same macro phase — advance micro phase directly
-                    action_taken = await self._advance_micro_phase(micro_phase, next_mp)
             else:
-                if stage == "discover":
-                    self._blind_spot_challenge_sent = False
-                if has_humans:
-                    action_taken = await self._propose_advance(stage, total)
-                else:
-                    action_taken = await self._advance_stage(stage)
+                action_taken = "boundary_signal"
+
+        # 每輪評估都更新邊界訊號（最新判定供面板渲染；best-effort）。
+        try:
+            from app.progression.boundary_signal import set_boundary_signal
+
+            await set_boundary_signal(
+                self._project_id,
+                micro_phase=micro_phase,
+                sub_phase=current_sub_phase,
+                ready=(action_taken == "boundary_signal"),
+                passed=passed,
+                total_score=total,
+                weak_areas=weak_areas,
+            )
+        except Exception:
+            logger.debug("boundary signal write failed", exc_info=True)
 
         result = EvaluationResult(
             quantitative_score=quant_score,
@@ -334,11 +366,6 @@ class StageEvaluator:
 
         return result
 
-    def register_human_response(self, agreed: bool) -> None:
-        """Called externally when a human responds to a stage advance proposal."""
-        self._proposal_agreed = agreed
-        self._proposal_event.set()
-
     async def _compute_quantitative(
         self, stage: str, canvas: dict, recent_chat: list[dict], seats: list[dict],
         llm_service: Any = None,
@@ -353,17 +380,16 @@ class StageEvaluator:
         micro_phase: str | None = None,
     ) -> float:
         """Gradually lower threshold as time exceeds target for the stage."""
+        # Phase 42 C1：對齊新 6 桶（舊 1.3 隨 Persona 移除；1.1=1.1a–1.1d、
+        # 2.2=2.2–2.4、2.3=2.5–2.7）。值為時間壓力調整的經驗參考，
+        # 非 time-box（上限由 timer 比例分配管，spec 16 v2.0 §2.1）。
         _MICRO_PHASE_TARGET_MINUTES: dict[str, float] = {
-            "1.1": 8, "1.2": 10, "1.3": 5,
-            "2.1": 7, "2.2": 7, "2.3": 5,
-            "3.1": 10, "3.2": 5, "3.3": 5,
-            "4.1": 7, "4.2": 5, "4.3": 7,
+            "1.1": 10, "1.2": 8,
+            "2.1": 5, "2.2": 8, "2.3": 7,
         }
         _STAGE_TARGET_MINUTES: dict[str, float] = {
             "discover": 15.0,
             "define": 10.0,
-            "develop": 15.0,
-            "deliver": 10.0,
         }
         if micro_phase and micro_phase in _MICRO_PHASE_TARGET_MINUTES:
             target = _MICRO_PHASE_TARGET_MINUTES[micro_phase]
@@ -409,59 +435,64 @@ class StageEvaluator:
     # Stage advancement
     # ------------------------------------------------------------------
 
-    async def _propose_advance(self, stage: str, total_score: float) -> str:
-        """Propose stage advancement to humans via chat. Wait up to 60s."""
-        self._proposal_pending = True
-        self._proposal_agreed = False
-        # Use a mutable ref so propose_advance can update threshold on rejection
-        threshold_ref = [self._threshold]
-        result = await propose_advance(
-            stage=stage,
-            total_score=total_score,
-            project_id=self._project_id,
-            agent_id=self._agent_id,
-            proposal_event=self._proposal_event,
-            get_proposal_agreed=lambda: self._proposal_agreed,
-            publish_supervisor_message=self._publish_supervisor_message,
-            threshold_ref=threshold_ref,
-            blackboard=self._blackboard,
-        )
-        self._threshold = threshold_ref[0]
-        self._proposal_pending = False
-        if result.startswith("advanced_to_"):
-            self._consecutive_pass_count = 0
-            self._blind_spot_challenge_sent = False
-        return result
+    # Phase 42 A1：_propose_advance（60s 同意窗包裝）與 _advance_micro_phase
+    # （靜默跨 micro）已移除——邊界推進改由組長宣布（act `advance_sub_phase`），
+    # 執行路徑見 progression/advance_router.py。
 
-    async def _advance_micro_phase(self, from_phase: str, to_phase: str) -> str:
-        """Advance micro phase within the same macro stage (no human proposal needed)."""
+    async def _evaluate_warmup(self, recent_chat: list[dict]) -> EvaluationResult:
+        """暖場退場訊號（Phase 42 B1，spec 28 v2.0 §5）：算訊號、餵組長，不再自行推進。
+
+        退場公式（§5.1，G02 v2.1 修訂）＝(達團隊目標 AND 全員參與) OR 硬上限 5 分到，
+        判定彙整於 ``progression.warmup_exit.warmup_status``。本方法每輪把判定寫進
+        邊界訊號（組長的本關訊號面板據此渲染三情境），常態推進＝組長宣布收尾並
+        act `advance_sub_phase`（橋接必經、由推進迴路結構保證）；組長失能時
+        watcher 於硬上限後樣板兜底。舊「真人 ≥15 字＋45s 放行」模型已移除（§5.1）。
+        """
+        pid = self._project_id
+        from app.progression.warmup_exit import warmup_status
+
+        status = await warmup_status(pid)
+        action = "boundary_signal" if status.ready else "none"
+
+        # 邊界訊號寫入：暖場面板（signal_panel._warmup_panel）直接讀 warmup_status、
+        # 不消費此訊號——保留寫入是為了與其他格的 evaluator 行為對齊＋live 偵錯時
+        # 可從 Redis 直接檢視暖場判定（A1 驗收即以此為證據管道）。
         try:
-            from app.agents.stage_advancement import advance_micro_phase
-            result = await advance_micro_phase(
-                project_id=self._project_id,
-                agent_id=self._agent_id,
-                from_phase=from_phase,
-                to_phase=to_phase,
-            )
-        except Exception as exc:
-            logger.error("Micro phase advance failed: %s", exc)
-            return "micro_advance_failed"
-        if result.startswith("micro_advanced_to_"):
-            self._consecutive_pass_count = 0
-        return result
+            from app.progression.boundary_signal import set_boundary_signal
 
-    async def _advance_stage(self, current_stage: str) -> str:
-        """Directly advance the project to the next stage."""
-        result = await advance_stage(
-            current_stage=current_stage,
-            project_id=self._project_id,
-            agent_id=self._agent_id,
-            blackboard=self._blackboard,
+            await set_boundary_signal(
+                pid,
+                micro_phase="0.0",
+                sub_phase="0.0a",
+                ready=status.ready,
+                passed=status.ready,
+                total_score=0.0,
+                weak_areas=list(status.missing_zh),
+            )
+        except Exception:
+            logger.debug("warmup boundary signal write failed", exc_info=True)
+
+        if status.ready:
+            summary = (
+                f"暖場可收尾（{status.note_count}/{status.goal} 張"
+                f"{'、已達標' if status.goal_reached else '、硬上限到'}）→ 等組長宣布收尾"
+            )
+        else:
+            summary = "暖場進行中：" + ("；".join(status.missing_zh) or "等待訊號")
+        return EvaluationResult(
+            quantitative_score=0.0,
+            qualitative_score=None,
+            total_score=0.0,
+            threshold=0.0,
+            passed=status.ready,
+            weak_areas=list(status.missing_zh),
+            summary=summary,
+            action_taken=action,
+            consecutive_pass_count=self._consecutive_pass_count,
         )
-        if result.startswith("advanced_to_"):
-            self._consecutive_pass_count = 0
-            self._blind_spot_challenge_sent = False
-        return result
+
+    # Phase 42 B1：_advance_stage 移除——evaluator 全面不再直接推進（含暖場）。
+    # 推進執行路徑統一在 progression/advance_router.py（組長宣布 / watcher 兜底）。
 
     # ------------------------------------------------------------------
     # Chat guidance helpers (delegated to evaluator_guidance.py)

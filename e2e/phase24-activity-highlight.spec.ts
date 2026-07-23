@@ -1,7 +1,7 @@
 /**
  * Phase 24 — Activity Highlight smoke test (Playwright with Chrome)
  *
- * 驗收標準（_discussion/specs/19-activity-highlight-draft.md §6）：
+ * 驗收標準（_discussion/）：
  *  AC0：頁面有至少 2 個 chat row（data-activity-highlight="chat"）。
  *  AC1：hover 同作者 30s 內 chat 氣泡 → boxShadow ring 出現；滑出後消失。
  *  AC1b：同作者另一則氣泡也同步高亮（兩者 ring 同時存在）。

@@ -8,6 +8,7 @@ import { cn } from '../../lib/utils'
 import { Button } from '../common/Button'
 import { Modal } from '../common/Modal'
 import { PhaseIndicator } from '../common/PhaseIndicator'
+import { TurnPolicySwitcher } from './TurnPolicySwitcher'
 import { formatDuration } from '../../utils/formatters'
 import { sendHint, updateAIContribution } from '../../services/teacherService'
 import { advanceStage } from '../../services/projectService'
@@ -37,19 +38,19 @@ const AI_LEVEL_LABELS: Record<AIContribution, string> = {
   high: '高',
 }
 
+// Phase 29 (spec/04-06 §4.10): develop / deliver removed.
+// Phase 42 補正 R2（裁定②）：教師面一併去英文（spec 28 §6 單一真相來源口徑）。
 const STAGE_LABELS: Record<DTStage, string> = {
-  discover: 'Discover · 發現',
-  define: 'Define · 定義',
-  develop: 'Develop · 發展',
-  deliver: 'Deliver · 交付',
-  completed: '已完成',
+  warmup: '暖場 · 破冰',
+  discover: '發現',
+  define: '定義',
+  completed: '第一鑽石完成',
 }
 
 const NEXT_STAGE: Partial<Record<DTStage, DTStage>> = {
+  warmup: 'discover',
   discover: 'define',
-  define: 'develop',
-  develop: 'deliver',
-  deliver: 'completed',
+  define: 'completed',
 }
 
 export function ProjectMonitorCard({ project, onRefresh }: ProjectMonitorCardProps) {
@@ -187,6 +188,17 @@ export function ProjectMonitorCard({ project, onRefresh }: ProjectMonitorCardPro
         <div className="flex items-center gap-2 text-xs text-text-muted mb-3">
           <Bot size={12} />
           <span>AI 介入：{ai_activity.recent_interventions} 次 (近10分鐘) / 共 {ai_activity.total_interventions} 次</span>
+        </div>
+
+        {/* Phase 28：對話模式切換器 */}
+        <div className="mb-3">
+          <TurnPolicySwitcher
+            projectId={project.id}
+            projectName={project.name}
+            currentPolicy={project.turn_policy ?? 'cued'}
+            onChange={() => onRefresh()}
+            compact
+          />
         </div>
 
         {/* Alert badges */}

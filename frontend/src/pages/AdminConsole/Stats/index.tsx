@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Loading } from '../../../components/common/Loading'
 import {
+  fetchLatencyStats,
   fetchOverviewStats,
   fetchSuccessRateTrend,
   fetchTokenTimeseries,
   listProviders,
   type AdminProvider,
   type Granularity,
+  type LatencyStats,
   type OverviewStats,
   type SuccessRateTrend as SuccessRateTrendData,
   type TokenTimeseries,
@@ -19,6 +21,8 @@ import { CallerBreakdown } from './charts/CallerBreakdown'
 import { TopUsers } from './charts/TopUsers'
 import { HourlyHeatmap } from './charts/HourlyHeatmap'
 import { LatencyBuckets } from './charts/LatencyBuckets'
+import { LatencyPercentilePanel } from './charts/LatencyPercentilePanel'
+import { LatencyTrend } from './charts/LatencyTrend'
 import { SuccessRateTrend } from './charts/SuccessRateTrend'
 
 const REFRESH_INTERVAL_MS = 60_000
@@ -47,6 +51,7 @@ export function AdminStatsPage() {
   const [overview, setOverview] = useState<OverviewStats | null>(null)
   const [timeseries, setTimeseries] = useState<TokenTimeseries | null>(null)
   const [successRate, setSuccessRate] = useState<SuccessRateTrendData | null>(null)
+  const [latency, setLatency] = useState<LatencyStats | null>(null)
   const [allProviders, setAllProviders] = useState<AdminProvider[]>([])
   const [initialLoading, setInitialLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -77,7 +82,7 @@ export function AdminStatsPage() {
       if (!silent) setError('')
       try {
         const days = approxDaysWindow(range.since, range.until)
-        const [o, ts, sr] = await Promise.all([
+        const [o, ts, sr, lat] = await Promise.all([
           fetchOverviewStats(days),
           fetchTokenTimeseries({
             since: range.since,
@@ -91,10 +96,17 @@ export function AdminStatsPage() {
             until: range.until,
             granularity,
           }),
+          fetchLatencyStats({
+            since: range.since,
+            until: range.until,
+            provider_ids: providerIds.length > 0 ? providerIds : undefined,
+            granularity,
+          }),
         ])
         setOverview(o)
         setTimeseries(ts)
         setSuccessRate(sr)
+        setLatency(lat)
         setLastUpdatedAt(new Date())
         if (silent) setError('')
       } catch (e: unknown) {
@@ -181,6 +193,8 @@ export function AdminStatsPage() {
         <div className="space-y-6">
           <TokenUsageTimeline data={timeseries} />
           <SuccessRateTrend data={successRate} />
+          {latency && <LatencyTrend data={latency} />}
+          {latency && <LatencyPercentilePanel rows={latency.rows} />}
           <CallerBreakdown rows={overview.callers} />
           <TopUsers rows={overview.top_users} />
           <HourlyHeatmap buckets={overview.hourly} />

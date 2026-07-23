@@ -62,6 +62,22 @@ MIN_AI_CREW = 1
 MAX_AI_CREW = 4
 
 
+# Phase 28:可切換的三模式輪流規則。
+ALLOWED_TURN_POLICIES = ("cued", "round_robin", "open_floor")
+DEFAULT_TURN_POLICY = "cued"
+
+
+def _validate_turn_policy(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = (value or "").strip().lower()
+    if cleaned not in ALLOWED_TURN_POLICIES:
+        raise ValueError(
+            f"turn_policy 必須為 {ALLOWED_TURN_POLICIES} 其中之一，收到 {value!r}"
+        )
+    return cleaned
+
+
 def _expected_crew_slots(ai_crew_count: int) -> tuple[str, ...]:
     return tuple(f"crew_{i}" for i in range(1, ai_crew_count + 1))
 
@@ -91,11 +107,18 @@ class ProjectCreateRequest(BaseModel):
     personas: list[CrewPersonaAssignment] = Field(
         ..., min_length=MIN_AI_CREW, max_length=MAX_AI_CREW
     )
-    # specs/16-timer-system.md：建立者必須明確選擇 timer preset / 自訂 macro budget。
+    # ：建立者必須明確選擇 timer preset / 自訂 macro budget。
     # 未來開放學生自助建專案後，這個必填確保不會出現「沒人啟用 timer」的狀況。
     timer_config: "TimerConfig" = Field(..., description="必填：建立者選的 preset 或自訂配置")
     # Phase 22：學生建立活動時可選填教師的 signature_code 直接列管
     teacher_signature_code: str | None = Field(default=None, max_length=8)
+    # Phase 28：建立時的 turn-taking policy；未填則由 DB server_default 補 'cued'。
+    turn_policy: str | None = Field(default=None, description="cued / round_robin / open_floor")
+
+    @field_validator("turn_policy")
+    @classmethod
+    def _validate_turn_policy_field(cls, value: str | None) -> str | None:
+        return _validate_turn_policy(value)
 
     @model_validator(mode="after")
     def _validate_personas_match_crew_count(self) -> "ProjectCreateRequest":
@@ -130,7 +153,7 @@ class ProjectCreateRequest(BaseModel):
 
 
 class ProjectTimerInitRequest(BaseModel):
-    """為舊專案補 timer 的 payload。config=None 走 DEFAULT_2HR_PRESET。"""
+    """為舊專案補 timer 的 payload。config=None 走 DEFAULT_PRESET（90 分）。"""
 
     config: "TimerConfig | None" = None
 
@@ -174,6 +197,13 @@ class ProjectResponse(BaseModel):
     # Phase 22
     invite_code: str | None = None
     linked_teacher: LinkedTeacherInfo | None = None
+    # Phase 28：當前輪流規則
+    turn_policy: str = DEFAULT_TURN_POLICY
+    # Phase 30：DEMO 導覽完成記錄（{user_id: ISO8601}）。前端用此 map 決定是否顯示 0.1 tour。
+    tour_acknowledged_by: dict[str, str] = Field(default_factory=dict)
+    # 當前 viewer 對此專案的角色：creator（可入座）/ observer（列管老師、admin，只能旁觀）/ None。
+    # 由 service 依 current_user 計算；前端據此決定顯示入座鈕或觀察者入口。
+    viewer_role: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -191,6 +221,8 @@ class ProjectListItem(BaseModel):
     # Phase 22
     invite_code: str | None = None
     linked_teacher: LinkedTeacherInfo | None = None
+    # Phase 28：當前輪流規則
+    turn_policy: str = DEFAULT_TURN_POLICY
 
     model_config = {"from_attributes": True}
 
@@ -208,6 +240,48 @@ class ProjectUpdateRequest(BaseModel):
     description: str | None = None
     constraints: str | None = None
     ai_contribution: str | None = None
+    # Phase 28：creator 也可在 update 時順手調整 turn_policy（教師另有 PATCH /turn-policy 專用 endpoint）。
+    turn_policy: str | None = None
+
+    @field_validator("turn_policy")
+    @classmethod
+    def _validate_turn_policy_field(cls, value: str | None) -> str | None:
+        return _validate_turn_policy(value)
+
+
+class TurnPolicyUpdateRequest(BaseModel):
+    """Phase 28：教師或 admin 切換專案輪流規則。
+
+    詳 ``。
+    """
+
+    policy: str
+
+    @field_validator("policy")
+    @classmethod
+    def _validate(cls, value: str) -> str:
+        cleaned = _validate_turn_policy(value)
+        if cleaned is None:
+            raise ValueError("policy 不可為 null")
+        return cleaned
+
+
+class TurnPolicyResponse(BaseModel):
+    policy: str
+    applied_at: datetime
+
+
+class TourAcknowledgeResponse(BaseModel):
+    """Phase 30 (spec/22 §2.1)：0.1 DEMO 導覽完成 ack 回應。
+
+    tour_acknowledged_by 為 ``{user_id: ISO8601 timestamp}`` 字典。
+    """
+
+    tour_acknowledged_by: dict[str, str]
+
+
+# TemplateSuggestRequest / TemplateSuggestResponse 已隨 AI 起稿 endpoint 下架移除
+# （Phase 42 補正 R3／P1-6 ARCHIVE，spec 23 v2.2；模組本體留 app/agents/template_suggest/）。
 
 
 class JoinRequest(BaseModel):
@@ -225,6 +299,12 @@ class CanvasNoteResponse(BaseModel):
     color: str
     author: str = ""
     group_name: str | None = None
+    # Spec 27 (Phase 36) §10 / spec 06 delta：接話式便條欄位。
+    kind: str = "content"            # "content" | "label"
+    group_id: str | None = None
+    # Phase 42 C0 (spec 06 v4.25)：引用鏈與 time-box 強推標記。
+    cites: list[str] = []
+    time_box_forced: bool = False
 
 
 class CanvasGroupResponse(BaseModel):

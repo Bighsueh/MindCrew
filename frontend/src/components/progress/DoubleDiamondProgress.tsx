@@ -1,6 +1,7 @@
-// 雙鑽石進度條
-// 以 SVG + Tailwind 繪製 4 個鑽石（與 OnboardingModal 的 DoubleDiamondDiagram 視覺一致），
-// 各鑽石為可 hover 的按鈕；hover 後浮出 popover 顯示該 macro stage 的 3 個 micro phase。
+// 設計思考進度條（第一鑽石：暖場 → 發現 → 定義 → 完成）
+// 以 SVG + Tailwind 繪製（與 OnboardingModal 的 DoubleDiamondDiagram 視覺一致），
+// 各鑽石為可 hover 的按鈕；hover 後浮出 popover 顯示該 macro stage 的 micro phase 清單
+// （Phase 42 C1 後 discover=2 個、define=3 個；補正 R5 更正舊「各 3 個」註解）。
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -8,19 +9,18 @@ import { cn } from '../../lib/utils'
 import type { DTStage, MicroPhaseId } from '../../types/models'
 import { MACRO_STAGES, type MacroStageMeta } from './microPhaseInfo'
 
+// Phase 29 (spec/04-06 §4.10): develop / deliver removed.
 const PHASE_ORDER: Record<DTStage, number> = {
-  discover: 0,
-  define: 1,
-  develop: 2,
-  deliver: 3,
-  completed: 4,
+  warmup: 0,
+  discover: 1,
+  define: 2,
+  completed: 3,
 }
 
+// Phase 42 C1（spec 22 v2.0 §2.3a）：新 6 桶（0.0 暖場為獨立 macro，不入鑽石排序）。
 const MICRO_PHASE_ORDER: MicroPhaseId[] = [
-  '1.1', '1.2', '1.3',
+  '1.1', '1.2',
   '2.1', '2.2', '2.3',
-  '3.1', '3.2', '3.3',
-  '4.1', '4.2', '4.3',
 ]
 
 interface DoubleDiamondProgressProps {
@@ -167,7 +167,7 @@ function DiamondChip({
       aria-disabled={status === 'future'}
       aria-label={`${macro.label}（${macro.shape}）`}
       aria-expanded={isHovered}
-      // specs/16-timer-system.md：driver.js phase-advance tour 用這個 attr 找錨點
+      // ：driver.js phase-advance tour 用這個 attr 找錨點
       data-tour-stage-chip={macro.stage}
       className={cn(
         'group relative inline-flex items-center gap-1.5 rounded-md border transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
@@ -305,7 +305,7 @@ function StagePopover({
         <p className="mt-1 text-xs leading-relaxed text-text-muted">{macro.summary}</p>
       </div>
       <ol className="flex flex-col gap-2 px-4 py-3">
-        {macro.micro.map((mp) => {
+        {macro.micro.map((mp, idx) => {
           const isCurrent = mp.id === currentMicroPhase
           return (
             <li
@@ -323,7 +323,7 @@ function StagePopover({
                   isCurrent ? 'bg-accent text-text-inverse' : 'bg-bg-warm text-text-muted',
                 )}
               >
-                {mp.id}
+                {idx + 1}
               </span>
               <div className="flex-1">
                 <p

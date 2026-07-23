@@ -31,12 +31,18 @@ class ProjectRepository:
         return list(result.scalars().all())
 
     async def list_user_projects(self, user_id: UUID) -> list[Project]:
-        """Get projects where user is creator or occupies a seat."""
-        from sqlalchemy import or_, exists
+        """Get projects where user is creator or occupies a seat.
+
+        關聯子查詢必須同時綁定 ``Seat.project_id == Project.id``，否則 EXISTS 退化為
+        「該 user 是否在『任何』專案佔過席位」這個常數條件——只要佔過一席就會把
+        全系統的專案都撈出來（跨使用者外洩）。``.correlate(Project)`` 只抑制自動
+        FROM，不會自動補上關聯謂詞，故需在 ``where`` 顯式指定。
+        """
+        from sqlalchemy import or_
 
         seat_subq = (
             select(Seat.project_id)
-            .where(Seat.user_id == user_id)
+            .where(Seat.user_id == user_id, Seat.project_id == Project.id)
             .correlate(Project)
             .exists()
         )

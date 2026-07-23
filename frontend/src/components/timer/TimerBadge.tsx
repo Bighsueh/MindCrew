@@ -20,7 +20,7 @@ interface ColorPalette {
   bar: string
 }
 
-// specs/16-timer-system.md §6.5.3：五階顏色對應 PressureLevel
+// ：五階顏色對應 PressureLevel
 // （tight / critical 在容器加 pulse 動畫，讓人類旁觀者也感受到壓力）。
 const PRESSURE_PALETTE: Record<PressureLevel, ColorPalette> = {
   calm: { bg: '#dcfce7', fg: '#166534', bar: '#16a34a' },
@@ -76,7 +76,7 @@ export function TimerBadge() {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span>{snapshot.paused ? '⏸' : '⏱'}</span>
-        <span>{snapshot.current_sub_phase}</span>
+        <span>{snapshot.current_sub_phase_label ?? snapshot.current_sub_phase}</span>
         <span
           style={{
             fontSize: 11,

@@ -105,7 +105,9 @@ async def list_teacher_projects(
             select(Seat).where(Seat.project_id == p.id)
         )
         seats = seat_result.scalars().all()
-        human_count = sum(1 for s in seats if s.occupant_type == "human")
+        human_count = sum(
+            1 for s in seats if s.occupant_type == "human" and s.user_id is not None
+        )
         ai_count = sum(1 for s in seats if s.occupant_type == "ai")
 
         # Note count from in-memory canvas
@@ -285,7 +287,9 @@ async def get_projects_overview(
             select(Seat).where(Seat.project_id == p.id)
         )
         seats = seat_result.scalars().all()
-        human_count = sum(1 for s in seats if s.occupant_type == "human")
+        human_count = sum(
+            1 for s in seats if s.occupant_type == "human" and s.user_id is not None
+        )
         ai_count = sum(1 for s in seats if s.occupant_type == "ai")
 
         # Note count
@@ -349,6 +353,7 @@ async def get_projects_overview(
                 participation=participation,
                 ai_activity=ai_activity,
                 alerts=alerts,
+                turn_policy=p.turn_policy,
             )
         )
 
@@ -508,7 +513,9 @@ async def _build_participation(
     )
     active_members = active_result.scalar() or 0
 
-    total_members = sum(1 for s in seats if s.occupant_type == "human")
+    total_members = sum(
+        1 for s in seats if s.occupant_type == "human" and s.user_id is not None
+    )
 
     return ParticipationSummary(
         human_messages=human_messages,

@@ -62,20 +62,25 @@ class TestZoneResolution:
 
 
 class TestColorCheck:
-    async def test_disallowed_color_rejected(self) -> None:
-        # define_criteria_sidebar only allows green; try yellow
+    async def test_disallowed_color_not_enforced(self) -> None:
+        """作者身分色永遠勝出：色不合 zone 不再 reject / coerce。
+
+        每個角色一個固定專屬色，便條色由作者席位色決定，與 zone allowed_colors 無關。
+        即使便條因 template 等其他規則被擋，「顏色」永遠不是拒絕原因。
+        """
+        # define_criteria_sidebar 僅允許 green；這裡用 yellow。
         outcome = await _evaluate_create_gates(
             project_id="00000000-0000-0000-0000-000000000000",  # type: ignore[arg-type]
             text="準則：時間",
             color="yellow",
-            x=2160,
-            y=200,  # inside criteria sidebar default bounds
+            x=200,
+            y=5800,  # inside criteria band default bounds（RC1 帶模型）
             sub_phase_id="2.5",
             author_type="ai",
             force_publish=False,
         )
-        assert outcome.rejection is not None
-        assert outcome.rejection.rule_module == "zone_color"
+        # 顏色不合不再產生 zone_color 拒絕（可能因其他 gate 被擋，但原因絕非顏色）。
+        assert outcome.rejection is None or outcome.rejection.rule_module != "zone_color"
 
 
 class TestContentGate:
@@ -85,7 +90,7 @@ class TestContentGate:
             text="做一個運費 widget",
             color="yellow",
             x=200,
-            y=200,
+            y=3800,
             sub_phase_id="2.2",
             author_type="ai",
             force_publish=False,
@@ -100,7 +105,7 @@ class TestContentGate:
             text="做一個運費 widget",
             color="yellow",
             x=200,
-            y=200,
+            y=3800,
             sub_phase_id="2.2",
             author_type="human",
             force_publish=True,
@@ -116,7 +121,7 @@ class TestContentGate:
             text="做一個",
             color="yellow",
             x=200,
-            y=200,
+            y=3800,
             sub_phase_id="2.2",
             author_type="human",
             force_publish=False,
@@ -125,35 +130,9 @@ class TestContentGate:
         assert outcome.gate_violation_metadata is None
 
 
-class TestRawWallNoInterpretation:
-    async def test_blocked(self) -> None:
-        outcome = await _evaluate_create_gates(
-            project_id="00000000-0000-0000-0000-000000000000",  # type: ignore[arg-type]
-            text='使用者真正的需求是更快結帳',
-            color="yellow",
-            x=200,
-            y=200,
-            sub_phase_id="1.5",
-            author_type="ai",
-            force_publish=False,
-        )
-        assert outcome.rejection is not None
-        assert outcome.rejection.rule_module == "no_interpretation"
-
-    async def test_passes(self) -> None:
-        # Pass valid raw observation matching template
-        outcome = await _evaluate_create_gates(
-            project_id="00000000-0000-0000-0000-000000000000",  # type: ignore[arg-type]
-            text='"我都搞不清楚要按哪裡"｜情緒：焦躁｜來源：U2',
-            color="yellow",
-            x=200,
-            y=200,
-            sub_phase_id="1.5",
-            author_type="ai",
-            force_publish=False,
-        )
-        assert outcome.rejection is None
-        assert outcome.success is True
+# Phase 42 C1：TestRawWallNoInterpretation 刪除——鎖死已移除行為（1.5 Raw Wall 與
+# no_interpretation gate 隨 5+7 重構全系統移除，spec 04-06 v4.25 §5.5）。
+# 註：該 class 的 test_blocked 在移除前已是 pre-existing fail（2026-06-03 口徑）。
 
 
 class TestParkRemoved:

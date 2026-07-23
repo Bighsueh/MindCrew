@@ -40,7 +40,6 @@ function scrollToTop(): Promise<void> {
 export function usePageTransition() {
   const navigate = useNavigate()
   const location = useLocation()
-  const prevPathRef = useRef(location.pathname)
   const mountedRef = useRef(true)
   const timerIdsRef = useRef<number[]>([])
 

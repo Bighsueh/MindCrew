@@ -1,6 +1,6 @@
 // Workspace 新手導引 Modal
-// 五個 step（第 5 為「開始」CTA，整合在 Step 4），引導使用者理解：
-//   主題 → DT 概念 + 雙鑽石流程 → Phase 0–4 說明 → 主題/限制/行動指引 → 開始
+// 四個 step（第 4 步含「開始」CTA），引導使用者理解：
+//   歡迎 → 設計思考概念 + 第一鑽石流程 → 三階段說明 + 雙工具與「你的任務」 → 主題/限制/行動指引
 
 import { useEffect, useState } from 'react'
 import { ChevronRight, ChevronLeft, ExternalLink } from 'lucide-react'
@@ -13,6 +13,8 @@ import {
   DOUBLE_DIAMOND_NARRATIVE,
   PHASE_DESCRIPTIONS,
   COLLAB_NOTE,
+  DUAL_TOOL_NOTE,
+  TASK_BANNER_NOTE,
   STAGE_NEXT_HINT,
   STAGE_HEADING_LABEL,
 } from './onboardingContent'
@@ -130,7 +132,7 @@ function StepWelcome({ projectName }: { projectName: string }) {
   )
 }
 
-// ── Step 2: DT 概念 + 雙鑽石流程 ───────────────────────────────────────────
+// ── Step 2: DT 概念 + 設計思考流程 ─────────────────────────────────────────
 
 function StepConcept() {
   return (
@@ -153,13 +155,13 @@ function StepConcept() {
   )
 }
 
-// ── Step 3: 五階段更多說明 ──────────────────────────────────────────────────
+// ── Step 3: 三階段說明 + 雙工具與「你的任務」 ─────────────────────────────────
 
 function StepMore() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs font-medium uppercase tracking-wide text-accent">Step 3 · 更多說明</p>
-      <h2 className="text-xl font-semibold text-text">這場活動會經過五個階段</h2>
+      <h2 className="text-xl font-semibold text-text">這場活動會這樣一步步進行</h2>
       <div className="flex flex-col gap-2">
         {PHASE_DESCRIPTIONS.map((phase) => (
           <div
@@ -176,9 +178,17 @@ function StepMore() {
           </div>
         ))}
       </div>
-      <p className="rounded-md border border-border bg-bg-warm px-3 py-2 text-xs text-text-muted">
-        💡 {COLLAB_NOTE}
-      </p>
+      <div className="flex flex-col gap-2">
+        <p className="rounded-md border border-border bg-bg-warm px-3 py-2 text-xs text-text-muted">
+          💡 {COLLAB_NOTE}
+        </p>
+        <p className="rounded-md border border-border bg-bg-warm px-3 py-2 text-xs text-text-muted">
+          🧰 {DUAL_TOOL_NOTE}
+        </p>
+        <p className="rounded-md border border-accent/40 bg-accent/5 px-3 py-2 text-xs text-text-muted">
+          📌 {TASK_BANNER_NOTE}
+        </p>
+      </div>
     </div>
   )
 }

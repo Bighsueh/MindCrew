@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getTeacherProjects, createStudent, listStudents, getProjectsOverview } from '../../services/teacherService'
+import { createStudent, listStudents, getProjectsOverview } from '../../services/teacherService'
 import { trackProjectByInviteCode } from '../../services/projectService'
 import { useAuthStore } from '../../stores/authStore'
 import { Button } from '../../components/common/Button'
@@ -13,7 +13,7 @@ import { ProjectMonitorCard } from '../../components/teacher/ProjectMonitorCard'
 import { Plus, RefreshCw, Copy, Check, Link as LinkIcon } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useTeacherDashboardTourAutoStart } from '../../components/onboarding/useTeacherDashboardTourAutoStart'
-import type { TeacherProjectSummary, ProjectOverviewResponse, User } from '../../types/models'
+import type { ProjectOverviewResponse, User } from '../../types/models'
 
 interface NewStudentFormData {
   displayName: string

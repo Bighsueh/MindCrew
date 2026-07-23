@@ -1,7 +1,9 @@
 """Stability detector — Spec 13 §3 動作停滯偵測。
 
-silent_rearrange 模式下，連續 N 秒無 canvas action 視為結構穩定，
-觸發自動推進到下一 sub-phase 或 comm_mode。
+> ⚠️ **Phase 41（2026-06-09）**：原供 `silent_rearrange` 整理格「連續 N 秒無 canvas action
+> → 自動推進」之用；沉默模式移除後，`progression/watcher` 不再讀 `check_stability`，收斂格改
+> count/supervisor/time-box 推進。本模組的記錄（`record_canvas_action`/`reset`）目前無 advancement
+> 讀者，保留供未來重用與向下相容；`check_stability` 暫無生產呼叫點。
 
 State 存在 Redis key `canvas_last_action:{project_id}`，每次 canvas tool 完成寫入。
 """

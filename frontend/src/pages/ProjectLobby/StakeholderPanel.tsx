@@ -15,7 +15,7 @@ export function StakeholderPanel({ stakeholders }: Props) {
   if (stakeholders.length === 0) return null
 
   return (
-    <section className="mt-6 rounded-2xl border border-border-light bg-surface p-5 shadow-sm">
+    <section className="rounded-2xl border border-border-light bg-surface p-5 shadow-sm">
       <header className="mb-3 flex items-center gap-2">
         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/10 text-accent">
           <Users size={14} />

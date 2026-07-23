@@ -11,43 +11,36 @@ import { TimerInline } from '../../components/timer/TimerInline'
 import { InitTimerDialog } from '../../components/timer/InitTimerDialog'
 import { useTimerStore } from '../../stores/timerStore'
 import { ConnectionBanner } from '../../components/workspace/ConnectionBanner'
-import { SeatBar } from '../../components/workspace/SeatBar'
+import { RoomPausedBanner } from '../../components/workspace/RoomPausedBanner'
 import { ChatPanel } from '../../components/chat/ChatPanel'
 import { ChatDock } from '../../components/chat/ChatDock'
 import { CanvasPanel } from '../../components/canvas/CanvasPanel'
-// Phase 19 — Dynamic AI persona panel
-import { ProjectPersonasPanel } from '../../components/persona/ProjectPersonasPanel'
 // Phase 20 — MindCrew-Design UI surface
-import { StageHintBar } from '../../components/workspace/StageHintBar'
-import {
-  AdvanceStageConfirm,
-  type DTStage as AdvanceDTStage,
-} from '../../components/workspace/AdvanceStageConfirm'
-import { StartActionsPopover } from '../../components/workspace/StartActionsPopover'
+import { TaskBanner } from '../../components/workspace/TaskBanner'
+import { WaitingIndicator } from '../../components/workspace/WaitingIndicator'
+import { InputBouncedToast } from '../../components/workspace/InputBouncedToast'
+import { TurnPolicySwitcher } from '../../components/teacher/TurnPolicySwitcher'
+import { AdvanceStageConfirm } from '../../components/workspace/AdvanceStageConfirm'
+import type { DTStage as AdvanceDTStage } from '../../types/models'
 import { OnboardingModal } from '../../components/workspace/OnboardingModal'
 import { Button } from '../../components/common/Button'
 import { Loading } from '../../components/common/Loading'
-import { HelpCircle, Users } from 'lucide-react'
+import { HelpCircle } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { ChatKind } from '../../stores/chatStore'
 import type { DTStage, MicroPhaseId } from '../../types/models'
-import type { StartActionStage } from '../../components/canvas/CanvasEmptyState'
 import { useActivityHighlightGlobal } from '../../components/canvas/useActivityHighlightGlobal'
+import { useTimerTick } from '../../hooks/useTimerTick'
 import { useWorkspaceWS } from './useWorkspaceWS'
 import { useWorkspaceCoachState } from './useWorkspaceCoachState'
 import { useStageOrchestration } from './useStageOrchestration'
 
 // 階段推進對應表：給「推進到下一階段」按鈕使用。
+// Phase 29 (spec/04-06 §4.10): develop / deliver removed; define 後直接 completed。
 const NEXT_STAGE: Partial<Record<DTStage, DTStage>> = {
+  warmup: 'discover',
   discover: 'define',
-  define: 'develop',
-  develop: 'deliver',
-}
-
-// 把 DTStage 收斂成 StartActionsPopover 認得的 4 階段。
-function asStartActionStage(s: DTStage): StartActionStage {
-  if (s === 'discover' || s === 'define' || s === 'develop' || s === 'deliver') return s
-  return 'discover'
+  define: 'completed',
 }
 
 // mobile 三 tab 的識別字串
@@ -59,7 +52,7 @@ export function WorkspacePage() {
 
   const { currentProject, fetchProject } = useProjectStore()
   const loadHistory = useChatStore((s) => s.loadHistory)
-  const { seats, setSeats } = useSeatStore()
+  const { seats, setSeats, updateSeat } = useSeatStore()
   const { currentStage, currentMicroPhase, setCurrentStage, setCurrentMicroPhase } =
     useStageStore()
   const { user } = useAuthStore()
@@ -67,8 +60,11 @@ export function WorkspacePage() {
   // Phase 24：workspace 範圍內，點空白或按 Esc → 清除 activity highlight pin
   useActivityHighlightGlobal()
 
+  // 計時器每秒本地遞減的單一計時源（只在此掛一次；TimerInline 被響應式雙掛，
+  // 不可由元件自身計時，否則 used_seconds 每秒 +2 造成倒數抖動）。
+  useTimerTick()
+
   const [showAdvanceModal, setShowAdvanceModal] = useState(false)
-  const [showPersonasPanel, setShowPersonasPanel] = useState(false)
   // 舊專案缺 timer_config 時，老師可從 footer 啟用倒數計時。
   const [showInitTimer, setShowInitTimer] = useState(false)
   // 「重新導引」按鈕用：遞增 nonce 強制重開 OnboardingModal
@@ -131,18 +127,29 @@ export function WorkspacePage() {
 
   // ── 權限與存取控管 ──
   const myCurrentSeat = seats.find(
-    (s) => s.occupant_type === 'human' && s.user_id === user?.id,
+    (s) => s.occupant_type === 'human' && !!s.user_id && s.user_id === user?.id,
   )
   const isObserver = !myCurrentSeat
   const isSupervisor = myCurrentSeat?.seat_role === 'supervisor'
   const nextStage = NEXT_STAGE[currentStage]
 
+  // 存取：creator（含 viewer_role==='creator'）/ 列管老師 / admin 才可進工作區。
+  // 收斂掉舊版「任何 teacher 皆可」的寬鬆判斷。
   const hasAccess =
+    !!currentProject &&
+    !!user &&
+    (currentProject.viewer_role != null ||
+      currentProject.creator_id === user.id ||
+      currentProject.linked_teacher?.id === user.id ||
+      user.role === 'admin')
+
+  // Phase 28：教師且為本專案 linked_teacher，或 admin，可在 Workspace 即時切換 turn_policy
+  const canManageTurnPolicy = !!(
     currentProject &&
     user &&
-    (currentProject.creator_id === user.id ||
-      currentProject.seats?.some((s) => s.user_id === user.id) ||
-      user.role === 'teacher')
+    (user.role === 'admin' ||
+      (user.role === 'teacher' && currentProject.linked_teacher?.id === user.id))
+  )
 
   useEffect(() => {
     if (currentProject && user && !hasAccess) {
@@ -175,18 +182,13 @@ export function WorkspacePage() {
   }, [id, navigate])
 
   // ── EmptyState 動作 ──
-  // 任一動作目前皆為「閃 chip + 關 popover」的 UX placeholder；後續 phase 才接入實際後端流程。
+  // 任一動作目前皆為「閃 chip」的 UX placeholder；後續 phase 才接入實際後端流程。
   const handleEmptyStateAction = useCallback(
     (_actionId: string) => {
       orchestration.flashStartChip()
-      orchestration.closeStartPopover()
     },
     [orchestration],
   )
-
-  const handleStartChipClick = useCallback(() => {
-    orchestration.toggleStartPopover()
-  }, [orchestration])
 
   // ── EmptyState banner 是否顯示（CanvasPanel 用） ──
   const bannerVisible = useMemo(
@@ -214,7 +216,6 @@ export function WorkspacePage() {
   }
 
   const showBanner = wsStatus === 'disconnected' || wsStatus === 'failed' || wsError
-  const startStage = asStartActionStage(currentStage)
 
   return (
     <div className="flex h-screen flex-col bg-bg overflow-hidden">
@@ -223,10 +224,13 @@ export function WorkspacePage() {
         <ConnectionBanner status={wsStatus === 'failed' ? 'failed' : 'disconnected'} />
       )}
 
-      {/* DT Progress bar + 全員 Timer（specs/16-timer-system.md §6.5.3） */}
+      {/* Phase 42 D5：LLM fail-stop 全房暫停 banner（room_paused/room_resumed 驅動）。 */}
+      <RoomPausedBanner />
+
+      {/* DT Progress bar + 全員 Timer（） */}
       <header className="flex-shrink-0 border-b border-border bg-surface px-4 py-2">
         <div className="flex items-center gap-4">
-          <span className="text-sm text-text-muted whitespace-nowrap">
+          <span className="text-sm text-text-muted whitespace-nowrap shrink-0">
             {currentProject.name}
           </span>
           <div className="flex-1 min-w-0 flex justify-center">
@@ -235,26 +239,52 @@ export function WorkspacePage() {
               currentMicroPhase={currentMicroPhase ?? undefined}
             />
           </div>
-          <button
-            type="button"
-            onClick={() => setOnboardingForceNonce((n) => n + 1)}
-            aria-label="重新導引"
-            title="重新導引"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-surface-hover hover:text-text transition-colors"
-          >
-            <HelpCircle size={16} />
-          </button>
+
+          {/* 右側叢集：只留操作鈕。
+              在席座位 chip 已移除——隊友改由聊天室的臉堆 + 資料卡呈現，navbar 不再重複。 */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* 操作鈕：推進 / 離開 */}
+            {isSupervisor && nextStage && (
+              <Button size="sm" onClick={() => setShowAdvanceModal(true)}>
+                推進到 {nextStage}
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={handleLeave}>
+              離開
+            </Button>
+
+            {/* Phase 28：教師 / admin 可在 Workspace 內即時切換 turn_policy。
+                學生看不到（保持輪流條件對學生透明）。 */}
+            {canManageTurnPolicy && (
+              <TurnPolicySwitcher
+                projectId={currentProject.id}
+                projectName={currentProject.name}
+                currentPolicy={currentProject.turn_policy ?? 'cued'}
+                compact
+                className="shrink-0"
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => setOnboardingForceNonce((n) => n + 1)}
+              aria-label="重新導引"
+              title="重新導引"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-surface-hover hover:text-text transition-colors"
+            >
+              <HelpCircle size={16} />
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Stage hint bar：目標、任務、起頭 chip */}
-      <StageHintBar
-        stage={currentStage}
-        projectId={id!}
-        currentMicroPhase={currentMicroPhase}
-        onStartWithAiClick={handleStartChipClick}
-        startChipFlashKey={orchestration.startChipFlashKey}
+      {/* Phase 42 A3（WP7）：「你的任務」釘住 banner ＋ 回合鎖等待狀態列 ＋ 退回 toast。
+          釘在聊天/白板上方、非聊天流訊息——洗版不消失（spec 05 Flow 4/Flow 12，#24）。 */}
+      <TaskBanner
+        sendWS={sendWS}
+        isHumanParticipant={!isObserver && currentProject?.creator_id === user?.id}
       />
+      <WaitingIndicator />
+      <InputBouncedToast />
 
       {/* Main content area */}
       <div className="relative flex-1 overflow-hidden">
@@ -279,7 +309,7 @@ export function WorkspacePage() {
           </div>
           <div className="flex-1 overflow-hidden">
             {activeTab === 'canvas' && (
-              <div className="h-full">
+              <div className="relative h-full">
                 <CanvasPanel
                   projectId={id!}
                   currentStage={currentStage}
@@ -290,6 +320,15 @@ export function WorkspacePage() {
                   onEmptyStateHide={orchestration.flashStartChip}
                   isObserver={isObserver}
                 />
+                {/* mobile：timer 也改浮動置頂（縮小可捲動） */}
+                <div className="pointer-events-none absolute top-2 left-0 right-0 z-30 flex justify-center px-2">
+                  <div className="pointer-events-auto max-w-full overflow-x-auto">
+                    <TimerInline
+                      isCreator={currentProject?.creator_id === user?.id}
+                      onActivate={() => setShowInitTimer(true)}
+                    />
+                  </div>
+                </div>
               </div>
             )}
             {activeTab === 'group' && (
@@ -328,6 +367,17 @@ export function WorkspacePage() {
             />
           </div>
 
+          {/* 倒數計時器：原 footer 中央的大 timer，改成白板頂部置中的浮動 HUD，
+              讓老師遠看也清楚；白板底部已有 MiniToolbar / ChatDock，故置頂不衝突。 */}
+          <div className="pointer-events-none absolute top-3 left-1/2 z-30 -translate-x-1/2">
+            <div className="pointer-events-auto">
+              <TimerInline
+                isCreator={currentProject?.creator_id === user?.id}
+                onActivate={() => setShowInitTimer(true)}
+              />
+            </div>
+          </div>
+
           {user && (
             <ChatDock
               projectId={id!}
@@ -336,73 +386,26 @@ export function WorkspacePage() {
               initialOpen="group"
               groupDisabled={isObserver}
               onActiveChange={setActiveChannel}
+              isCreator={currentProject?.creator_id === user?.id}
+              onPersonaSaved={(seat) => updateSeat(seat.seat_role, seat)}
             />
           )}
         </div>
       </div>
 
-      {/* Seat status bar + 全員 Timer（specs/16-timer-system.md §6.5.3）。
-          三段式 layout：SeatBar 左 / TimerInline 居中 / 操作鈕右。
-          overflow-x-visible 避免 SeatPopover 被裁切（spec §6 trade-off）。 */}
-      <footer className="flex-shrink-0 border-t border-border bg-surface px-4 py-2">
-        <div className="flex items-center gap-3 overflow-x-visible">
-          <div className="flex-1 min-w-0">
-            <SeatBar
-              seats={seats}
-              currentUserId={user?.id}
-              typingNames={coachState.typingNames}
-              recentSpeaker={coachState.recentSpeaker}
-              seatPreviews={coachState.seatPreviews}
-            />
-          </div>
-
-          <TimerInline
-            isCreator={currentProject?.creator_id === user?.id}
-            onActivate={() => setShowInitTimer(true)}
-          />
-
-          <div className="flex-1 flex justify-end items-center gap-2">
-            {currentProject?.creator_id === user?.id && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowPersonasPanel(true)}
-              >
-                <Users size={14} />
-                AI 隊友
-              </Button>
-            )}
-            {isSupervisor && nextStage && (
-              <Button size="sm" onClick={() => setShowAdvanceModal(true)}>
-                推進到 {nextStage}
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={handleLeave}>
-              離開
-            </Button>
-          </div>
-        </div>
-      </footer>
+      {/* footer 已移除：在席狀態 + 操作鈕上移到 header app bar；
+          全員 Timer 改成白板頂部置中的浮動 HUD。 */}
 
       {/* Phase 20: Advance stage confirmation (replaces old Modal-based UI from Phase 19) */}
       <AdvanceStageConfirm
         open={showAdvanceModal}
+        // Phase 29: completed is terminal — display as define for confirm modal heading
         currentStage={
-          (currentStage === 'completed' ? 'deliver' : currentStage) as AdvanceDTStage
+          (currentStage === 'completed' ? 'define' : currentStage) as AdvanceDTStage
         }
         onConfirm={handleAdvanceStage}
         onCancel={() => setShowAdvanceModal(false)}
         isAdvancing={isAdvancing}
-      />
-
-      {/* Phase 20: 起手式 popover, anchored on the StageHintBar 「起頭」chip */}
-      <StartActionsPopover
-        open={orchestration.startPopoverOpen}
-        stage={startStage}
-        currentMicroPhase={currentMicroPhase}
-        anchorSelector="[data-startwith-anchor]"
-        onActionClick={handleEmptyStateAction}
-        onClose={orchestration.closeStartPopover}
       />
 
       {/* 新手導引 Modal：首次進入專案自動跳出；右上角 ? icon 可重開 */}
@@ -413,18 +416,9 @@ export function WorkspacePage() {
       />
 
 
-      {/* Phase 19: AI persona management (creator only) */}
-      {showPersonasPanel && currentProject && (
-        <ProjectPersonasPanel
-          isOpen={showPersonasPanel}
-          projectId={currentProject.id}
-          seats={seats}
-          onClose={() => setShowPersonasPanel(false)}
-          onUpdated={(updatedSeat) => updateSeat(updatedSeat.seat_role, updatedSeat)}
-        />
-      )}
+      {/* Phase 19 的「AI 隊友人設」面板已下架：改由 SeatPopover 就地編輯（建立者點 AI 座位卡）。 */}
 
-      {/* 舊專案啟用 timer（specs/16-timer-system.md） */}
+      {/* 舊專案啟用 timer（） */}
       {id && (
         <InitTimerDialog
           isOpen={showInitTimer}
@@ -432,11 +426,11 @@ export function WorkspacePage() {
           onClose={() => setShowInitTimer(false)}
           onInitialized={() => {
             setShowInitTimer(false)
-            // 立即把 store 標 available=true 讓 footer 馬上反應；
-            // useProjectRealtime 5s polling 會接著用真實 budget/used_seconds 蓋過。
+            // 立即把 store 標 available=true 讓 footer 馬上反應；current_sub_phase 不寫死
+            // （新專案是從暖場 0.0a 開始、非 1.1a；寫死會短暫顯示錯代號），交給
+            // useProjectRealtime 5s polling 帶回真實 sub_phase + 友善 label。
             useTimerStore.getState().setSnapshot({
               available: true,
-              current_sub_phase: '1.1a',
               paused: false,
             })
           }}

@@ -61,11 +61,12 @@
   --color-supervisor-light: 242 222 210;
 
   /* Sticky note colors (保持 hex，不需要透明度) */
-  --color-note-yellow: #F5E6C8;
-  --color-note-orange: #F0D9C4;
-  --color-note-green: #D8DCC0;
-  --color-note-blue: #D8CCC0;
-  --color-note-pink: #EEDCE4;
+  --color-note-yellow: #F8DC98;
+  --color-note-orange: #F4C59A;
+  --color-note-green: #CCDC9A;
+  --color-note-blue: #BBD0CC;
+  --color-note-pink: #F0C3D8;
+  --color-note-clay: #F2DED2;
 
   /* Typography */
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans TC', sans-serif;
@@ -239,9 +240,17 @@ html, body, #root {
   animation: float-note 5s var(--ease-smooth) infinite;
 }
 
-/* AI note movement — smooth CSS transition on tldraw shapes */
+/* AI note movement — smooth CSS transition on tldraw shapes.
+   Phase 42 D1b (spec 12 §3.3 v4.1)：單張動畫時長下限 600ms（使用者要看得出「從哪移到哪」）。
+   依 animationCapability 設於 documentElement 的 data-anim 縮放：reduced 砍半、off 直接跳。 */
 .ai-animating .tl-shape[data-shape-type="note"] {
-  transition: transform 500ms cubic-bezier(0.33, 1, 0.68, 1) !important;
+  transition: transform 600ms cubic-bezier(0.33, 1, 0.68, 1) !important;
+}
+:root[data-anim="reduced"] .ai-animating .tl-shape[data-shape-type="note"] {
+  transition: transform 300ms cubic-bezier(0.33, 1, 0.68, 1) !important;
+}
+:root[data-anim="off"] .ai-animating .tl-shape[data-shape-type="note"] {
+  transition: none !important;
 }
 
 /* Note author badge — hover fade-in */

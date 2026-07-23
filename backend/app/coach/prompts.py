@@ -1,6 +1,4 @@
 """DT 教練 prompt 模板與 messages 組合（認知師徒制改寫版）。
-
-依 specs/13-personal-chat.md §7.4：
   - system prompt 透過 ``group_summary_text`` 與 ``canvas_summary_text``
     兩段摘要讓教練「感知到大方向」，但**仍只給摘要**——不可餵 group raw
     messages 或便條紙逐字內容，避免 Coach 引用具體話打破 RBAC。
@@ -129,7 +127,7 @@ def build_messages(
       3. user：當前使用者剛送出的訊息
 
     Args:
-        stage: 目前的 DT 階段（如 discover / define / develop / deliver）。
+        stage: 目前的 DT 階段（discover / define / completed）。
         micro_phase: 當前微階段識別字串。
         user_display_name: 使用者顯示名稱，用於 prompt 插值。
         group_summary_text: 團隊群組摘要文字（≤200 字）；空字串會被替換為「（暫無）」。

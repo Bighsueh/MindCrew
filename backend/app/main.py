@@ -80,15 +80,18 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Failed to resume agents on startup: %s", exc)
 
-    # Spec 14 A10: silent_rearrange auto-advance watcher
-    stability_task = None
+    # Phase 43 (spec 20 §3/§11.7)：在席感知休眠/喚醒——人離席（grace 後）全房休眠、
+    # 重連自動解凍。接 presence_tracker 的 present↔absent hook 到 room_hibernation。
     try:
-        import asyncio
-        from app.canvas.stability_watcher import stability_watcher_loop
-        stability_task = asyncio.create_task(stability_watcher_loop())
-        logger.info("Stability watcher task started")
+        from app.agents.room_hibernation import resume_room, suspend_room
+        from app.ws.presence_tracker import presence_tracker
+
+        presence_tracker.set_presence_hooks(
+            on_absent=suspend_room, on_present=resume_room
+        )
+        logger.info("Presence-aware room hibernation hooks registered")
     except Exception as exc:
-        logger.warning("Failed to start stability watcher: %s", exc)
+        logger.warning("Failed to register presence hibernation hooks: %s", exc)
 
     # Spec 15: Timer warnings + timeout watcher
     timer_task = None
@@ -100,32 +103,51 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Failed to start timer watcher: %s", exc)
 
-    # Spec 14 N2: Crew advance vote watcher
-    crew_vote_task = None
+    # Spec 04-06 §5.8 (v4.15): Facilitator-paced progression watcher。
+    # 取代 crew advance vote watcher + stability watcher：成為 micro 內細格 sub_phase
+    # 的單一推進驅動者（readiness / time-box / time-floor + 決定性轉場交代）。
+    # 跨 micro / macro 邊界仍由 Evaluator 驅動。
+    progression_task = None
     try:
         import asyncio
-        from app.agents.crew_advance_vote_watcher import crew_vote_watcher_loop
-        crew_vote_task = asyncio.create_task(crew_vote_watcher_loop())
-        logger.info("Crew advance vote watcher task started")
+        from app.progression.watcher import progression_watcher_loop
+        progression_task = asyncio.create_task(progression_watcher_loop())
+        logger.info("Progression watcher task started")
     except Exception as exc:
-        logger.warning("Failed to start crew vote watcher: %s", exc)
+        logger.warning("Failed to start progression watcher: %s", exc)
+
+    # Phase 42 D5 (G14 / #35, spec 20 §13.2)：LLM 健康背景監測（proactive 每 30s
+    # ping providers）；判定持續 down → fail-stop 全房暫停，恢復 → 自動續跑。
+    llm_health_task = None
+    try:
+        import asyncio
+        from app.llm.health_monitor import health_monitor
+        llm_health_task = asyncio.create_task(health_monitor.background_loop())
+        logger.info("LLM health monitor task started")
+        # Phase 42 補正 R4（P1-7）：startup reconciliation——收復 outage 期間重啟
+        # 而永久卡 pause_reason=llm_down 的孤兒房（monitor 純 in-memory 邊緣觸發，
+        # 重啟即弄丟 recovered 邊緣；spec 20 §13.4）。背景執行不擋啟動。
+        from app.llm.fail_stop import reconcile_on_startup
+        asyncio.create_task(reconcile_on_startup())
+    except Exception as exc:
+        logger.warning("Failed to start LLM health monitor: %s", exc)
 
     yield
 
     # Shutdown
     try:
-        from app.canvas.stability_watcher import stop_stability_watcher
         from app.timer.watcher import stop_timer_watcher
-        from app.agents.crew_advance_vote_watcher import stop_crew_vote_watcher
-        await stop_stability_watcher()
+        from app.progression.watcher import stop_progression_watcher
+        from app.llm.health_monitor import stop_llm_health_monitor
         await stop_timer_watcher()
-        await stop_crew_vote_watcher()
-        if stability_task is not None:
-            stability_task.cancel()
+        await stop_progression_watcher()
+        await stop_llm_health_monitor()
         if timer_task is not None:
             timer_task.cancel()
-        if crew_vote_task is not None:
-            crew_vote_task.cancel()
+        if progression_task is not None:
+            progression_task.cancel()
+        if llm_health_task is not None:
+            llm_health_task.cancel()
     except Exception as exc:
         logger.warning("Error stopping watcher tasks: %s", exc)
 

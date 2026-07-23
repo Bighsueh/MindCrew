@@ -1,6 +1,4 @@
 """Tests for BlackboardManager — Redis read/write layer.
-
-Covers:
 - write_intention / read_other_intentions
 - TTL expiry behavior
 - mark_inactive (human takeover)

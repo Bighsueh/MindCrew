@@ -26,6 +26,10 @@ class NoteData:
     author_name: str
     author_type: str  # "ai" or "human"
     group_name: str | None = None
+    # Spec 27 (Phase 36) §10：接話式便條欄位。
+    # 注意 group_id（語意主題群，顧客/店員…）與 group_name（既有空間 group）並存、不混用。
+    kind: str = "content"            # "content" | "label"
+    group_id: str | None = None      # 所屬主題群（同對象聚一起）
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -42,6 +46,9 @@ class NoteData:
             "author": f"{self.author_name}({self.author_type})",
             "author_id": self.author_id,
             "group_name": self.group_name,
+            # Spec 27 欄位
+            "kind": self.kind,
+            "group_id": self.group_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

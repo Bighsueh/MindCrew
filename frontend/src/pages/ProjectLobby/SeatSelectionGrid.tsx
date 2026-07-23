@@ -1,25 +1,13 @@
-import {
-  Bot,
-  User,
-  LogIn,
-  Crown,
-  Lock,
-  Hourglass,
-} from 'lucide-react'
+import { Bot, User, Crown, Lock, Hourglass } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { Button } from '../../components/common/Button'
 import { SeatIcon } from '../../lib/seatIcons'
-import type { Seat, SeatRole } from '../../types/models'
+import type { Seat } from '../../types/models'
 
 interface SeatSelectionGridProps {
   seats: Seat[]
   currentUserId: string | undefined
-  onJoin: (role: SeatRole) => void
-  joiningRole: SeatRole | null
-  joinError: string
-  isLocked: boolean
-  hideJoinButtons?: boolean
-  hideObserverHint?: boolean
+  /** creator → 顯示「已就位」引導；observer / null → 唯讀旁觀文案。 */
+  viewerRole: 'creator' | 'observer' | null
 }
 
 // Phase 21：dormant 表示「AI 還沒被啟動」——第一位真人入座前的 lobby 狀態。
@@ -39,18 +27,25 @@ interface LobbySummary {
 
 function summarize(seats: Seat[]): LobbySummary {
   const supervisor = seats.find((s) => s.seat_role === 'supervisor')
-  const crew = seats.filter((s) => s.seat_role !== 'supervisor')
-  const humanCount = crew.filter((s) => s.occupant_type === 'human').length
-  const aiActiveCount = crew.filter(
+  const humanSeat = seats.find((s) => s.seat_role === 'human_creator')
+  // AI 組員 = 既非 supervisor 也非真人席的 crew_*。
+  const aiCrew = seats.filter(
+    (s) => s.seat_role !== 'supervisor' && s.seat_role !== 'human_creator',
+  )
+  // 真人專屬席只有一個名額；已入座 = occupant_type==='human' 且有 user_id。
+  const humanOccupied = !!(
+    humanSeat && humanSeat.occupant_type === 'human' && humanSeat.user_id
+  )
+  const aiActiveCount = aiCrew.filter(
     (s) => s.occupant_type === 'ai' && !isDormant(s),
   ).length
-  const aiPendingCount = crew.filter(
+  const aiPendingCount = aiCrew.filter(
     (s) => s.occupant_type === 'ai' && isDormant(s),
   ).length
   return {
     supervisorActive: supervisor ? !isDormant(supervisor) : false,
-    humanCount,
-    humanCapacity: crew.length,
+    humanCount: humanOccupied ? 1 : 0,
+    humanCapacity: 1,
     aiActiveCount,
     aiPendingCount,
     totalSeats: seats.length,
@@ -60,67 +55,41 @@ function summarize(seats: Seat[]): LobbySummary {
 export function SeatSelectionGrid({
   seats,
   currentUserId,
-  onJoin,
-  joiningRole,
-  joinError,
-  isLocked,
-  hideJoinButtons = false,
-  hideObserverHint = false,
+  viewerRole,
 }: SeatSelectionGridProps) {
   const supervisorSeat = seats.find((s) => s.seat_role === 'supervisor')
   const crewSeats = seats.filter((s) => s.seat_role !== 'supervisor')
 
-  // Phase 21：一個人類一個專案只能佔一席。若使用者已在任一席位 → 鎖掉所有「入座」鈕。
-  const userHasSeat = seats.some(
-    (s) => s.occupant_type === 'human' && s.user_id === currentUserId,
-  )
-
   const summary = summarize(seats)
+  const crewCount = summary.aiActiveCount + summary.aiPendingCount
+
+  // v4.21：席位由系統固定編排，無需選擇；加入動作統一在右側「加入討論」卡。
+  const subtitle =
+    viewerRole === 'creator'
+      ? `AI 組長與 ${crewCount} 位組員已就位，點右側「加入討論」即可開始。`
+      : '以觀察者身份查看團隊席位佈局。'
 
   return (
     <div className="overflow-hidden rounded-2xl bg-surface shadow-md">
       {/* Header */}
       <div className="border-b border-border-light px-6 py-5">
-        <h2 className="text-lg font-semibold text-text">選擇座位</h2>
-        <p className="mt-0.5 text-sm text-text-muted">
-          {hideObserverHint
-            ? '系統會自動為你安排席位'
-            : '查看席位佈局，或以觀察者身份進入工作區'}
-        </p>
+        <h2 className="text-lg font-semibold text-text">你的設計團隊</h2>
+        <p className="mt-0.5 text-sm text-text-muted">{subtitle}</p>
         <LobbyCounts summary={summary} />
       </div>
-
-      {joinError && (
-        <div className="mx-6 mt-4 rounded-lg bg-error-bg px-4 py-3 text-sm text-error">
-          {joinError}
-        </div>
-      )}
 
       {/* Supervisor section — locked: AI-only seat */}
       {supervisorSeat && <SupervisorRow seat={supervisorSeat} />}
 
       {/* Crew section */}
       <div className="divide-y divide-border-light">
-        {crewSeats.map((seat) => {
-          const isJoining = joiningRole === seat.seat_role
-          let disabledReason: string | undefined
-          if (userHasSeat) {
-            disabledReason = '你已經在這個設計專案中佔有一個席位'
-          } else if (isLocked && !isJoining) {
-            disabledReason = '正在加入其他席位…'
-          }
-          return (
-            <CrewRow
-              key={seat.seat_role}
-              seat={seat}
-              currentUserId={currentUserId}
-              onJoin={onJoin}
-              isJoining={isJoining}
-              disabledReason={disabledReason}
-              hideJoinButton={hideJoinButtons || userHasSeat}
-            />
-          )
-        })}
+        {crewSeats.map((seat) => (
+          <CrewRow
+            key={seat.seat_role}
+            seat={seat}
+            currentUserId={currentUserId}
+          />
+        ))}
       </div>
     </div>
   )
@@ -161,19 +130,7 @@ function LobbyCounts({ summary }: { summary: LobbySummary }) {
 
 /* ── Supervisor Row ── */
 
-interface SeatRowProps {
-  seat: Seat
-  currentUserId: string | undefined
-  onJoin: (role: SeatRole) => void
-  isJoining: boolean
-  disabledReason?: string
-}
-
-interface SupervisorRowProps {
-  seat: Seat
-}
-
-function SupervisorRow({ seat }: SupervisorRowProps) {
+function SupervisorRow({ seat }: { seat: Seat }) {
   const dormant = isDormant(seat)
   const agentLabel = seat.display_name?.replace(/^AI\s*/, '') ?? 'AI'
 
@@ -217,24 +174,26 @@ function SupervisorRow({ seat }: SupervisorRowProps) {
 function CrewRow({
   seat,
   currentUserId,
-  onJoin,
-  isJoining,
-  disabledReason,
-  hideJoinButton,
-}: SeatRowProps & { hideJoinButton?: boolean }) {
+}: {
+  seat: Seat
+  currentUserId: string | undefined
+}) {
+  // 真人專屬席空置（occupant_type==='human' 但無 user_id）→ 保留給 creator 的列。
+  const isVacantHuman = seat.occupant_type === 'human' && !seat.user_id
   const isMyCurrentSeat =
-    seat.occupant_type === 'human' && seat.user_id === currentUserId
+    seat.occupant_type === 'human' &&
+    !!seat.user_id &&
+    seat.user_id === currentUserId
   const isHumanOccupied =
-    seat.occupant_type === 'human' && !isMyCurrentSeat
+    seat.occupant_type === 'human' && !!seat.user_id && !isMyCurrentSeat
   const isAI = seat.occupant_type === 'ai'
   const dormant = isAI && isDormant(seat)
 
   return (
     <div
       className={cn(
-        'flex items-center gap-3 px-5 py-3.5 transition-colors',
+        'flex items-center gap-3 px-5 py-3.5',
         isMyCurrentSeat && 'bg-primary/5',
-        isAI && !disabledReason && 'hover:bg-surface-hover',
         isHumanOccupied && 'bg-accent/5',
       )}
     >
@@ -243,6 +202,7 @@ function CrewRow({
         isMe={isMyCurrentSeat}
         isSupervisor={false}
         isDormant={dormant}
+        isVacant={isVacantHuman}
         seatRole={seat.seat_role}
       />
 
@@ -254,20 +214,11 @@ function CrewRow({
             isMe={isMyCurrentSeat}
             isOtherHuman={isHumanOccupied}
             isDormant={dormant}
+            isVacant={isVacantHuman}
             displayName={seat.display_name}
           />
         </div>
       </div>
-
-      {!hideJoinButton && (
-        <SeatAction
-          isAI={isAI}
-          isJoining={isJoining}
-          seatRole={seat.seat_role as SeatRole}
-          onJoin={onJoin}
-          disabledReason={disabledReason}
-        />
-      )}
     </div>
   )
 }
@@ -279,24 +230,26 @@ function SeatAvatar({
   isMe,
   isSupervisor,
   isDormant: dormant,
+  isVacant,
   seatRole,
 }: {
   isAI: boolean
   isMe: boolean
   isSupervisor: boolean
   isDormant?: boolean
+  isVacant?: boolean
   seatRole?: string
 }) {
   return (
     <div
       className={cn(
         'flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
-        isAI && 'border-2 border-dashed border-border text-text-muted',
+        (isAI || isVacant) && 'border-2 border-dashed border-border text-text-muted',
         isAI && !dormant && 'animate-pulse-slow',
-        isAI && dormant && 'opacity-50',
+        ((isAI && dormant) || isVacant) && 'opacity-50',
         isMe && isSupervisor && 'border-2 border-supervisor bg-supervisor/10 text-supervisor',
         isMe && !isSupervisor && 'border-2 border-primary bg-primary/10 text-primary',
-        !isAI && !isMe && 'border-2 border-accent bg-accent/10 text-accent',
+        !isAI && !isMe && !isVacant && 'border-2 border-accent bg-accent/10 text-accent',
       )}
     >
       {isAI ? (
@@ -310,6 +263,8 @@ function SeatAvatar({
             size={16}
           />
         )
+      ) : isVacant ? (
+        <Hourglass size={16} />
       ) : (
         <User size={16} />
       )}
@@ -322,20 +277,31 @@ function OccupantBadge({
   isMe,
   isOtherHuman,
   isDormant: dormant,
+  isVacant,
   displayName,
 }: {
   isAI: boolean
   isMe: boolean
   isOtherHuman: boolean
   isDormant?: boolean
+  isVacant?: boolean
   displayName?: string
 }) {
+  // 空置的真人專屬席：保留給 creator（入座 CTA 在右側卡，這裡只標示狀態）。
+  if (isVacant) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-bg-warm px-2 py-0.5 text-[11px] text-text-muted">
+        <Hourglass size={10} />
+        你的座位 · 保留中
+      </span>
+    )
+  }
   if (isAI) {
     if (dormant) {
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-bg-warm px-2 py-0.5 text-[11px] text-text-muted">
           <Hourglass size={10} />
-          保留給人類 · 請就座
+          待命中 · 等你上線
         </span>
       )
     }
@@ -367,40 +333,4 @@ function OccupantBadge({
   }
 
   return null
-}
-
-function SeatAction({
-  isAI,
-  isJoining,
-  seatRole,
-  onJoin,
-  disabledReason,
-}: {
-  isAI: boolean
-  isJoining: boolean
-  seatRole: SeatRole
-  onJoin: (role: SeatRole) => void
-  disabledReason?: string
-}) {
-  if (!isAI) return null
-
-  return (
-    <Button
-      size="sm"
-      variant="primary"
-      onClick={() => onJoin(seatRole)}
-      disabled={isJoining || Boolean(disabledReason)}
-      title={disabledReason}
-      className="shrink-0"
-    >
-      {isJoining ? (
-        '加入中…'
-      ) : (
-        <span className="flex items-center gap-1.5">
-          <LogIn size={14} />
-          入座
-        </span>
-      )}
-    </Button>
-  )
 }

@@ -30,12 +30,13 @@ async def publish_supervisor_message(
     from app.events.types import ChatMessageEvent
     from app.events.bus import event_bus
     from app.chinese.converter import chinese_converter
+    from app.agents.personas.display import resolve_display_name
 
     event = ChatMessageEvent(
         project_id=project_id,
         sender_id=agent_id,
         sender_type="ai",
-        sender_name="Supervisor",
+        sender_name=resolve_display_name("supervisor"),
         content=chinese_converter.convert(content_raw),
     )
     await event_bus.publish(event)

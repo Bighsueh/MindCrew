@@ -10,12 +10,6 @@ interface UseStageOrchestrationResult {
   startChipFlashKey: number
   flashStartChip: () => void
 
-  /** 起手式 popover 開關。 */
-  startPopoverOpen: boolean
-  openStartPopover: () => void
-  closeStartPopover: () => void
-  toggleStartPopover: () => void
-
   /** 哪些階段的 EmptyState banner 已被使用者收起，不再自動顯示。 */
   bannerDismissedStages: Set<DTStage>
   dismissBanner: (stage: DTStage) => void
@@ -26,7 +20,7 @@ interface UseStageOrchestrationResult {
 }
 
 /**
- * Workspace stage orchestration：管理 EmptyState banner、起手式 popover、
+ * Workspace stage orchestration：管理 EmptyState banner、
  * 「起頭」chip flash 動畫等與階段切換相關的暫存 UI state。
  *
  * 注意：所有狀態都是 session 範圍，不持久化（避免使用者離開重來時 banner 永遠不顯示）。
@@ -35,7 +29,6 @@ export function useStageOrchestration({
   currentStage,
 }: UseStageOrchestrationOptions): UseStageOrchestrationResult {
   const [startChipFlashKey, setStartChipFlashKey] = useState(0)
-  const [startPopoverOpen, setStartPopoverOpen] = useState(false)
   const [bannerDismissedStages, setBannerDismissedStages] = useState<Set<DTStage>>(
     () => new Set(),
   )
@@ -58,10 +51,6 @@ export function useStageOrchestration({
     setStartChipFlashKey((k) => k + 1)
   }, [])
 
-  const openStartPopover = useCallback(() => setStartPopoverOpen(true), [])
-  const closeStartPopover = useCallback(() => setStartPopoverOpen(false), [])
-  const toggleStartPopover = useCallback(() => setStartPopoverOpen((v) => !v), [])
-
   const dismissBanner = useCallback((stage: DTStage) => {
     setBannerDismissedStages((prev) => {
       if (prev.has(stage)) return prev
@@ -74,10 +63,6 @@ export function useStageOrchestration({
   return {
     startChipFlashKey,
     flashStartChip,
-    startPopoverOpen,
-    openStartPopover,
-    closeStartPopover,
-    toggleStartPopover,
     bannerDismissedStages,
     dismissBanner,
     shapeCount,

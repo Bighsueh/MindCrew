@@ -7,7 +7,7 @@ Both stages emit strict JSON. Outputs are run through OpenCC s2twp so
 mainland-style characters never leak into UI.
 
 ``generate_stream`` exposes the same two-stage pipeline as an async event
-stream — see `specs/17-dynamic-persona-system.md` §3.1.2 for the wire-level
+stream — see  §3.1.2 for the wire-level
 SSE protocol that wraps these events at the HTTP layer.
 """
 from __future__ import annotations
@@ -127,6 +127,12 @@ class PersonaGenerator:
     # Phase 27: Stakeholder suggestion (concrete people, user picks N)
     # ------------------------------------------------------------------
 
+    # 2026-05-25 hot-fix：LLM 偶爾回空 body 或截斷 JSON 或 < count_min 個 stakeholder。
+    # chat_completion 已有 tier fallback，但對「200 OK + body=''」這種訊號型失敗無感。
+    # 加一層 application-level retry：每次重試 ProviderRouter 會回 mark_failure 後的
+    # 下一個 provider；同 provider 也因 temperature=0.8 sampling 帶來不同結果。
+    _SUGGEST_STAKEHOLDERS_MAX_ATTEMPTS: int = 3
+
     async def suggest_stakeholders(
         self,
         *,
@@ -140,8 +146,9 @@ class PersonaGenerator:
     ) -> list[StakeholderSuggestion]:
         """Return 6–10 concrete potential stakeholders for the user to pick from.
 
-        See ``specs/17-dynamic-persona-system.md`` §3.0.1.
-        Raises ``PersonaGenerationError`` if LLM produces no usable suggestions.
+        See `` §3.0.1.
+        Raises ``PersonaGenerationError`` if LLM produces no usable suggestions
+        after :data:`_SUGGEST_STAKEHOLDERS_MAX_ATTEMPTS` attempts.
         """
         title = (title or "").strip()
         if not title:
@@ -158,63 +165,111 @@ class PersonaGenerator:
                 ),
             },
         ]
-        try:
-            response = await self._llm.chat_completion(
-                messages=messages,
-                temperature=0.8,
-                max_tokens=1500,
-                caller="stakeholder_suggestion",
-                owning_user_id=owning_user_id,
-            )
-        except Exception as exc:
-            logger.warning("Stakeholder suggestion LLM call failed: %s", exc)
-            raise PersonaGenerationError(
-                f"Stakeholder suggestion failed: {exc}"
-            ) from exc
-
-        parsed = parse_llm_json(response.content) or {}
-        raw = parsed.get("suggestions") if isinstance(parsed, dict) else None
-        if not isinstance(raw, list) or not raw:
-            raise PersonaGenerationError(
-                "LLM did not return a 'suggestions' array"
-            )
-
-        results: list[StakeholderSuggestion] = []
-        seen_keys: set[str] = set()
-        for entry in raw:
-            if not isinstance(entry, dict):
-                continue
-            name = chinese_converter.convert(str(entry.get("name", "")).strip())
-            role = chinese_converter.convert(str(entry.get("role", "")).strip())
-            relevance = chinese_converter.convert(
-                str(entry.get("relevance", "")).strip()
-            )
-            if not name or not role:
-                continue
-            dedupe_key = f"{name}|{role}"
-            if dedupe_key in seen_keys:
-                continue
-            seen_keys.add(dedupe_key)
-            results.append(
-                StakeholderSuggestion(
-                    id=str(uuid4()),
-                    name=name,
-                    role=role,
-                    relevance=relevance,
-                )
-            )
-            if len(results) >= count_max:
-                break
-
         # Spec §3.0.1 mandates 6–10. Tolerate -1 (5) for LLM jitter; fewer is
         # a failure so caller can retry rather than silently accept a thin list.
         lower_bound = max(1, count_min - 1)
-        if len(results) < lower_bound:
-            raise PersonaGenerationError(
-                f"Stakeholder suggestion produced too few items "
-                f"({len(results)} < {lower_bound}; spec floor {count_min})"
+
+        last_failure_reason: str | None = None
+        last_results: list[StakeholderSuggestion] = []
+        for attempt in range(1, self._SUGGEST_STAKEHOLDERS_MAX_ATTEMPTS + 1):
+            try:
+                response = await self._llm.chat_completion(
+                    messages=messages,
+                    temperature=0.8,
+                    max_tokens=1500,
+                    caller="stakeholder_suggestion",
+                    owning_user_id=owning_user_id,
+                )
+            except Exception as exc:
+                last_failure_reason = f"LLM call raised: {exc}"
+                logger.warning(
+                    "Stakeholder suggestion attempt %d/%d failed (%s); retrying",
+                    attempt,
+                    self._SUGGEST_STAKEHOLDERS_MAX_ATTEMPTS,
+                    exc,
+                )
+                continue
+
+            parsed = parse_llm_json(response.content) or {}
+            raw = parsed.get("suggestions") if isinstance(parsed, dict) else None
+            if not isinstance(raw, list) or not raw:
+                last_failure_reason = (
+                    "LLM did not return a 'suggestions' array (empty or malformed)"
+                )
+                logger.warning(
+                    "Stakeholder suggestion attempt %d/%d: %s; retrying",
+                    attempt,
+                    self._SUGGEST_STAKEHOLDERS_MAX_ATTEMPTS,
+                    last_failure_reason,
+                )
+                continue
+
+            results: list[StakeholderSuggestion] = []
+            seen_keys: set[str] = set()
+            for entry in raw:
+                if not isinstance(entry, dict):
+                    continue
+                name = chinese_converter.convert(str(entry.get("name", "")).strip())
+                role = chinese_converter.convert(str(entry.get("role", "")).strip())
+                relevance = chinese_converter.convert(
+                    str(entry.get("relevance", "")).strip()
+                )
+                if not name or not role:
+                    continue
+                dedupe_key = f"{name}|{role}"
+                if dedupe_key in seen_keys:
+                    continue
+                seen_keys.add(dedupe_key)
+                results.append(
+                    StakeholderSuggestion(
+                        id=str(uuid4()),
+                        name=name,
+                        role=role,
+                        relevance=relevance,
+                    )
+                )
+                if len(results) >= count_max:
+                    break
+
+            if len(results) >= lower_bound:
+                if attempt > 1:
+                    logger.info(
+                        "Stakeholder suggestion succeeded on attempt %d with %d items",
+                        attempt,
+                        len(results),
+                    )
+                return results
+
+            last_failure_reason = (
+                f"produced too few items ({len(results)} < {lower_bound}; "
+                f"spec floor {count_min})"
             )
-        return results
+            last_results = results  # keep best-so-far in case last attempt also short
+            logger.warning(
+                "Stakeholder suggestion attempt %d/%d: %s; retrying",
+                attempt,
+                self._SUGGEST_STAKEHOLDERS_MAX_ATTEMPTS,
+                last_failure_reason,
+            )
+
+        # All attempts exhausted. If we got *any* items at all, surface them
+        # rather than 502 — students can still pick from a thin list and the
+        # UI shows "再請 AI 建議幾位" for them to retry. Only raise when truly
+        # zero usable suggestions.
+        if last_results:
+            logger.warning(
+                "Stakeholder suggestion exhausted %d attempts; returning best-effort "
+                "list of %d items (last_failure=%s)",
+                self._SUGGEST_STAKEHOLDERS_MAX_ATTEMPTS,
+                len(last_results),
+                last_failure_reason,
+            )
+            return last_results
+
+        raise PersonaGenerationError(
+            f"Stakeholder suggestion failed after "
+            f"{self._SUGGEST_STAKEHOLDERS_MAX_ATTEMPTS} attempts: {last_failure_reason}"
+        )
 
     # ------------------------------------------------------------------
     # Streaming pipeline (Phase 19, 2026-05-11)
@@ -232,7 +287,7 @@ class PersonaGenerator:
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield event dicts as the two-stage pipeline progresses.
 
-        Event types (see ``specs/17-dynamic-persona-system.md`` §3.1.2):
+        Event types (see `` §3.1.2):
 
         - ``{"type": "stage", "stage": "stakeholder_mapping", "status": "start"}``
         - ``{"type": "stage", "stage": "stakeholder_mapping", "status": "done", "category_count": int}``
@@ -322,15 +377,60 @@ class PersonaGenerator:
                 if emitted >= num_personas:
                     break
         except asyncio.TimeoutError:
-            yield {"type": "error", "detail": "LLM 串流超時，請稍後再試。"}
-            return
-        except Exception as exc:  # noqa: BLE001 — surface to client
-            logger.exception("Streaming persona instantiation failed")
-            yield {
-                "type": "error",
-                "detail": f"AI 人設生成失敗：{exc}",
-            }
-            return
+            logger.warning(
+                "Streaming persona instantiation timed out; trying sync fallback"
+            )
+        except Exception as exc:  # noqa: BLE001
+            # 不直接結束 — 留給 sync fallback 再試一次。
+            # streaming layer (chat_completion_stream) 沒有 tier fallback，
+            # 真正的 multi-tier 失效保護在 sync chat_completion 內。
+            logger.warning(
+                "Streaming persona instantiation failed (%s); trying sync fallback",
+                exc,
+            )
+
+        # Phase 27 fix：streaming primary 拉空或失敗 → 走非串流 (LLMProviderFactory
+        # 內含 tier 階層 fallback) 重試一次。reuse 既有 _run_persona_* 方法以保證
+        # 與非串流端點行為一致。
+        if emitted == 0:
+            logger.info(
+                "Persona stream yielded 0 personas; attempting non-stream fallback "
+                "(stakeholders=%s)",
+                "user-picked" if stakeholders else "auto-map",
+            )
+            try:
+                if stakeholders:
+                    personas = await self._run_persona_from_stakeholders(
+                        title=title,
+                        description=description,
+                        constraints=constraints,
+                        stakeholders=stakeholders,
+                        num_personas=num_personas,
+                        owning_user_id=owning_user_id,
+                    )
+                else:
+                    personas = await self._run_persona_instantiation(
+                        title=title,
+                        description=description,
+                        constraints=constraints,
+                        categories_json=categories_json,
+                        num_personas=num_personas,
+                        owning_user_id=owning_user_id,
+                    )
+                for persona in personas[:num_personas]:
+                    yield {
+                        "type": "persona",
+                        "index": emitted,
+                        "persona": persona_to_dict(persona),
+                    }
+                    emitted += 1
+            except Exception as exc:  # noqa: BLE001 — surface friendly message
+                logger.exception("Sync fallback also failed for persona generation")
+                yield {
+                    "type": "error",
+                    "detail": f"AI 人設生成失敗：{exc}",
+                }
+                return
 
         if emitted == 0:
             yield {"type": "error", "detail": "AI 未能生成任何人設，請稍後再試。"}

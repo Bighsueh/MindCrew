@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Bot } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { renderEmphasis } from '../../lib/emphasis'
 import { useAuthorColor } from '../../hooks/useAuthorColor'
 import { SeatIcon } from '../../lib/seatIcons'
 import type { Message, SeatRole } from '../../types/models'
@@ -41,7 +42,9 @@ export function ChatMessage({ message, isOwn = false, seatRole }: ChatMessagePro
     message.sender_id,
     message.sender_type,
   )
-  const hasAuthorColor = authorColorToken !== null && !isSystem && !isSupervisor
+  // Phase 22+：每個角色一個專屬色（含 supervisor）。氣泡色 = 該席位便條色。
+  // supervisor 不再寫死陶土；改用其席位色（red＝陶土），身分改靠「組長」badge 標示。
+  const hasAuthorColor = authorColorToken !== null && !isSystem
 
   // Phase 24：activity highlight
   const myKey = useMemo(
@@ -99,6 +102,7 @@ export function ChatMessage({ message, isOwn = false, seatRole }: ChatMessagePro
       className={cn(
         'flex gap-2 mb-3 cursor-pointer rounded-lg p-1 transition-shadow outline-none',
         isOwn ? 'flex-row-reverse' : 'flex-row',
+        message.pending && 'opacity-60',
       )}
       style={highlightStyle}
     >
@@ -106,8 +110,8 @@ export function ChatMessage({ message, isOwn = false, seatRole }: ChatMessagePro
       <div
         className={cn(
           'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-sm',
-          isSupervisor && 'bg-supervisor/15 text-supervisor ring-2 ring-supervisor/30',
-          !isSupervisor && !hasAuthorColor && 'bg-accent/15 text-accent',
+          isSupervisor && hasAuthorColor && 'ring-2 ring-supervisor/30',
+          !hasAuthorColor && 'bg-accent/15 text-accent',
         )}
         style={
           hasAuthorColor
@@ -157,15 +161,14 @@ export function ChatMessage({ message, isOwn = false, seatRole }: ChatMessagePro
           className={cn(
             'rounded-2xl px-4 py-2 text-sm leading-relaxed',
             isOwn ? 'rounded-tr-sm' : 'rounded-tl-sm',
-            isSupervisor && 'border-l-3 border-supervisor bg-supervisor-light text-text',
-            !isSupervisor && !hasAuthorColor && (isOwn
+            !hasAuthorColor && (isOwn
               ? 'bg-accent/10 text-text'
               : isAI
                 ? 'border-l-2 border-accent/30 bg-secondary/20 text-text'
                 : 'bg-bg-warm text-text'),
           )}
           style={
-            hasAuthorColor && !isSupervisor
+            hasAuthorColor
               ? {
                   backgroundColor: scheme.bubbleBg,
                   color: scheme.text,
@@ -174,7 +177,8 @@ export function ChatMessage({ message, isOwn = false, seatRole }: ChatMessagePro
               : undefined
           }
         >
-          {message.content}
+          {/* D2/WP9 #12：強調格式僅 supervisor 渲染，crew／人類去標記純文字。 */}
+          {renderEmphasis(message.content, isSupervisor)}
         </div>
       </div>
     </div>

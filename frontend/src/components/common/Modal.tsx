@@ -8,7 +8,7 @@ interface ModalProps {
   onClose: () => void
   title?: string
   children: ReactNode
-  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl'
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl' | '7xl'
 }
 
 const maxWidthClasses = {
@@ -21,6 +21,7 @@ const maxWidthClasses = {
   '4xl': 'max-w-4xl',
   '5xl': 'max-w-5xl',
   '6xl': 'max-w-6xl',
+  '7xl': 'max-w-7xl',
 }
 
 export function Modal({ isOpen, onClose, title, children, maxWidth = 'md' }: ModalProps) {
@@ -72,6 +73,9 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = 'md' }: Mod
           'relative z-10 flex max-h-[90vh] w-full flex-col rounded-xl bg-surface shadow-xl',
           maxWidthClasses[maxWidth],
         )}
+        // 保險：以 inline style 強制高度上限，避免任何情況下 max-h-[90vh] 未生效
+        // 導致 modal 超出視窗、內層 body 無法捲動、footer 被擠到畫面外。
+        style={{ maxHeight: '90vh' }}
         role="dialog"
         aria-modal="true"
       >

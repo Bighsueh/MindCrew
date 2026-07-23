@@ -82,7 +82,7 @@ class AgentTraceListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Teacher Dashboard Monitoring (specs/10)
+# Teacher Dashboard Monitoring ()
 # ---------------------------------------------------------------------------
 
 
@@ -128,15 +128,17 @@ class ProjectMonitorItem(BaseModel):
     participation: ParticipationSummary
     ai_activity: AIActivitySummary
     alerts: list[AlertItem]
+    # Phase 28：當前 turn-taking 規則，前端 TurnPolicySwitcher 用這個欄位顯示正確初值。
+    turn_policy: str = "cued"
 
     model_config = {"from_attributes": True}
 
 
 class StageDistribution(BaseModel):
+    # Phase 29 (spec/04-06 §4.10): develop / deliver removed.
+    # Frontend StageDistributionBar should treat absent keys as 0.
     discover: int = 0
     define: int = 0
-    develop: int = 0
-    deliver: int = 0
     completed: int = 0
 
 

@@ -16,6 +16,8 @@ const COMMON_OPTIONS = {
   stagePadding: 6,
   stageRadius: 12,
   smoothScroll: true,
+  // 使用者無視上下步按鈕、點空白遮罩時直接關閉整個引導（預設 'nextStep' 會前進，導致甩不掉）
+  overlayClickBehavior: 'close' as const,
 }
 
 const TEACHER_STEPS: DriveStep[] = [
@@ -24,7 +26,7 @@ const TEACHER_STEPS: DriveStep[] = [
     popover: {
       title: '歡迎來到設計專案列表',
       description:
-        '這裡管理你所有的設計思考活動。每個設計專案會走完雙鑽石的四個階段，從訪談到原型一氣呵成。',
+        '這裡管理你所有的設計思考活動。每個設計專案從暖場破冰、了解使用者，一路收斂到聚焦的設計問題。',
     },
   },
   {
@@ -50,7 +52,7 @@ const TEACHER_STEPS: DriveStep[] = [
     popover: {
       title: '依階段篩選',
       description:
-        '依雙鑽石階段（Discover / Define / Develop / Deliver）過濾，快速找到還沒收斂的設計專案。',
+        '依設計思考階段（發現 / 定義 / 已完成）過濾，快速找到還沒收斂的設計專案。',
       side: 'bottom',
     },
   },
@@ -93,7 +95,7 @@ const STUDENT_STEPS: DriveStep[] = [
     element: '[data-tour="projects-filters"]',
     popover: {
       title: '篩選與搜尋',
-      description: '依雙鑽石階段過濾，或用關鍵字找你要進去的設計專案。',
+      description: '依設計思考階段過濾，或用關鍵字找你要進去的設計專案。',
       side: 'bottom',
     },
   },

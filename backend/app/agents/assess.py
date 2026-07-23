@@ -12,6 +12,7 @@ from app.agents.assess_heuristics import (
     heuristic_has_stance,
 )
 from app.agents.llm_context import LLMCallContext
+from app.agents.turn_controller import TurnController, TurnPolicy
 from app.llm.factory import LLMProviderFactory
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,24 @@ _INTERVENTION_PROBABILITIES: dict[str, float] = {
     "medium": 0.50,
     "high": 0.80,
 }
+
+# 病根 D 軟護欄：便條數超過該 sub-phase target_count 的此倍數 → 視為「量爆掉」，
+# 觸發整理（不被發散階段寬鬆 orderliness 門檻與長 cooldown 拖住，避免像截圖那樣
+# 暖場 5 張的區累積到 ~150 張仍不整理）。保守取 3x 以免小波動就打擾。
+_VOLUME_SOFT_CAP_FACTOR = 3
+_VOLUME_OVERFLOW_COOLDOWN = 300.0
+
+
+def _resolve_target_count(sub_phase_id: str) -> int | None:
+    """回傳該 sub-phase 的 target_count（軟上限）；未知 / 無設定 → None。"""
+    if not sub_phase_id:
+        return None
+    try:
+        from app.stages.sub_phases import get_sub_phase
+
+        return get_sub_phase(sub_phase_id).target_count
+    except (KeyError, AttributeError):
+        return None
 
 
 @dataclass
@@ -58,6 +77,7 @@ class AssessEngine:
         another_agent_acting: bool = False,
         throttle_min_interval: float = 8.0,
         llm_ctx: "LLMCallContext | None" = None,
+        controller: TurnController | None = None,
     ) -> AssessResult:
         """Evaluate rules and return an AssessResult."""
         now = time.time()
@@ -71,24 +91,52 @@ class AssessEngine:
         supervisor_mode = phase_strategy.get("supervisor_mode", "")
         is_supervisor = "supervisor" in my_seat.lower()
 
+        # Phase 28：所有 AssessResult 帶上 turn_policy，方便 trace 對齊論文分析。
+        policy_value = controller.policy.value if controller else "cued"
+
+        def _result(
+            decision: DecisionType, rule: str, details: dict
+        ) -> AssessResult:
+            tagged = {**details, "turn_policy": policy_value}
+            return AssessResult(decision=decision, rule=rule, details=tagged)
+
         # Spec 13 — Sticky-Only Strategy: comm_mode gate (highest priority)
         # 注意：comm_mode 真正的「允許哪些 action」限制在 Act layer 強制（見 act.py），
         # 這裡只負責 reveal_round 的輪序判斷（必須在 ASSESS 階段就 yield，否則該 agent 會發起無效 LLM 呼叫）。
         comm_mode = context.get("comm_mode", "discussion")
 
         if comm_mode == "reveal_round":
-            reveal_queue = context.get("reveal_queue", [])
-            if reveal_queue:
-                next_seat = reveal_queue[0]
-                if my_seat != next_seat:
-                    return AssessResult(
-                        decision="wait",
-                        rule="rule_0_2_reveal_not_my_turn",
-                        details={
-                            "reason": f"揭示輪：等待 {next_seat} 唸出，目前不是你的回合",
-                            "next_seat": next_seat,
+            # Phase 28：1.1c phase machine 仍主導 reveal_queue；但底層改用
+            # TurnController 來判斷「現在是不是我的回合」。RoundRobinPolicy 是 wrap
+            # reveal_queue.peek_next_seat 的最小 façade，所以 1.1c 行為完全不變；
+            # 其他場域 (教師全域切到 Round-Robin) 也可以共用同一條路徑。
+            if controller is not None and controller.policy == TurnPolicy.ROUND_ROBIN:
+                turn_decision = await controller.is_my_turn(my_seat, context)
+                if not turn_decision.can_act:
+                    return _result(
+                        "wait",
+                        "rule_0_2_reveal_not_my_turn",
+                        {
+                            "reason": (
+                                f"揭示輪：等待 {turn_decision.next_speaker} 唸出，"
+                                "目前不是你的回合"
+                            ),
+                            "next_seat": turn_decision.next_speaker,
                         },
                     )
+            else:
+                reveal_queue = context.get("reveal_queue", [])
+                if reveal_queue:
+                    next_seat = reveal_queue[0]
+                    if my_seat != next_seat:
+                        return _result(
+                            "wait",
+                            "rule_0_2_reveal_not_my_turn",
+                            {
+                                "reason": f"揭示輪：等待 {next_seat} 唸出，目前不是你的回合",
+                                "next_seat": next_seat,
+                            },
+                        )
 
         # Rule 0.3: Supervisor awaiting crew reply (Fix #1)
         # Supervisor 點名某 crew 後，鎖 45s 或直到 crew 回覆，避免連續搶話。
@@ -110,28 +158,78 @@ class AssessEngine:
                 except Exception:
                     logger.debug("awaiting-reply check failed", exc_info=True)
 
-        # Rule 0: Strategy Gate — OO 策略下只有被 @mention 的人可行動
-        if comm_strategy == "one_by_one" and not is_supervisor:
-            last_sender_is_supervisor = False
-            if recent_chat:
-                last_msg = recent_chat[-1]
-                # Check sender_id (e.g. "agent_supervisor") or sender field
-                sender_id = last_msg.get("sender_id", "")
-                sender_field = last_msg.get("sender", "")
-                last_sender_is_supervisor = (
-                    "supervisor" in sender_id.lower()
-                    or "supervisor" in sender_field.lower()
-                    or "引導者" in sender_field
-                )
-            am_mentioned = self._is_mentioned(
-                recent_chat, agent_id, my_seat, context.get("seats")
+        # Rule 0.8b: 暖場已有人回答後，組長別再對同一人連續催（修「還沒聽到你的點子」洗版 3+ 遍）。
+        # 人一旦開口，若上一則就是組長自己（＝要連兩次發話、中間沒人回應）→ 先等，把球留給參與者；
+        # 出現新的人類/crew 發言（上一則非組長）即解除，組長可接話或邀下一位。Rule 0.3 的 awaiting
+        # 鎖在暖場常因沒喊到名字而未設定 → 這條不依賴鎖、直接兜住連續催。僅 0.0a + supervisor 套用。
+        if (
+            (context.get("current_sub_phase") or "").strip() == "0.0a"
+            and is_supervisor
+            and recent_chat
+        ):
+            human_spoke = any(m.get("sender_type") == "human" for m in recent_chat)
+            last_is_supervisor = (
+                "supervisor" in str(recent_chat[-1].get("sender_id", "")).lower()
             )
-            if not last_sender_is_supervisor and not am_mentioned:
-                return AssessResult(
-                    decision="wait",
-                    rule="rule_0_strategy_gate",
-                    details={"reason": "OO 模式：等待 Supervisor 點名"},
+            if human_spoke and last_is_supervisor:
+                return _result(
+                    "wait",
+                    "rule_0_8b_warmup_cue_satisfied",
+                    {"reason": "暖場：人已經回答了，先別重複催同一個人，把空間留給大家"},
                 )
+
+        # Rule 0: Turn Gate — Phase 28+ 泛化到三個 policy（cued / round_robin /
+        # open_floor）。由 TurnController.is_my_turn 統一決定「現在輪到誰」：
+        #   - cued：supervisor 恆 True、被點名 crew（含 all_crew）True、其餘 wait
+        #   - round_robin：依 reveal_queue 隊首，非隊首一律 wait（含 supervisor）
+        #   - open_floor：預設 True，僅在他人 raise_hand 時非優先席位 wait
+        # 此 gate 取代舊版「只 cued、且有 last_sender_is_supervisor 例外」的漏洞，
+        # 確保 reactive / relevance 規則無法繞過輪流規則。
+        if controller is not None:
+            turn_decision = await controller.is_my_turn(my_seat, context)
+            if not turn_decision.can_act:
+                # cued：同一 tick 被 @mention 即視為點名信號 → 放行（點名機制；
+                # 此時 invited_speaker 可能尚未寫入 blackboard）。RR / OF 不放行，
+                # 避免 mention 成為繞過輪流的後門。
+                cued_mention_override = (
+                    controller.policy == TurnPolicy.CUED
+                    and self._is_mentioned(
+                        recent_chat, agent_id, my_seat, context.get("seats")
+                    )
+                )
+                if not cued_mention_override:
+                    return _result(
+                        "wait",
+                        "rule_0_turn_gate",
+                        {
+                            "reason": "輪流規則：目前不是你的回合",
+                            "policy": controller.policy.value,
+                            "controller_reason": turn_decision.reason,
+                            "next_seat": turn_decision.next_speaker,
+                        },
+                    )
+
+        # Rule 0.8（v2.0, Phase 42 A2，spec 20 v2.0 §11.5）：回合鎖在 ASSESS 的執行點。
+        # 由 v1.0「暖場人類第一次發言前 crew 一律 wait（僅 0.0a）」**泛化**為「每回合
+        # 重新上鎖」（全 sub-phase 適用）：本回合此 crew 已輸出過、或全員輪過正等真人
+        # （waiting_for_human）→ 擋下。回合鎖以真人在席與否判定，全 AI 房恆不擋。
+        # 組長（supervisor）豁免——凍結期間仍可發引導/提醒/教練訊息（§11.6）。
+        # 舊「真人第一次發言後整關放行」行為不得殘留（§11.5）。
+        if not is_supervisor:
+            _rl_project_id = context.get("_project_id")
+            _rl_sub_phase = (context.get("current_sub_phase") or "").strip()
+            if _rl_project_id is not None and _rl_sub_phase:
+                from app.agents.round_lock import is_crew_blocked
+
+                _blocked, _reason_zh = await is_crew_blocked(
+                    _rl_project_id, _rl_sub_phase, my_seat
+                )
+                if _blocked:
+                    return _result(
+                        "wait",
+                        "rule_0_8_round_lock",
+                        {"reason": _reason_zh or "回合鎖：先把空間留給使用者"},
+                    )
 
         # Rule 0.5: Debate Stance — debate/competition 模式下不同維度 Crew boost
         # 先用 LLM 處理，未來可規則化
@@ -153,15 +251,18 @@ class AssessEngine:
                 details={"reason": "全新專案：Supervisor 引導開場"},
             )
 
-        # Rule 1: @mention or direct question to this agent
+        # Rule 1: @mention 或被點名 — Phase 28：只在 Cued 模式視為 intervene 信號。
+        # Round-Robin / Open-Floor 由各自的 cooldown / queue 控制節奏，避免 mention
+        # 變成繞過輪流規則的後門。
         if self._is_mentioned(
             recent_chat, agent_id, my_seat, context.get("seats")
         ):
-            return AssessResult(
-                decision="intervene",
-                rule="rule_1_mention",
-                details={"reason": "直接被點名或提問"},
-            )
+            if controller is None or controller.policy == TurnPolicy.CUED:
+                return _result(
+                    "intervene",
+                    "rule_1_mention",
+                    {"reason": "直接被點名或提問"},
+                )
 
         # Rule 2: Human typing in the last 3 seconds
         if self._human_typing_recently(context):
@@ -169,6 +270,17 @@ class AssessEngine:
                 decision="wait",
                 rule="rule_2_human_typing",
                 details={"reason": "有人類正在輸入"},
+            )
+
+        # Rule 2.5（多訊息連發 debounce）：人類最近 ~2s 內發過群組訊息 → 先等。
+        # typing 指示只在「打字中」有效、訊息送出後即失效，連發第 2 則距第 1 則 0.5s 就不被
+        # Rule 2 擋；本規則讓 agent 等連發停了再回**最後一則**（打錯字訂正一次回應，不對每個
+        # 中間則各回一次）。回 "wait"（非 intervene）故不經 reactive/cooldown 閘。
+        if self._human_messaged_recently(context):
+            return AssessResult(
+                decision="wait",
+                rule="rule_2_5_human_message_recent",
+                details={"reason": "使用者剛發訊息，稍候可能的後續（連發 debounce）"},
             )
 
         # Rule 3: Another AI agent is currently acting
@@ -229,19 +341,37 @@ class AssessEngine:
         if canvas_summary and canvas_summary.get("total_notes", 0) > 8:
             orderliness = canvas_summary.get("orderliness_score", 1.0)
             last_tidy = context.get("_last_tidy_time")
+            total_notes = canvas_summary.get("total_notes", 0)
+
+            # 病根 D 軟護欄：便條數超過該 sub-phase 的 target_count 軟上限（×係數）→ 量爆掉，
+            # 觸發整理。獨立於 orderliness（即使分數尚可，過量本身就該整理/併同類）。
+            sub_phase_id = (context.get("current_sub_phase") or "").strip()
+            target_count = _resolve_target_count(sub_phase_id)
+            if (
+                target_count
+                and total_notes >= target_count * _VOLUME_SOFT_CAP_FACTOR
+                and (last_tidy is None or (now - last_tidy) > _VOLUME_OVERFLOW_COOLDOWN)
+            ):
+                return AssessResult(
+                    decision="intervene",
+                    rule="rule_x_volume_overflow",
+                    details={
+                        "reason": "便條數超過該階段軟上限，需整理 / 併同類",
+                        "total_notes": total_notes,
+                        "target_count": target_count,
+                        "sub_phase": sub_phase_id,
+                    },
+                )
 
             micro_phase = context.get("current_micro_phase", "")
+            # First-diamond micro_phases only（Phase 42 C1：新 6 桶，舊 1.3 移除）.
             _ORDERLINESS_THRESHOLDS: dict[str, float] = {
                 "1.1": 0.25, "1.2": 0.25,
-                "1.3": 0.50,
                 "2.1": 0.40, "2.2": 0.45, "2.3": 0.50,
-                "3.1": 0.20,
-                "3.2": 0.50, "3.3": 0.55,
-                "4.1": 0.40, "4.2": 0.45, "4.3": 0.45,
             }
             threshold = _ORDERLINESS_THRESHOLDS.get(micro_phase, 0.45)
 
-            _DIVERGE_PHASES = frozenset(("1.1", "1.2", "3.1"))
+            _DIVERGE_PHASES = frozenset(("1.1", "1.2"))
             cooldown = 600 if micro_phase in _DIVERGE_PHASES else 300
 
             if orderliness < threshold and (last_tidy is None or (now - last_tidy) > cooldown):
@@ -495,6 +625,21 @@ class AssessEngine:
         if typing_ts is None:
             return False
         return (time.time() - typing_ts) < 3.0
+
+    # 連發 debounce 窗：略大於 chat_ws 的 _HUMAN_INPUT_DEBOUNCE_SECONDS(1.5s)，
+    # 確保回合鎖那一側先處理完最後一則，agent 才接話。
+    _HUMAN_MSG_DEBOUNCE_SECONDS = 2.0
+
+    def _human_messaged_recently(self, context: dict) -> bool:
+        """Return True if a human sent a group message within the burst-debounce window.
+
+        讀 ``_human_last_message_timestamp``（chat_ws group 分支寫的 human_last_msg_ts）。
+        讓 agent 等使用者連發停了再回最後一則（Rule 2.5）。
+        """
+        msg_ts: float | None = context.get("_human_last_message_timestamp")
+        if msg_ts is None:
+            return False
+        return (time.time() - msg_ts) < self._HUMAN_MSG_DEBOUNCE_SECONDS
 
     def _count_trailing_ai_messages(self, recent_chat: list[dict]) -> int:
         count = 0

@@ -1,6 +1,7 @@
-// 12 個 micro phase 的前端文案
+// Phase 42 C1 (spec/22 v2.0 §2.3a): 新 6 桶（0.0／1.1／1.2／2.1／2.2／2.3）。
 // label 對齊 backend `backend/app/stages/micro_phases.py` 的 name_zh，
-// description 為「此微階段要做什麼」的一句話摘要。
+// description 為「此微階段要做什麼」的一句話摘要（assumption-based：全程在系統內
+// 用討論＋便條進行，無線下調查、無投票）。
 
 import type { DTStage, MicroPhaseId } from '../../types/models'
 
@@ -13,11 +14,12 @@ export interface MicroPhaseMeta {
 export interface MacroStageMeta {
   stage: Exclude<DTStage, 'completed'>
   label: string
-  /** 設計思考雙鑽石中的位置屬性 */
-  shape: '發散' | '收斂' | '純發散' | '收斂+產出'
+  /** 設計思考流程中的位置屬性 */
+  shape: '暖身' | '發散' | '收斂' | '純發散' | '收斂+產出'
   /** 一行 macro 階段重點 */
   summary: string
-  micro: [MicroPhaseMeta, MicroPhaseMeta, MicroPhaseMeta]
+  /** 該 macro 階段的微階段（暖場 1 個；發現 2 個；定義 3 個）。 */
+  micro: MicroPhaseMeta[]
 }
 
 // 文案原則：寫給「沒做過 Design Thinking」的使用者看，避免 HMW / POV / Debrief
@@ -26,97 +28,61 @@ export interface MacroStageMeta {
 
 export const MACRO_STAGES: MacroStageMeta[] = [
   {
+    stage: 'warmup',
+    label: '🔥暖場 破冰熱身',
+    shape: '暖身',
+    summary: '正式開始前先暖身——玩個快遊戲，把腦袋打開、跟隊友熟一下。',
+    micro: [
+      {
+        id: '0.0',
+        label: '破冰暖身',
+        description: '玩一場「這東西還能拿來幹嘛？」的快遊戲——越多越意想不到越好，沒有標準答案。',
+      },
+    ],
+  },
+  {
     stage: 'discover',
-    label: '🔍發現（同理） Discover 了解使用者',
+    label: '🔍發現（同理） 了解使用者',
     shape: '發散',
-    summary: '先弄清楚「使用者真正在意什麼」——多聽、多看、不急著想答案。',
+    summary: '把問題盡量打開、先不做決定——從自己的經驗出發，想像會被影響的人在哪裡卡住。',
     micro: [
       {
         id: '1.1',
-        label: '暖身與選對象',
-        description: '大家先聊聊自己對這個主題的經驗，然後列出「會被影響的人」有哪些，挑出最值得了解的對象。',
+        label: '聊經驗、列對象',
+        description: '先聊聊自己真實遇過的經驗，再列出「這件事會影響到誰」——把相似的歸成幾群、排好先挖誰後挖誰（不刪人）。',
       },
       {
         id: '1.2',
-        label: '收集多元觀點',
-        description: '分頭去訪談、觀察、查資料，把不同角色的故事和想法都收集回來。',
-      },
-      {
-        id: '1.3',
-        label: '整理使用者畫像',
-        description: '把訪談聽到的內容整理成「使用者是誰、他想什麼、做什麼」的清楚畫面；先寫下原話，不要急著下結論。',
+        label: '發想痛點與情境',
+        description: '照排好的順序，想像每群人在什麼情況下會卡住、麻煩、受不了；聊出具體的情境再貼成便條、掛在那一群底下。',
       },
     ],
   },
   {
     stage: 'define',
-    label: '📌定義（聚焦） Define 找出問題',
+    label: '📌定義（聚焦） 找出問題',
     shape: '收斂',
-    summary: '從一堆資訊裡挑出最關鍵的痛點，問對問題比急著想答案更重要。',
+    summary: '反過來慢慢收：把痛點收成一句清楚的設計題目，問對問題比急著想答案更重要。',
     micro: [
       {
         id: '2.1',
-        label: '畫使用情境',
-        description: '把使用者完成這件事的流程拆開，看看哪一步最卡、最讓人不爽。',
+        label: '痛點歸類',
+        description: '把痛點從「按人掛」改成「按同一件事放」——不同人但卡在同一件事的，拖到一起，幫每群取個主題名稱。',
       },
       {
         id: '2.2',
-        label: '挑出關鍵痛點',
-        description: '從訪談裡找出 3 個以上「沒被滿足的需求」或「明顯的矛盾」，用一句話寫清楚。',
+        label: '寫問題定義、往下挖',
+        description: '把痛點寫成「某使用者 需要 某需求，因為 某洞察」的完整句子，多問幾次為什麼、看看市面上已經有什麼。',
       },
       {
         id: '2.3',
-        label: '決定要解哪個問題',
-        description: '先講好「用什麼標準選」，投票挑出 1–3 個最值得解的問題，改寫成「我們可以怎麼…？」這種好回答的問句。',
+        label: '挑問題、改寫設計題目',
+        description: '先講好用什麼準則挑，對著準則討論、把最值得做的一到三句搬進選定區，最後改寫成「我們可以怎麼…？」的設計題目。',
       },
     ],
   },
-  {
-    stage: 'develop',
-    label: '💡發展（發想） Develop 想各種解法',
-    shape: '純發散',
-    summary: '針對選定的問題盡量丟點子，這一階段「點子多」比「點子好」重要。',
-    micro: [
-      {
-        id: '3.1',
-        label: '訂規則 + 各自寫點子',
-        description: '先講好遊戲規則：先別管做不做得到、想到什麼都寫下來。每個人安靜地把點子寫在便條紙上。',
-      },
-      {
-        id: '3.2',
-        label: '把點子分類組合',
-        description: '一起看所有便條紙，把性質相近的歸成一群、把兩個點子合在一起、相互激發新想法。',
-      },
-      {
-        id: '3.3',
-        label: '挑出要繼續做的方案',
-        description: '看看是不是還缺哪一類的方案，補上幾個之後，選出最有潛力的 1–2 個帶到下一階段。',
-      },
-    ],
-  },
-  {
-    stage: 'deliver',
-    label: '🚀交付（落地） Deliver 做出來測一下',
-    shape: '收斂+產出',
-    summary: '把想法做成最簡單的版本給人試用，看真的有解決問題嗎；學到的回頭再改。',
-    micro: [
-      {
-        id: '4.1',
-        label: '快速做出簡單原型',
-        description: '先講清楚「我假設這樣做使用者會喜歡」，然後拆成小任務，用紙、便條、簡單畫圖做出能讓人試用的版本（不用做完美的成品）。',
-      },
-      {
-        id: '4.2',
-        label: '規劃怎麼測試',
-        description: '想清楚要找誰來試、怎麼算成功怎麼算失敗、要觀察什麼。',
-      },
-      {
-        id: '4.3',
-        label: '試用後回顧',
-        description: '跑完試用後問三個問題：哪些想法被證實 / 哪些要修 / 還有哪裡可以更好。決定就此收工或再迭代一輪。',
-      },
-    ],
-  },
+  // 第一鑽石終局後，project.current_stage 轉為 'completed'，由 Phase 34
+  // closing ritual 主持結業匯報。
 ]
 
 /** 依 stage 查 macro meta */

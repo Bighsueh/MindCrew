@@ -1,19 +1,15 @@
 import { cn } from '../../lib/utils'
 import type { DTStage } from '../../types/models'
+import { STAGE_LABELS_PLAIN } from '../../utils/formatters'
 
-const PHASE_LABELS: Record<DTStage, string> = {
-  discover: 'Discover',
-  define: 'Define',
-  develop: 'Develop',
-  deliver: 'Deliver',
-  completed: '完成',
-}
+// Phase 29 (spec/04-06 §4.10): develop / deliver removed.
+// Phase 42 補正 R2：改吃 STAGE_LABELS_PLAIN 單一真相來源（spec 28 §6，學生面零英文）。
+const PHASE_LABELS: Record<DTStage, string> = STAGE_LABELS_PLAIN
 
 const PHASE_COLORS: Record<DTStage, string> = {
+  warmup: 'bg-warning/15 text-warning',
   discover: 'bg-primary/10 text-primary',
   define: 'bg-accent/20 text-accent',
-  develop: 'bg-warning/20 text-warning',
-  deliver: 'bg-success/20 text-success',
   completed: 'bg-success/20 text-success',
 }
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, Index, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +25,11 @@ class LLMProvider(Base):
     name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Phase 37: quality pool, orthogonal to tier. 'quality' = strong-but-slow,
+    # 'standard' = fast default. Routing key resolved from caller (routing_policy).
+    capability_class: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="standard", server_default="standard"
+    )
     weight: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     base_url: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -35,10 +40,10 @@ class LLMProvider(Base):
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default="now()"
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default="now()"
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
 
     __table_args__ = (
@@ -46,5 +51,10 @@ class LLMProvider(Base):
         CheckConstraint(
             "kind IN ('vllm', 'azure_openai')", name="ck_llm_provider_kind"
         ),
+        CheckConstraint(
+            "capability_class IN ('quality', 'standard')",
+            name="ck_llm_provider_capability_class",
+        ),
         Index("idx_llm_provider_tier_enabled", "tier", "enabled"),
+        Index("idx_llm_provider_class_enabled", "capability_class", "enabled"),
     )

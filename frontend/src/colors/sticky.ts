@@ -31,12 +31,12 @@ const FALLBACK: ColorScheme = {
 }
 
 const SCHEMES: Record<StickyColorToken, ColorScheme> = {
-  yellow:        { bubbleBg: '#FBEFC8', accent: '#C58B1A', text: '#3F2E0E' },
-  orange:        { bubbleBg: '#FBDCC0', accent: '#C76A1A', text: '#3F2110' },
-  green:         { bubbleBg: '#D6E5BD', accent: '#6B8B3A', text: '#27310E' },
-  blue:          { bubbleBg: '#C6DCEC', accent: '#3F6E96', text: '#142433' },
-  violet:        { bubbleBg: '#D9CFE5', accent: '#7A5BAA', text: '#2A1F40' },
-  red:           { bubbleBg: '#F2C9C5', accent: '#B14238', text: '#3F1612' },
+  yellow:        { bubbleBg: '#FAE9B0', accent: '#9A6A1A', text: '#3F2E0E' },
+  orange:        { bubbleBg: '#F8D5B0', accent: '#9A5A1A', text: '#3F1F0A' },
+  green:         { bubbleBg: '#D8E8AA', accent: '#5A7A20', text: '#1F3010' },
+  blue:          { bubbleBg: '#C8DDE0', accent: '#3A6878', text: '#142433' },
+  violet:        { bubbleBg: '#F5D0E4', accent: '#904870', text: '#3F1028' },
+  red:           { bubbleBg: '#F6E5DC', accent: '#7A5040', text: '#3A2010' },
   'light-blue':  { bubbleBg: '#D7E8F2', accent: '#5A8AA5', text: '#1B2F3E' },
   'light-green': { bubbleBg: '#DCEACB', accent: '#7A9D5C', text: '#243515' },
 }

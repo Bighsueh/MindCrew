@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import String, Text, ForeignKey, Index
+from sqlalchemy import String, Text, ForeignKey, Index, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP
 
@@ -23,13 +23,19 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     stage: Mapped[str] = mapped_column(String(20), nullable=False)
     # chat_id：群組訊息為 NULL 或 "{project_id}:group"；個人訊息為 "{project_id}:personal:{user_id}"。
-    # 詳見 specs/13-personal-chat.md §4.3。索引由下方 composite index 處理。
+    # 詳。索引由下方 composite index 處理。
     chat_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
     )
+    # app 端 default callable：每筆 insert 由 SQLAlchemy 帶入正確當下時間，
+    # 不依賴 DB server_default（既有 schema 的預設值被凍結成固定字面值，
+    # 會導致所有 row created_at 相同，破壞時間軸 / 教師決策回放）。
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default="now()"
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
     )
 
     __table_args__ = (

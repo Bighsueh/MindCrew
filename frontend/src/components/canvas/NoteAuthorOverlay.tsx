@@ -177,7 +177,35 @@ export const NoteAuthorOverlay = track(function NoteAuthorOverlay() {
         )
       })}
 
-      {/* Hover badge — only for the hovered shape */}
+      {/* Phase 42 D1b (spec 12 §6.2 v4.1)：移動中歸因 badge 於動畫期間**常駐**顯示
+          （不再僅 hover）——所有 _moving_by 便條都標「X 正在移動...」，同批多張全部標示，
+          使用者隨時看得出「是哪個 crew 在動哪幾張」。 */}
+      {shapes.map((shape) => {
+        const meta = shape.meta as Record<string, unknown>
+        const movingBy = typeof meta._moving_by === 'string' ? meta._moving_by : ''
+        if (!movingBy) return null
+        const point = editor.pageToViewport({ x: shape.x, y: shape.y })
+        return (
+          <div
+            key={`move-badge-${shape.id}`}
+            className="note-move-badge pointer-events-none absolute z-30"
+            style={{ left: point.x, top: point.y - 24 * zoom }}
+          >
+            <span
+              className="inline-flex items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 py-0.5 font-medium leading-none shadow-sm"
+              style={{
+                fontSize: `${Math.max(8, 10 * zoom)}px`,
+                backgroundColor: '#F2DED2',
+                color: '#BD6C48',
+              }}
+            >
+              {movingBy} 正在移動...
+            </span>
+          </div>
+        )
+      })}
+
+      {/* Hover badge — only for the hovered shape (author identity). */}
       {hoveredId && (() => {
         const shape = shapes.find((s) => s.id === hoveredId)
         if (!shape) return null
@@ -186,30 +214,8 @@ export const NoteAuthorOverlay = track(function NoteAuthorOverlay() {
         const meta = shape.meta as Record<string, unknown>
         const movingBy = typeof meta._moving_by === 'string' ? meta._moving_by : ''
 
-        if (movingBy) {
-          // Show "moving by" badge instead of author
-          return (
-            <div
-              key="move-badge"
-              className="note-move-badge pointer-events-none absolute z-30"
-              style={{
-                left: point.x,
-                top: point.y - 24 * zoom,
-              }}
-            >
-              <span
-                className="inline-flex items-center gap-0.5 whitespace-nowrap rounded-full px-1.5 py-0.5 font-medium leading-none shadow-sm"
-                style={{
-                  fontSize: `${Math.max(8, 10 * zoom)}px`,
-                  backgroundColor: '#F2DED2',
-                  color: '#BD6C48',
-                }}
-              >
-                {movingBy} 正在移動...
-              </span>
-            </div>
-          )
-        }
+        // 移動中 badge 已由上方常駐 map 顯示——hover 不重複彈（避免疊兩個）。
+        if (movingBy) return null
 
         // Show author badge
         const { name, type } = parseAuthor(meta.author)

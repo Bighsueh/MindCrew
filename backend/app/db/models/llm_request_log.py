@@ -6,7 +6,8 @@ if fallback happened.
 
 Phase 25.J refinement: the original ``user_id`` was split into two concepts:
   * ``owning_user_id``  — NOT NULL. Who pays / who is attributed.
-                          For agent ticks falls back to project.linked_teacher_id.
+                          For agent ticks resolves to project.creator_id
+                          (see app.llm.owning_user.resolve_owning_user).
   * ``triggered_by_user_id`` — nullable. Which human action triggered this
                           specific call (e.g. chat sender). NULL for autonomous
                           agent ticks.
@@ -19,7 +20,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,7 +32,7 @@ class LLMRequestLog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default="now()"
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
     owning_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -55,6 +56,8 @@ class LLMRequestLog(Base):
     )
     tier_used: Mapped[int] = mapped_column(Integer, nullable=False)
     cascade_from_tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Phase 37: which quality pool actually served this request (quality/standard).
+    capability_class_used: Mapped[str | None] = mapped_column(String(16), nullable=True)
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

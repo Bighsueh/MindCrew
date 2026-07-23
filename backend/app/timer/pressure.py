@@ -1,7 +1,4 @@
 """Timer pressure — 把 used_pct 翻成壓力等級 + 行為導向 directive。
-
-依 specs/16-timer-system.md §6.5.1：
-
 五階等級對應「1/2、1/3、1/4 剩餘」的直覺心理閾值：
   - `calm`        used_pct < 50
   - `halfway`     50 ≤ used_pct < 67   （一半時間了）

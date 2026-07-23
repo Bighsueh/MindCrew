@@ -4,7 +4,7 @@
 - comm_strategy: 溝通策略（OO/ST/SS）
 - comm_goal: 溝通目標（合作/辯論/競爭）
 - supervisor_mode: Supervisor 行為模式（facilitator/participant/silent）
-- comm_mode: Sticky-Only 互動模式（silent_write / reveal_round / silent_rearrange / discussion）— Spec 13
+- comm_mode: Sticky-Only 互動模式（Phase 41 後：reveal_round / discussion / threaded_reveal；silent_write / silent_rearrange 已移除）— Spec 13/27
 
 Phase 19 refactor：``protagonist`` / ``suppressed`` 改以 :class:`CognitiveLens` 描述。
 執行期由 :func:`app.agents.personas.resolver.resolve_protagonist_seat` 動態解析為
@@ -46,23 +46,16 @@ PHASE_STRATEGIES: dict[str, PhaseStrategy] = {
         suppressed_lenses=[CognitiveLens.STRUCTURE, CognitiveLens.FEASIBILITY],
         max_rounds_before_eval=8,
     ),
+    # Phase 42 C1：1.2＝發想痛點與情境（同理視角替各群代言、可行性收手）；
+    # 舊 1.3（Persona 收斂）隨格刪除。
     "1.2": PhaseStrategy(
         micro_phase="1.2",
         comm_strategy="simultaneous",
         comm_goal="direct_cooperation",
         supervisor_mode="participant",
-        protagonist_lens=None,
-        suppressed_lenses=[CognitiveLens.STRUCTURE],
+        protagonist_lens=CognitiveLens.EMPATHY,
+        suppressed_lenses=[CognitiveLens.FEASIBILITY],
         max_rounds_before_eval=15,
-    ),
-    "1.3": PhaseStrategy(
-        micro_phase="1.3",
-        comm_strategy="simultaneous",
-        comm_goal="debate",
-        supervisor_mode="participant",
-        protagonist_lens=CognitiveLens.STRUCTURE,
-        suppressed_lenses=[],
-        max_rounds_before_eval=10,
     ),
     # ── Phase 2: DEFINE ────────────────────────────────────
     "2.1": PhaseStrategy(
@@ -92,62 +85,8 @@ PHASE_STRATEGIES: dict[str, PhaseStrategy] = {
         suppressed_lenses=[],
         max_rounds_before_eval=8,
     ),
-    # ── Phase 3: DEVELOP ───────────────────────────────────
-    "3.1": PhaseStrategy(
-        micro_phase="3.1",
-        comm_strategy="simultaneous",
-        comm_goal="direct_cooperation",
-        supervisor_mode="silent",
-        protagonist_lens=CognitiveLens.CREATIVITY,
-        suppressed_lenses=[CognitiveLens.STRUCTURE, CognitiveLens.FEASIBILITY],
-        max_rounds_before_eval=20,
-    ),
-    "3.2": PhaseStrategy(
-        micro_phase="3.2",
-        comm_strategy="simultaneous",
-        comm_goal="debate",
-        supervisor_mode="participant",
-        protagonist_lens=CognitiveLens.STRUCTURE,
-        suppressed_lenses=[],
-        max_rounds_before_eval=10,
-    ),
-    "3.3": PhaseStrategy(
-        micro_phase="3.3",
-        comm_strategy="simultaneous",
-        comm_goal="mild_competition",
-        supervisor_mode="participant",
-        protagonist_lens=CognitiveLens.FEASIBILITY,
-        suppressed_lenses=[],
-        max_rounds_before_eval=8,
-    ),
-    # ── Phase 4: DELIVER ───────────────────────────────────
-    "4.1": PhaseStrategy(
-        micro_phase="4.1",
-        comm_strategy="one_by_one",
-        comm_goal="debate",
-        supervisor_mode="facilitator",
-        protagonist_lens=CognitiveLens.FEASIBILITY,
-        suppressed_lenses=[],
-        max_rounds_before_eval=10,
-    ),
-    "4.2": PhaseStrategy(
-        micro_phase="4.2",
-        comm_strategy="simultaneous",
-        comm_goal="debate",
-        supervisor_mode="facilitator",
-        protagonist_lens=CognitiveLens.STRUCTURE,
-        suppressed_lenses=[CognitiveLens.CREATIVITY],
-        max_rounds_before_eval=8,
-    ),
-    "4.3": PhaseStrategy(
-        micro_phase="4.3",
-        comm_strategy="simultaneous",
-        comm_goal="debate",
-        supervisor_mode="participant",
-        protagonist_lens=CognitiveLens.EMPATHY,
-        suppressed_lenses=[],
-        max_rounds_before_eval=10,
-    ),
+    # 2.3 advance 後觸發 FirstDiamondCompletedEvent
+    # （見 stage_advancement.advance_stage / advance_micro_phase）。
 }
 
 

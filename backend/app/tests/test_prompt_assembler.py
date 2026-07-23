@@ -1,6 +1,4 @@
 """Tests for PromptAssembler — capability-based Crew prompt assembly.
-
-Covers specs/08-test-strategy.md §3.3.3:
 - Supervisor + each stage
 - Crew 1-4 + various stages (capability isolation)
 - Full AI mode extra prompt
@@ -83,12 +81,18 @@ class TestCrewCapabilityAssembly:
     @pytest.mark.parametrize(
         ("seat_role", "expected_prompt", "stage"),
         [
+            # Phase 29 (spec/04-06 §4.10): only discover / define remain.
             ("crew_1", CREW_EMPATHY_PROMPT, "define"),
             ("crew_2", CREW_STRUCTURE_PROMPT, "discover"),
-            ("crew_3", CREW_CREATIVITY_PROMPT, "develop"),
-            ("crew_4", CREW_FEASIBILITY_PROMPT, "deliver"),
+            ("crew_3", CREW_CREATIVITY_PROMPT, "discover"),
+            ("crew_4", CREW_FEASIBILITY_PROMPT, "define"),
         ],
-        ids=["empathy-define", "structure-discover", "creativity-develop", "feasibility-deliver"],
+        ids=[
+            "empathy-define",
+            "structure-discover",
+            "creativity-discover",
+            "feasibility-define",
+        ],
     )
     def test_crew_gets_own_capability(
         self, seat_role: str, expected_prompt: str, stage: str
@@ -171,7 +175,8 @@ class TestContextInjection:
         assert "大家好" in user
 
     def test_message_structure(self) -> None:
-        ctx = _make_context(my_seat="crew_3", stage="develop")
+        # Phase 29: use discover instead of removed develop stage
+        ctx = _make_context(my_seat="crew_3", stage="discover")
         msgs = PromptAssembler().assemble(ctx)
         assert len(msgs) == 2
         assert msgs[0]["role"] == "system"
@@ -252,10 +257,13 @@ class TestBlackboardPromptInjection:
 
 
 class TestAllCrewAllStages:
-    """Ensure all 4 Crews × 4 stages assemble without error."""
+    """Ensure all 4 Crews × all stages assemble without error.
+
+    Phase 29 (spec/04-06 §4.10): only discover / define remain.
+    """
 
     @pytest.mark.parametrize("seat_role", ["crew_1", "crew_2", "crew_3", "crew_4"])
-    @pytest.mark.parametrize("stage", ["discover", "define", "develop", "deliver"])
+    @pytest.mark.parametrize("stage", ["discover", "define"])
     def test_assembly_succeeds(self, seat_role: str, stage: str) -> None:
         ctx = _make_context(my_seat=seat_role, stage=stage)
         msgs = PromptAssembler().assemble(ctx)

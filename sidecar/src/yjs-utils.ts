@@ -75,6 +75,15 @@ export interface NoteShape {
   groupId: string | null
   createdAt: string
   _moving_by?: string
+  // Spec 27 (Phase 36) §10 — 接話式便條欄位。
+  // 注意：group_id（語意主題群：顧客/店員…）與既有 groupId（空間 group）不同、並存。
+  kind?: 'content' | 'label'
+  group_id?: string | null
+  // Spec 06 v4.25 (Phase 42 C0)：引用鏈（cites=被引用便條 id 列表）與 time-box 強推標記。
+  cites?: string[]
+  time_box_forced?: boolean
+  // Spec 13 §7.1：人類 force_publish 的違規標記（後端 gate 寫入，前端 badge 顯示）。
+  gate_violation?: Record<string, unknown>
 }
 
 export interface NoteGroup {
@@ -115,14 +124,19 @@ const NOTE_GAP = 15
 // Per-project slot counter to prevent concurrent overlap
 const nextSlot = new Map<string, number>()
 
-// Parse position hint like "near:note_123" or absolute {x, y}
-// Falls back to grid layout using a per-project slot counter
+// Parse position hint like "near:note_123" or absolute {x, y}.
+// RC2（sticky-spatial rootcause 2026-06-21）：sidecar 退化為「笨座標槽」——
+// 幾何一律由 Python Layout Engine 算好以 {x, y} 傳入、原樣使用；
+// 字串 / 缺 position 的 fallback（只剩直連 API 會走到）改為純確定性，
+// 不再有 Math.random() 抖動（有機落點由 Python 端確定性 jitter 負責）。
 function resolvePosition(
   doc: Y.Doc,
   projectId: string,
   position?: string | { x: number; y: number }
 ): { x: number; y: number } {
   if (typeof position === 'object' && position) {
+    // 後端算好的座標原樣透傳——不夾制：人類 absolute 精準落點（含 tldraw
+    // 無限畫布的合法負座標）必須被尊重；AI 落點下限由 Python 端 _clamp_to_board 負責。
     return position
   }
   if (typeof position === 'string' && position.startsWith('near:')) {
@@ -131,19 +145,22 @@ function resolvePosition(
     const refNote = shapes.get(refId)
     if (refNote) {
       return {
-        x: refNote.x + GRID_COL_WIDTH + Math.random() * 20 - 10,
-        y: refNote.y + Math.random() * 20 - 10,
+        x: Math.max(0, refNote.x + GRID_COL_WIDTH),
+        y: Math.max(0, refNote.y),
       }
     }
   }
-  // Auto grid layout: use per-project slot counter (prevents concurrent overlap)
+  console.warn(
+    `[resolvePosition] fallback grid slot used (project=${projectId}) — ` +
+    'position should be computed by the Python Layout Engine'
+  )
   const slot = nextSlot.get(projectId) ?? getShapesMap(doc).size
   nextSlot.set(projectId, slot + 1)
   const col = slot % GRID_COLS
   const row = Math.floor(slot / GRID_COLS)
   return {
-    x: GRID_START_X + col * GRID_COL_WIDTH + Math.random() * NOTE_GAP,
-    y: GRID_START_Y + row * GRID_ROW_HEIGHT + Math.random() * NOTE_GAP,
+    x: GRID_START_X + col * GRID_COL_WIDTH,
+    y: GRID_START_Y + row * GRID_ROW_HEIGHT,
   }
 }
 
@@ -186,6 +203,10 @@ export function checkOverlap(projectId: string): { has_overlap: boolean; overlap
  *   grid — neat grid (default)
  *   cluster — group-aware, groups spaced apart
  *   timeline — horizontal layout for groups
+ *
+ * ⚠ DEPRECATED（RC2，2026-07-03）：本函式與 arrangeGroups / tidyNotes 只剩
+ * canvas-api.ts 標 DEPRECATED 的端點會呼叫（後端 Python Layout Engine 不經此）。
+ * 保留僅為相容，勿新增呼叫；移除列入 deferred。
  */
 export function autoLayout(projectId: string, strategy: string = 'grid'): boolean {
   const doc = getDoc(projectId)
@@ -285,13 +306,31 @@ export function autoLayout(projectId: string, strategy: string = 'grid'): boolea
   return true
 }
 
+export interface NoteConceptFields {
+  kind?: 'content' | 'label'
+  group_id?: string | null
+  // Spec 06 v4.25 (Phase 42 C0)
+  cites?: string[]
+  time_box_forced?: boolean
+}
+
+/** cites 寫入時過濾不存在的便條 id（不報錯，靜默丟棄）。 */
+function sanitizeCites(doc: Y.Doc, cites: unknown): string[] {
+  if (!Array.isArray(cites)) return []
+  const shapes = getShapesMap(doc)
+  return cites.filter(
+    (id): id is string => typeof id === 'string' && shapes.has(id),
+  )
+}
+
 export function addNote(
   projectId: string,
   content: string,
   author: string,
   color: string = 'yellow',
   position?: string | { x: number; y: number },
-  createdAt?: string
+  createdAt?: string,
+  concept?: NoteConceptFields
 ): NoteShape {
   const doc = getOrCreateDocSync(projectId)
   const shapes = getShapesMap(doc)
@@ -311,6 +350,12 @@ export function addNote(
     groupId: null,
     // Phase 24.A：呼叫端可指定 createdAt（後端 AI 路徑）；否則自動產生（直連 API 路徑）
     createdAt: createdAt ?? new Date().toISOString(),
+    // Spec 27 (Phase 36)：接話式便條欄位（預設 content / null）
+    kind: concept?.kind ?? 'content',
+    group_id: concept?.group_id ?? null,
+    // Spec 06 v4.25 (Phase 42 C0)：cites 過濾不存在 id；time_box_forced 僅 C2 強推路徑寫 true
+    cites: sanitizeCites(doc, concept?.cites),
+    time_box_forced: concept?.time_box_forced === true,
   }
 
   doc.transact(() => {
@@ -332,6 +377,64 @@ export function editNote(
   if (!note) return null
 
   const updated = { ...note, content: newContent }
+  doc.transact(() => {
+    shapes.set(noteId, updated)
+  })
+  return updated
+}
+
+export function updateNoteGroupId(
+  projectId: string,
+  noteId: string,
+  groupId: string | null,
+): NoteShape | null {
+  const doc = getDoc(projectId)
+  if (!doc) return null
+  const shapes = getShapesMap(doc)
+  const note = shapes.get(noteId)
+  if (!note) return null
+
+  const updated = { ...note, group_id: groupId }
+  doc.transact(() => {
+    shapes.set(noteId, updated)
+  })
+  return updated
+}
+
+/** Spec 06 v4.25 (Phase 42 C0)：全量覆蓋 cites（同樣過濾不存在的 id）。 */
+export function updateNoteCites(
+  projectId: string,
+  noteId: string,
+  cites: unknown,
+): NoteShape | null {
+  const doc = getDoc(projectId)
+  if (!doc) return null
+  const shapes = getShapesMap(doc)
+  const note = shapes.get(noteId)
+  if (!note) return null
+
+  const updated = { ...note, cites: sanitizeCites(doc, cites) }
+  doc.transact(() => {
+    shapes.set(noteId, updated)
+  })
+  return updated
+}
+
+/** Spec 13 §7.1 (Phase 42 C0)：合併便條 metadata（目前只用於 gate_violation 標記）。 */
+export function setNoteMetadata(
+  projectId: string,
+  noteId: string,
+  metadata: Record<string, unknown>,
+): NoteShape | null {
+  const doc = getDoc(projectId)
+  if (!doc) return null
+  const shapes = getShapesMap(doc)
+  const note = shapes.get(noteId)
+  if (!note) return null
+
+  const updated = { ...note, ...(metadata.gate_violation !== undefined
+    ? { gate_violation: metadata.gate_violation as Record<string, unknown> }
+    : {}) }
   doc.transact(() => {
     shapes.set(noteId, updated)
   })
@@ -594,7 +697,8 @@ export function getCanvasStateFull(projectId: string): NoteShape[] {
  */
 export function batchUpdateCoordinates(
   projectId: string,
-  updates: { id: string; x: number; y: number }[]
+  updates: { id: string; x: number; y: number }[],
+  movedBy?: string
 ): boolean {
   const doc = getDoc(projectId)
   if (!doc) return false
@@ -605,12 +709,13 @@ export function batchUpdateCoordinates(
     if (!shapes.has(u.id)) return false
   }
 
+  // Spec 10 v2.0 §4.7：transaction origin 帶 moved_by，move-events observer 據此歸因
   doc.transact(() => {
     for (const u of updates) {
       const note = shapes.get(u.id)!
       shapes.set(u.id, { ...note, x: u.x, y: u.y })
     }
-  })
+  }, movedBy ? { moved_by: movedBy } : undefined)
   return true
 }
 
@@ -619,7 +724,11 @@ export function batchUpdateCoordinates(
  * Used by staggered updates for one-by-one animation effect.
  *
  * If movingBy is provided, sets _moving_by metadata on the shape
- * and clears it after clearDelayMs (default 400ms).
+ * and clears it after clearDelayMs.
+ *
+ * Phase 42 D1b (spec 12 §3.1/§3.3 v4.1)：clearDelayMs 預設由 400 上修為 1000——
+ * 不得低於「單張動畫 600ms ＋ 前端 transition buffer 200ms」，否則 _moving_by 歸因
+ * 標示會在動畫播完前先消失，使用者看不出是誰在動。
  */
 export function updateSingleNoteCoordinates(
   projectId: string,
@@ -627,7 +736,7 @@ export function updateSingleNoteCoordinates(
   x: number,
   y: number,
   movingBy?: string,
-  clearDelayMs: number = 400
+  clearDelayMs: number = 1000
 ): boolean {
   const doc = getDoc(projectId)
   if (!doc) return false
@@ -635,6 +744,7 @@ export function updateSingleNoteCoordinates(
   const note = shapes.get(id)
   if (!note) return false
 
+  // Spec 10 v2.0 §4.7：transaction origin 帶 moved_by 供 move-events observer 歸因
   doc.transact(() => {
     const updated: NoteShape = { ...note, x, y }
     if (movingBy) {
@@ -643,7 +753,7 @@ export function updateSingleNoteCoordinates(
       delete updated._moving_by
     }
     shapes.set(id, updated)
-  })
+  }, movingBy ? { moved_by: movingBy } : undefined)
 
   // Clear _moving_by after delay
   if (movingBy) {
@@ -674,6 +784,12 @@ export interface CanvasState {
     content: string
     author: string
     color: string
+    // Spec 27 (Phase 36) — 便條欄位（後端 perception / API 同步用）
+    kind: 'content' | 'label'
+    group_id: string | null
+    // Spec 06 v4.25 (Phase 42 C0)
+    cites: string[]
+    time_box_forced: boolean
   }[]
 }
 
@@ -704,6 +820,12 @@ export function getCanvasState(projectId: string): CanvasState {
       content: note.content,
       author: note.author,
       color: note.color,
+      // Spec 27：便條欄位（舊便條缺欄位 → 預設 content / null）
+      kind: note.kind ?? 'content',
+      group_id: note.group_id ?? null,
+      // Spec 06 v4.25 (Phase 42 C0)
+      cites: note.cites ?? [],
+      time_box_forced: note.time_box_forced ?? false,
     })
     if (!groupedNoteIds.has(nid)) {
       ungrouped.push(nid)

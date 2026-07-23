@@ -41,11 +41,13 @@ def make_personas_payload(n: int) -> list[dict]:
 VALID_PERSONAS_PAYLOAD: list[dict] = make_personas_payload(3)
 
 
-# Spec 16：建立專案時 timer_config 必填。測試共用一個 2hr preset payload。
+# Spec 16：建立專案時 timer_config 必填。測試共用一個 90min preset payload。
+# Phase 40 (spec/16-timer-system §2.1 v1.2): 2hr/4hr preset 移除，預設改 90min。
 VALID_TIMER_CONFIG: dict = {
-    "total_session_minutes": 120,
-    "macro_budgets": {"discover": 45, "define": 30, "develop": 25, "deliver": 20},
-    "preset_id": "timer_preset_2hr",
+    "total_session_minutes": 90,
+    "intensity": 0.8,
+    "macro_budgets": {"warmup": 4, "discover": 52, "define": 34},
+    "preset_id": "timer_preset_90min",
 }
 
 

@@ -20,6 +20,7 @@ Design rules baked into the prompts:
 - 不對稱組合 — 至少包含 1 位「直接受影響者」、1 位「跨界類比者」、1 位 contrarian
 - 個性多樣 — contrarian / balanced / supportive 各至少一位
 - 利用限制 — constraints 是養分而非阻礙
+- 人設不批評內建 — personality_desc / backstory 不得帶貶低他人的特質（spec 17 §3.2 v2.2）
 """
 from __future__ import annotations
 
@@ -67,6 +68,7 @@ _PERSONA_INSTANTIATION_TEMPLATE: str = """\
 5. **利用限制** — 把「專案限制」當作某些人設的養分。例如限制是「預算極低」可以塑造一位「擅長資源拼湊的二手商店老闆」；限制是「老人為主使用者」可以塑造一位「日照中心照服員」。
 6. **避免刻板印象** — 不要套用「工程師＝理性」「設計師＝感性」「醫護＝同理」這類刻板。給角色添加個人化張力（過往轉職、地域差異、家庭背景）。
 7. **lens_affinities 自然湧現** — 不要強行平均分配。讓每個人設的 4 個透鏡分數真實反映他們的職業傾向（例如護理師的 empathy 0.9 / structure 0.4 / creativity 0.3 / feasibility 0.5；工程師則相反）。
+8. **人設不得帶批評傾向** — personality_desc 不可包含「毒舌」「愛挑毛病」「嚴厲」「尖酸」等貶低他人的特質短語；backstory 不得把「批評他人」寫成角色慣常行為。這個團隊的鐵則是「絕不批評別人的想法」——人設可以質疑前提、提出不同角度，但不可內建貶低、否定他人的性格（contrarian 的語意是「質疑前提、提出不同角度」，不是「批評貶低他人想法」）。
 
 【認知透鏡定義】（評分用，0.0 ~ 1.0）
 - empathy：從「人」的感受、需求、痛點出發
@@ -103,6 +105,7 @@ _PERSONA_INSTANTIATION_TEMPLATE: str = """\
 - [ ] lens_affinities 是否反映真實職業傾向，而非平均分配？
 - [ ] 是否避免了刻板印象？
 - [ ] `personality_desc` 是否為 3-5 個形容詞性個性特質短語？不可出現「我…」「會分享…」「覺得…」等第一人稱或軼事
+- [ ] `personality_desc` 與 `backstory` 是否不含「毒舌」「愛挑毛病」「嚴厲」「尖酸」等貶低、挑剔類描述？
 
 只回應 JSON，不要任何其他文字。\
 """

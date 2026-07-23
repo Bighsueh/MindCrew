@@ -6,6 +6,7 @@ import * as encoding from 'lib0/encoding'
 import * as decoding from 'lib0/decoding'
 import { canvasRouter } from './canvas-api.js'
 import { getOrCreateDoc, getOrCreateDocSync } from './yjs-utils.js'
+import { ensureMoveObserver } from './move-events.js'
 
 const PORT = parseInt(process.env.SIDECAR_PORT || '4000', 10)
 
@@ -121,6 +122,8 @@ function ensureDocListener(projectId: string) {
     const wsOrigin = origin instanceof WebSocket ? origin : null
     broadcastUpdate(projectId, update, wsOrigin)
   })
+  // Spec 10 v2.0 §4.7：move-delta 可讀事件 observer（與 doc listener 同生命週期）
+  ensureMoveObserver(projectId, doc)
 }
 
 wss.on('connection', async (ws: WebSocket, projectId: string) => {

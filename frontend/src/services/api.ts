@@ -24,6 +24,9 @@ export function getAccessToken(): string | null {
 const api: AxiosInstance = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
+  // 逾時兜底：避免請求卡到 nginx 才斷線；逾時會以 ECONNABORTED 收斂，
+  // 讓呼叫端能對應友善訊息而非裸 Network Error。
+  timeout: 30000,
 })
 
 // Request interceptor: attach JWT

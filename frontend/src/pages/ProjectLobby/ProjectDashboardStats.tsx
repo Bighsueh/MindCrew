@@ -18,13 +18,12 @@ const AI_LEVEL_CONFIG: Record<AIContribution, { label: string; width: string; co
   high: { label: '高', width: 'w-full', color: 'bg-accent' },
 }
 
-const STAGE_ORDER: DTStage[] = ['discover', 'define', 'develop', 'deliver']
+// Phase 29 (spec/04-06 §4.10): develop / deliver removed.
+const STAGE_ORDER: DTStage[] = ['warmup', 'discover', 'define']
 
 const STAGE_COLORS: Record<string, string> = {
   discover: 'bg-info',
   define: 'bg-accent',
-  develop: 'bg-warning',
-  deliver: 'bg-success',
   completed: 'bg-success',
 }
 

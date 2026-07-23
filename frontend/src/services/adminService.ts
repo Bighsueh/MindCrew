@@ -4,12 +4,14 @@
 import api from './api'
 
 export type ProviderKind = 'vllm' | 'azure_openai'
+export type CapabilityClass = 'quality' | 'standard'
 
 export interface AdminProvider {
   id: string
   name: string
   kind: ProviderKind
   tier: number
+  capability_class: CapabilityClass
   weight: number
   base_url: string
   model: string
@@ -27,6 +29,7 @@ export interface AdminProviderCreate {
   name: string
   kind: ProviderKind
   tier: number
+  capability_class?: CapabilityClass
   base_url: string
   model: string
   api_key?: string
@@ -53,6 +56,7 @@ export interface AdminLogEntry {
   created_at: string
   provider_id: string
   provider_name: string | null
+  model: string | null
   owning_user_id: string
   owning_user_display_name: string | null
   triggered_by_user_id: string | null
@@ -196,7 +200,11 @@ export async function healthCheckProvider(id: string): Promise<HealthCheckResult
 export interface LogQuery {
   provider_id?: string
   user_id?: string
+  project_id?: string
   success?: boolean
+  caller?: string
+  model?: string
+  triggered_by_user_id?: string
   since?: string
   until?: string
   limit?: number
@@ -252,5 +260,84 @@ export async function fetchSuccessRateTrend(
   const res = await api.get<SuccessRateTrend>('/admin/stats/success-rate', {
     params: query,
   })
+  return res.data
+}
+
+export interface LatencyPercentileRow {
+  provider_id: string | null
+  provider_name: string | null
+  request_count: number
+  p50_ms: number | null
+  p95_ms: number | null
+  p99_ms: number | null
+  max_ms: number | null
+  avg_ms: number | null
+}
+
+export interface LatencyTrendPoint {
+  bucket_ts: string
+  request_count: number
+  avg_ms: number | null
+  p95_ms: number | null
+}
+
+export interface LatencyStats {
+  granularity: Granularity
+  rows: LatencyPercentileRow[]
+  trend: LatencyTrendPoint[]
+}
+
+export interface LatencyQuery {
+  since: string
+  until: string
+  provider_ids?: string[]
+  granularity?: 'auto' | Granularity
+}
+
+export async function fetchLatencyStats(
+  query: LatencyQuery,
+): Promise<LatencyStats> {
+  const res = await api.get<LatencyStats>('/admin/stats/latency', {
+    params: query,
+    paramsSerializer: { indexes: null },
+  })
+  return res.data
+}
+
+// ── LLM fail-stop health (Phase 42 D5 / G14, spec 20 §13.6) ───────────────
+
+export type LLMOverallStatus = 'up' | 'degraded' | 'down'
+
+export interface ProviderHealthDetail {
+  provider_id: string
+  provider_name: string
+  healthy: boolean
+  consecutive_failures: number
+  last_failure_at: string | null
+  last_failure_reason: string | null
+  last_check_at: string | null
+  cooldown_remaining_seconds: number | null
+}
+
+export interface AffectedRoomEntry {
+  project_id: string
+  project_name: string | null
+  pause_reason: string | null
+  paused_at: string | null
+}
+
+export interface LLMHealth {
+  overall_status: LLMOverallStatus
+  reactive_consecutive_failures: number
+  reactive_threshold: number
+  proactive_unhealthy_streak: number
+  proactive_threshold: number
+  last_status_change: string | null
+  providers: ProviderHealthDetail[]
+  affected_rooms: AffectedRoomEntry[]
+}
+
+export async function fetchLLMHealth(): Promise<LLMHealth> {
+  const res = await api.get<LLMHealth>('/admin/llm-health')
   return res.data
 }

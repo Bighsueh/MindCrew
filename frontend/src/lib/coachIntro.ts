@@ -11,20 +11,18 @@ import type { DTStage } from '../types/models'
  * 當 personal channel 為空時，ChatPanel 以此文字渲染一條 empty-state 訊息；
  * 使用者一旦真的送出第一句，該文字立即消失（被真實 messages 列表取代）。
  *
- * 決議來源：specs/13-personal-chat.md §10 OQ1。
+ * 決議來源： OQ1。
  */
-// 文案改為白話：避免 Discover/Develop/HMW/POV/brainstorm 等專業詞，
-// 改用「了解使用者 / 想各種解法」這類白話。
+// 文案改為白話：避免 Discover/Define/HMW/POV/訪談/brainstorm 等專業詞與線下調查語，
+// 改用「了解使用者 / 找出問題」這類白話（assumption-based，無現場訪談）。
 export function getCoachIntro(stage: DTStage | undefined): string {
   switch (stage) {
     case 'discover':
-      return '嗨我是你的設計思考小幫手。現在是 Discover（了解使用者）——你想先聊聊要訪談誰、還是怎麼開口問問題？'
+      return '嗨我是你的設計思考小幫手。現在是「了解使用者」的階段——我們沒有現場訪談，靠大家的經驗和想像。你想先聊聊自己遇過的經驗，還是先想想這件事會影響到誰？'
     case 'define':
-      return '進入 Define（找出問題）了。我們要把訪談聽到的東西整理出幾個關鍵痛點。你想先聊聊怎麼挑重點，還是怎麼寫成好回答的問句？'
-    case 'develop':
-      return '現在是 Develop（想各種解法）。這一階段點子多比點子好重要，怎麼都丟到白板上都行。你想先聊聊發想規則，還是怎麼讓自己更發散？'
-    case 'deliver':
-      return '到了 Deliver（做出來測一下）。我們要把想法做成最簡單可以給人試用的版本。你想先想想做什麼形式、還是要找誰來試？'
+      return '進入「找出問題」的階段了。我們把剛剛想到的痛點整理成幾個關鍵重點，再收成一句清楚的問題。你想先聊聊怎麼分群，還是怎麼把問題講清楚？'
+    case 'completed':
+      return '第一鑽石的旅程完成了——你們已經把問題聚焦得很清楚了。要不要回顧一下這幾句設計題目，看看下一步可以延伸到哪裡？'
     default:
       return '嗨我是你的設計思考小幫手。今天有什麼我能幫你想清楚的？'
   }

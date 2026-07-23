@@ -1,6 +1,6 @@
 """Message repository — chat history 的唯一 SQL 入口。
 
-依 specs/13-personal-chat.md §4.4「強制收斂點」：
+「強制收斂點」：
   - 任何 message 表的讀取**必須**走本檔案的 ``list_group`` /
     ``list_personal`` / ``list_for_agents``，禁止 inline ``select(Message)``。
   - ``get_messages`` 保留為 ``list_group`` 的向下相容別名。

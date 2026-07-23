@@ -25,13 +25,18 @@ _VALID_ACTION_TYPES = {
     "tidy_area",
     "set_directive",
     "no_action",
-    # Spec 13 — Supervisor only
+    # Spec 13 — Supervisor only（draw_template 已移除，Phase 42 補正 R3／P1-4）
     "draw_zone",
-    "draw_template",
-    # Spec 13 — Voting (criteria-gated)
-    "open_vote",
-    "cast_vote",
-    "close_vote",
+    # Phase 42 C0 (spec 10 v2.0 §5.9) — Supervisor only：動態往下開新 section
+    "open_section",
+    # Phase 42 A1 (spec 04-06 §5.8) — Supervisor only：組長宣布推進
+    "advance_sub_phase",
+    # Phase 42 A3 (spec 04-03 §2.3.2.1 守則 8 / §3.0.7) — Supervisor only：
+    # 任務提示與便條指認高亮
+    "set_user_task",
+    "note_highlight",
+    # Phase 42 C2：投票相關 action 隨無投票收斂全面移除（spec 27 §14）；
+    # 2.6 改 open_section ＋搬便條進選定區＋配選定理由。
 }
 
 # Text fields that must be converted to Traditional Chinese
@@ -139,7 +144,11 @@ class ThinkEngine:
             response = await self._llm_service.chat_completion(
                 messages=messages,
                 temperature=0.7,
-                max_tokens=settings.LLM_MAX_TOKENS_PER_CALL,
+                # Phase 37: cap THINK output — p90≈986/p99≈1024 in production, so
+                # 1024 doesn't truncate normal output but cuts the long tail that
+                # dominates latency (output length linearly drives decode time).
+                # settings.LLM_MAX_TOKENS_PER_CALL is used only here, so this is safe.
+                max_tokens=min(settings.LLM_MAX_TOKENS_PER_CALL, 1024),
                 caller=llm_ctx.caller or "agent_think",
                 owning_user_id=llm_ctx.owning_user_id,
                 triggered_by_user_id=llm_ctx.triggered_by_user_id,

@@ -7,8 +7,10 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt import get_current_user
+from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.session import get_db_session
+from app.projects.deps import require_project_viewer
 from app.stages.schemas import (
     AdvanceMicroPhaseRequest,
     AdvanceMicroPhaseResponse,
@@ -28,6 +30,7 @@ async def get_stage(
     project_id: UUID,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
+    _project: Project = Depends(require_project_viewer),
 ) -> StageResponse:
     service = StageService(session)
     return await service.get_stage(project_id)
@@ -60,6 +63,7 @@ async def get_stage_history(
     project_id: UUID,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
+    _project: Project = Depends(require_project_viewer),
 ) -> list[StageHistoryResponse]:
     service = StageService(session)
     return await service.list_history(project_id)
@@ -95,6 +99,7 @@ async def get_micro_phase_history(
     project_id: UUID,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
+    _project: Project = Depends(require_project_viewer),
 ) -> list[MicroPhaseHistoryResponse]:
     service = StageService(session)
     return await service.list_micro_phase_history(project_id)

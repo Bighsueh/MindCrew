@@ -201,7 +201,7 @@ export function NarrativeHeader({ narrative, dense = false }: NarrativeHeaderPro
 
 export interface CanvasEmptyStateProps {
   stage: StartActionStage
-  /** 當前 micro phase；命中時 hint 內容會深化到 micro 粒度（1.1–4.3） */
+  /** 當前 micro phase；命中時 hint 內容會深化到 micro 粒度（1.1–2.3） */
   currentMicroPhase?: MicroPhaseId | null
   visible: boolean
   onActionClick?: (actionId: string) => void
@@ -212,7 +212,7 @@ export interface CanvasEmptyStateProps {
 // 退場動畫時序
 const FLY_DELAY_MS = 2500
 const FLY_DURATION_MS = 1400
-const ANCHOR_SELECTOR = '[data-startwith-anchor]'
+const ANCHOR_SELECTOR = '[data-hint-center-anchor]'
 
 type ExitPhase = 'idle' | 'pending-fly' | 'flying' | 'fading'
 
@@ -296,7 +296,7 @@ export function CanvasEmptyState({
       setFlyTransform({ dx, dy, scale })
       setExitPhase('flying')
 
-      // Phase 3：400ms 動畫後 unmount + 通知父層
+      // Step 3：400ms 動畫後 unmount + 通知父層
       const flyTimer = window.setTimeout(() => {
         setMounted(false)
         setExitPhase('idle')
@@ -360,7 +360,6 @@ export function CanvasEmptyState({
         <div className="flex flex-col items-center gap-1 text-center">
           <span className="text-xs uppercase tracking-wide text-text-muted">
             起手式 · {stageLabel} 階段
-            {currentMicroPhase ? ` · ${currentMicroPhase}` : ''}
           </span>
           <h2 className="text-lg font-semibold text-text">從這裡開始</h2>
           <p className="text-sm text-text-muted">{subtitle}</p>

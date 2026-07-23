@@ -3,6 +3,7 @@ import { cn } from '../../lib/utils'
 
 const TABS = [
   { to: '/admin/providers', label: 'Providers' },
+  { to: '/admin/llm-health', label: 'LLM Health' },
   { to: '/admin/logs', label: 'Request Logs' },
   { to: '/admin/stats', label: 'Stats' },
 ] as const

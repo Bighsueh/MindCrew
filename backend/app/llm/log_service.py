@@ -110,6 +110,9 @@ def record(
         "provider_id": entry.row.id,
         "tier_used": entry.row.tier,
         "cascade_from_tier": cascade_from_tier,
+        # Phase 37: pool that actually served this request (derived from the
+        # serving provider, so it reflects cross-class degrade if it happened).
+        "capability_class_used": getattr(entry.row, "capability_class", None),
         "prompt_tokens": usage.prompt_tokens,
         "completion_tokens": usage.completion_tokens,
         "total_tokens": usage.total_tokens,

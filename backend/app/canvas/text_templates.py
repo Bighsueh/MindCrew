@@ -1,15 +1,20 @@
-"""Text templates — Spec 13 §4.1 便條紙文字模板。
+"""Text templates — spec 23 v2.0 便條紙文字模板（Phase 42 C2）。
 
 每個模板：
-  - regex     驗證便條文字是否符合
-  - prompt_zh AI prompt 用的中文描述
-  - example   合法範例
+  - regex            驗證便條文字是否符合
+  - prompt_zh        AI prompt 用的中文描述
+  - example          合法範例
+  - forbidden_terms  禁字列表（v2.0 新增，大小寫不敏感）：命中即不通過，
+                     用於擋英文縮寫／機制行漏上白板（#25/#29）
 
-11 種模板（spec §4.1）：
-  stakeholder / scope_rationale / raw_observation / pov / criteria /
-  hmw / idea / hypothesis / task_ticket / direction
+現役第一鑽石模板（spec 23 v2.0）：
+  stakeholder（只寫名字）/ problem_statement（問題定義，需求句 OR 五要件句）/
+  problem_candidate（主題群標籤）/ criteria（收斂準則）/ selection_reason（選定理由）/
+  hmw（設計題目「我們可以怎麼…？」）
 
-Debrief 答案無模板（自由文字，落在指定子區即可）。
+Phase 42 C2 移除死模板：scope_rationale / raw_observation / pov（併入 problem_statement）
+／task_question（0.2 整格移除，spec 22 v2.0 §2.2）。persona_*（Persona 工具）隨 1.6
+整格移除標記廢除，清理併入 D4（tool_status 1.6 死分支同批）。
 """
 
 from __future__ import annotations
@@ -28,6 +33,9 @@ class TextTemplate:
     prompt_zh: str
     example: str
     required_refs: tuple[str, ...] = ()  # 例：("obs",) 表示需要 cites: #obs-X
+    # spec 23 v2.0：禁字列表（大小寫不敏感）。命中即不通過——防英文縮寫與機制行
+    # 漏上白板（#25/#29）；reason_zh 用大白話引導、不得把禁字規則本身講出來。
+    forbidden_terms: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -45,52 +53,17 @@ TEMPLATES: dict[str, TextTemplate] = {
     "stakeholder": TextTemplate(
         id="stakeholder",
         name_zh="利害關係人",
-        pattern=re.compile(r".+｜佐證[:：].+", re.DOTALL),
-        prompt_zh="格式：[利害關係人名稱]｜佐證：[來源]\n範例：高齡使用者｜佐證：訪談筆記-3",
-        example="高齡使用者｜佐證：訪談筆記-3",
-    ),
-    "scope_rationale": TextTemplate(
-        id="scope_rationale",
-        name_zh="Scope rationale",
-        pattern=re.compile(
-            r"納入[:：].+｜排除[:：].+｜理由[:：].+",
-            re.DOTALL,
-        ),
-        prompt_zh="格式：納入：[X]｜排除：[Y]｜理由：[Z]",
-        example="納入：高齡長者｜排除：照顧者｜理由：本次設計焦點為使用者本人經驗",
-    ),
-    "raw_observation": TextTemplate(
-        id="raw_observation",
-        name_zh="原始觀察",
-        pattern=re.compile(
-            r'["「""].+["」""]｜情緒[:：].+｜來源[:：].+',
-            re.DOTALL,
-        ),
-        prompt_zh="格式：\"[原話]\"｜情緒：[詞]｜來源：[受訪者代號]｜時間：[t]\n範例：\"我都搞不清楚要按哪裡\"｜情緒：焦躁｜來源：U2｜時間：3:25",
-        example='"我都搞不清楚要按哪裡"｜情緒：焦躁｜來源：U2｜時間：3:25',
-    ),
-    "pov": TextTemplate(
-        id="pov",
-        name_zh="POV",
-        # Spec 14 A6: 必須引用 ≥2 筆觀察
-        pattern=re.compile(
-            r".+\s*需要\s*.+[，,]\s*因為\s*.+\n\s*cites?[:：]\s*"
-            r"#?obs[-_]\S+\s*[,，]\s*#?obs[-_]\S+",
-            re.DOTALL | re.IGNORECASE,
-        ),
+        # Phase 42 C1（spec 23 v2.0 §8.1）：簡化為**只寫名字**——便條只寫這個人
+        # （或這群人）的名字，「為什麼相關」在聊天講（保住發想廣度、便條不被理由
+        # 拖慢）。單行短文字 1–30 字、禁「｜」欄位分隔；去重在貼上時 enforce
+        # （spec 27），與本模板無關。舊「｜為什麼相關：…」格式（2026-06-08 盲測
+        # 修正版）作廢。
+        pattern=re.compile(r"^[^\n｜]{1,30}$"),
         prompt_zh=(
-            "格式（兩行）：\n"
-            "  [USER] 需要 [NEED]，因為 [INSIGHT]\n"
-            "  cites: #obs-X, #obs-Y  ← 至少 2 筆觀察\n"
-            "範例：\n"
-            "  電商新手使用者 需要 在不點開商品頁就看到運費，因為 運費高低決定他是否繼續\n"
-            "  cites: #obs-12, #obs-23"
+            "格式：只寫這個人（或這群人）的名字就好，為什麼跟這件事有關用聊天講。\n"
+            "範例：超市收銀員"
         ),
-        example=(
-            "電商新手使用者 需要 在不點開商品頁就看到運費，因為 運費高低決定他是否繼續\n"
-            "cites: #obs-12, #obs-23"
-        ),
-        required_refs=("obs",),
+        example="超市收銀員",
     ),
     "criteria": TextTemplate(
         id="criteria",
@@ -99,77 +72,82 @@ TEMPLATES: dict[str, TextTemplate] = {
         prompt_zh="格式：準則：[名稱]｜衡量方式：[如何量]",
         example="準則：時間可行性｜衡量方式：能否在 2 小時內完成原型",
     ),
+    # spec 23 v2.0 §2.4：設計題目＝「我們可以怎麼…？」一句話。in-scene 一律稱
+    # 「設計題目」（#25）。from 關聯改系統層（cites→選定問題定義），不寫機制行；
+    # forbidden_terms 擋英文縮寫與「from:」機制行漏上白板。
     "hmw": TextTemplate(
         id="hmw",
-        name_zh="HMW",
-        pattern=re.compile(
-            r"(How might we|我們如何).+[?？]\n?\s*from[:：]\s*#?pov[-_]\S+",
-            re.DOTALL | re.IGNORECASE,
-        ),
+        name_zh="設計題目",
+        pattern=re.compile(r"我們可以怎麼.+[?？]", re.DOTALL),
+        forbidden_terms=("HMW", "POV", "from:", "from："),
         prompt_zh=(
-            "格式（兩行）：\n"
-            "  How might we [動詞] [使用者] [所欲狀態]?\n"
-            "  from: #pov-X\n"
-            "或繁中：\n"
-            "  我們如何 [動詞] [使用者] [所欲狀態]?\n"
-            "  from: #pov-X"
+            "格式：把選好的問題定義，改寫成一句「我們可以怎麼…？」的問句。\n"
+            "寫的時候，點選它對應的那張問題定義便條。"
         ),
-        example="我們如何讓使用者在商品列表頁就感知到運費資訊?\nfrom: #pov-5",
-        required_refs=("pov",),
+        example="我們可以怎麼讓袋子在出門那一刻自己出現在手邊？",
     ),
-    "idea": TextTemplate(
-        id="idea",
-        name_zh="點子",
-        pattern=re.compile(
-            r".+｜機制[:：].+\n?\s*for[:：]\s*#?hmw[-_]\S+",
-            re.DOTALL | re.IGNORECASE,
-        ),
+    # spec 23 v2.0 §2.5：選定理由＝「選定＋符合準則：…」，必指 ≥1 條 2.5 準則。
+    # 2.6 收口閘要件（spec 25 v2.0 §3.2 selection_pairing）：選定區每張問題定義配一張。
+    "selection_reason": TextTemplate(
+        id="selection_reason",
+        name_zh="選定理由",
+        pattern=re.compile(r"選定.*符合準則[:：].+", re.DOTALL),
         prompt_zh=(
-            "格式（兩行）：\n"
-            "  [一句 headline]｜機制：[類別]\n"
-            "  for: #hmw-X"
+            "格式：選定｜符合準則：〔準則名稱〕——〔一句話說明為什麼這張最符合〕\n"
+            "理由一定要對上我們在前一關訂好的準則，不能憑感覺。\n"
+            "貼的時候，點選它對應的那張問題定義便條。\n"
+            "（AI 請注意：這張要**貼進選定區**——`position=\"section:<選定區的實際id>\"`；"
+            "`cites` 要**同時**帶「那張問題定義的 id」和「你依據的準則便條 id」，"
+            "少了問題定義的 id 就配不成對、閘門不會過。）"
         ),
-        example="商品縮圖上直接疊運費標籤｜機制：減少步驟\nfor: #hmw-A",
-        required_refs=("hmw",),
+        example="選定｜符合準則：影響範圍——出門前就忘了帶是最多人卡住的地方，解決它能幫到最多人",
     ),
-    "hypothesis": TextTemplate(
-        id="hypothesis",
-        name_zh="假設",
+    # Phase 29 (spec/04-06 §4.10): idea / hypothesis / task_ticket / direction
+
+    # ── Phase 31 三大工具：Persona Card 四欄位（舊 DT user persona）——
+    # Phase 42 收尾整批移除（persona 不在 POC，spec 22 v2.0 §12.5 / spec 23 §5.1）。
+    # validate_template 對未知 template_id 回 passed=True，移除後無 KeyError。
+
+    # ── Phase 31 三大工具：Problem Statement 五要件 (spec/23 §2.2) ─
+    # 對應講義「對於X而言，在Y中，他/她常遇到Z，因為W，因此需要V。」句型。
+    # 2.2 sub_phase 啟用。一張便條 = 一個 PS（不像 persona 四欄位）。
+    # spec 23 v2.0 §2.2：問題定義（工具②）。v2.0 合併 pov＋problem_statement 為單一
+    # 模板（兩種句型擇一）。in-scene 一律稱「問題定義」，不講「Problem Statement」「POV」
+    # （#25）。來源關聯改 cites（≥2 筆痛點，2.2 計入條件由 artifact_gate enforce），
+    # 便條文字不寫引用行。
+    "problem_statement": TextTemplate(
+        id="problem_statement",
+        name_zh="問題定義",
+        # 兩種句型擇一匹配；五要件句沿用 v1.0 容錯（全/半形逗號句號、
+        # 「在 X 中/時/上」可省、他/她/他她、常遇到/常會/會/遇到）。
         pattern=re.compile(
-            r"假設[:：].+｜成功[:：].+｜失敗[:：].+｜min_fidelity[:：].+",
+            r"(?:.+?\s*需要\s*.+?[，,]\s*因為\s*.+"
+            r"|對於.+?而言[，,]\s*在.+?[中時上]?[，,]\s*"
+            r"(?:他[/／]?她|她|他)\s*常?\s*(?:會|遇到)\s*.+?[，,]\s*"
+            r"因為.+?[，,]\s*因此需要.+?[。\.])",
             re.DOTALL,
         ),
-        prompt_zh="格式：假設：[X]｜成功：[Y]｜失敗：[Z]｜min_fidelity：[paper/wireframe/code]",
-        example="假設：在商品列表顯示運費會提高加購率｜成功：A/B 測試提升 15%｜失敗：無顯著差異｜min_fidelity：wireframe",
-    ),
-    "task_ticket": TextTemplate(
-        id="task_ticket",
-        name_zh="任務工單",
-        pattern=re.compile(
-            r"任務[:：].+｜驗收[:：].+｜fidelity 上限[:：].+\n?\s*hypothesis[:：]\s*#?hyp[-_]\S+",
-            re.DOTALL | re.IGNORECASE,
-        ),
         prompt_zh=(
-            "格式：\n"
-            "  任務：[名]｜驗收：[條件]｜fidelity 上限：[paper/wireframe/figma/code]\n"
-            "  hypothesis: #hyp-X"
+            "格式（兩種寫法選一種）：\n"
+            "  某使用者 需要 某需求，因為 某洞察\n"
+            "或完整版：\n"
+            "  對於〔誰〕而言，在〔情境〕中，他常遇到〔困難〕，因為〔原因〕，因此需要〔真正需要〕。\n"
+            "寫的時候，點選你參考的那幾張痛點便條（至少兩張），讓大家知道這句是從哪些痛點來的。"
         ),
-        example="任務：商品列表 wireframe｜驗收：3 個情境可演示｜fidelity 上限：wireframe\nhypothesis: #hyp-1",
-        required_refs=("hyp",),
+        example=(
+            "常騎機車買晚餐的上班族 需要 出門時不用特別想也能帶到袋子的方法，"
+            "因為 他們不是不想帶，是想到的時候人已經在店裡了"
+        ),
     ),
-    "direction": TextTemplate(
-        id="direction",
-        name_zh="決定去向",
-        pattern=re.compile(
-            r"決定[:：]\s*(close|loop_define|loop_develop)\s*\n\s*理由[:：]\s*.+",
-            re.DOTALL | re.IGNORECASE,
-        ),
-        prompt_zh=(
-            "格式：\n"
-            "  決定：close | loop_define | loop_develop\n"
-            "  理由：..."
-        ),
-        example="決定：close\n理由：假設驗證成立，可進入 Spec 文檔產出",
+
+    # spec 23 v2.0 §2.3：主題群標籤（2.1 啟用）。v1.0「痛點候選」語意作廢——2.1 不再
+    # 產新痛點，而是把痛點按主題橫切歸類、幫每群下一個主題名稱的標籤便條（kind=label）。
+    "problem_candidate": TextTemplate(
+        id="problem_candidate",
+        name_zh="主題群標籤",
+        pattern=re.compile(r"^[^\n｜]{2,15}$"),
+        prompt_zh="格式：幫這一群痛點取一個大家看得懂的主題名稱（一句短語）。",
+        example="出門前就忘了帶",
     ),
 }
 
@@ -188,15 +166,28 @@ def validate_template(text: str, template_id: str) -> TemplateResult:
         return TemplateResult(
             passed=False,
             template_id=template_id,
-            reason_zh=f"便條為空。{tpl.name_zh} 需符合格式：{tpl.prompt_zh}",
+            # 用具體 example、不 dump prompt_zh（含 [原話]/[受訪者代號] 等內部佔位符），
+            # 否則格式校驗訊息會把內部格式規則漏到學生聊天室（盲測 2026-06-09）。
+            reason_zh=f"這張便條是空的，可以參考這樣寫：{tpl.example}",
         )
 
     if not tpl.pattern.search(text):
         return TemplateResult(
             passed=False,
             template_id=template_id,
-            reason_zh=f"格式不符。{tpl.name_zh} 應符合：\n{tpl.prompt_zh}",
+            reason_zh=f"這張「{tpl.name_zh}」便條的寫法再調整一下，可以參考：{tpl.example}",
         )
+
+    # spec 23 v2.0：禁字檢查（大小寫不敏感）。reason_zh 用大白話引導＋example，
+    # 不得把禁字規則本身講出來（#29，例：不講「不能寫 HMW」）。
+    if tpl.forbidden_terms:
+        upper = text.upper()
+        if any(term.upper() in upper for term in tpl.forbidden_terms):
+            return TemplateResult(
+                passed=False,
+                template_id=template_id,
+                reason_zh=f"這張「{tpl.name_zh}」便條直接用大白話寫就好，可以參考：{tpl.example}",
+            )
 
     return TemplateResult(passed=True, template_id=template_id)
 
@@ -206,7 +197,7 @@ _REF_PATTERNS: dict[str, re.Pattern[str]] = {
     "obs": re.compile(r"cites?[:：]\s*((?:#?obs[-_]\S+\s*[,，]?\s*)+)", re.IGNORECASE),
     "pov": re.compile(r"from[:：]\s*(#?pov[-_]\S+)", re.IGNORECASE),
     "hmw": re.compile(r"for[:：]\s*(#?hmw[-_]\S+)", re.IGNORECASE),
-    "hyp": re.compile(r"hypothesis[:：]\s*(#?hyp[-_]\S+)", re.IGNORECASE),
+    # Phase 29: hyp ref removed alongside hypothesis template.
 }
 
 
@@ -282,6 +273,12 @@ async def validate_template_with_canvas(
 def get_template_prompt(template_id: str) -> str | None:
     tpl = TEMPLATES.get(template_id)
     return tpl.prompt_zh if tpl else None
+
+
+def get_template_name(template_id: str) -> str:
+    """便條模板的學生友善名（避免把 raw template id 如 `scope_rationale` 漏給學生看）。"""
+    tpl = TEMPLATES.get(template_id)
+    return tpl.name_zh if tpl else template_id
 
 
 def list_templates() -> list[str]:

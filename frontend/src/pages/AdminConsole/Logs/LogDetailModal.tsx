@@ -63,6 +63,7 @@ function MetadataBlock({ detail }: { detail: AdminLogDetail }) {
     ['時間', new Date(detail.created_at).toLocaleString()],
     ['Caller', detail.caller],
     ['Provider', `${detail.provider_name ?? '—'} (T${detail.tier_used}${detail.cascade_from_tier ? ` ← T${detail.cascade_from_tier}` : ''})`],
+    ['Model', detail.model ?? '—'],
     ['Owning user', `${detail.owning_user_display_name ?? '—'} (${detail.owning_user_id.slice(0, 8)})`],
     ['Triggered by', detail.triggered_by_display_name ?? '—'],
     ['Project', detail.project_name ?? '（無 project context）'],

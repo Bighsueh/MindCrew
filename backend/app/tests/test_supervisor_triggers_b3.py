@@ -1,4 +1,4 @@
-"""Unit tests for Supervisor B3 系列遞進 trigger (specs/16-timer-system.md §6.5.5)."""
+"""Unit tests for Supervisor B3 系列遞進 trigger ()."""
 
 from __future__ import annotations
 

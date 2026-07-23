@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import String, Text, Integer, ForeignKey, Index
+from sqlalchemy import String, Text, Integer, ForeignKey, Index, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB
 
@@ -40,8 +40,13 @@ class AgentDecisionTrace(Base):
     action_details: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     action_result: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
+    # app 端 default callable：每筆 insert 帶入正確當下時間，不依賴被凍結的
+    # DB server_default（否則所有 trace created_at 相同，時間軸無法重建）。
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default="now()"
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
     )
 
     __table_args__ = (

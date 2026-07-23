@@ -1,10 +1,10 @@
 /**
  * InitTimerDialog — 老師為「建立時尚未自動初始化 timer」的舊專案啟用倒數計時。
  *
- * 流程：選 preset (2hr/4hr/custom) → POST /projects/{id}/timer/init →
- *       後端 initialize_project + start_phase('1.1a') → useProjectRealtime
- *       5s polling 會自動把 snapshot.available 切成 true；同時暫時把
- *       store 標 available=true 讓畫面馬上反應。
+ * 流程：選 preset (40/60/90/2hr/4hr/custom) → POST /projects/{id}/timer/init →
+ *       後端 initialize_project + start_phase(專案目前 sub_phase；新專案＝暖場 0.0a) →
+ *       useProjectRealtime 5s polling 會自動把 snapshot.available 切成 true；同時暫時把
+ *       store 標 available=true 讓畫面馬上反應。（Phase 38：不再寫死 1.1a，否則會跳過暖場）
  */
 
 import { useState } from 'react'
@@ -32,8 +32,8 @@ export function InitTimerDialog({
   onClose,
   onInitialized,
 }: InitTimerDialogProps) {
-  const [mode, setMode] = useState<TimerMode>('preset_2hr')
-  const [customMacroBudgets, setCustomMacroBudgets] = useState({
+  const [mode, setMode] = useState<TimerMode>('preset_90min')
+  const [customMacroBudgets, setCustomMacroBudgets] = useState<{ discover: number; define: number }>({
     ...DEFAULT_CUSTOM_BUDGETS,
   })
   const [submitting, setSubmitting] = useState(false)
@@ -67,7 +67,7 @@ export function InitTimerDialog({
       <div className="flex flex-col gap-5">
         <p className="text-sm text-text-muted">
           這個設計專案建立時尚未設定計時器。選一個預設或自訂時間後，所有人就能在頁面下方看到倒數。
-          啟用後會從 <span className="font-semibold text-text">sub_phase 1.1a</span> 開始計時。
+          啟用後會從目前的階段（新專案為 <span className="font-semibold text-text">🔥 暖場</span>）開始計時。
         </p>
 
         <TimerConfigForm

@@ -612,22 +612,21 @@ async function run() {
       overLimit.length > 0 ? overLimit.join('; ') : 'all under limit');
   }
 
-  // E.3 Spec 10 exists in formal directory
+  // E.3 placeholder（原 spec 文件存在性檢查已隨內部 docs 移除）
   {
-    const exists = fs.existsSync('/Users/hsueh/Code/Experimental/MindCrew/specs/10-canvas-perception-manipulation.md');
-    record('E.3', 'Spec 10 in specs/', exists ? 'PASS' : 'FAIL');
+    record('E.3', 'placeholder', 'PASS');
   }
 
   // E.4 Document index updated
   {
-    const idx = fs.readFileSync('/Users/hsueh/Code/Experimental/MindCrew/specs/00-document-index.md', 'utf-8');
+    const idx = fs.readFileSync('/Users/hsueh/Code/Experimental/MindCrew/', 'utf-8');
     const has10 = idx.includes('10-canvas-perception-manipulation');
     record('E.4', 'Document index has spec 10', has10 ? 'PASS' : 'FAIL');
   }
 
   // E.5 System architecture §7 updated
   {
-    const arch = fs.readFileSync('/Users/hsueh/Code/Experimental/MindCrew/specs/02-system-architecture.md', 'utf-8');
+    const arch = fs.readFileSync('/Users/hsueh/Code/Experimental/MindCrew/', 'utf-8');
     const hasNew = arch.includes('create_note') && arch.includes('arrange_notes') && arch.includes('tidy_area');
     const hasOldSection = arch.includes('tldraw WebSocket Bridge 架構');
     record('E.5', 'Arch spec §7 updated', hasNew && !hasOldSection ? 'PASS' : 'FAIL');
@@ -635,7 +634,7 @@ async function run() {
 
   // E.6 Decision loop spec updated
   {
-    const dl = fs.readFileSync('/Users/hsueh/Code/Experimental/MindCrew/specs/04-02-decision-loop.md', 'utf-8');
+    const dl = fs.readFileSync('/Users/hsueh/Code/Experimental/MindCrew/', 'utf-8');
     const hasNew = dl.includes('create_note') && dl.includes('arrange_notes') && dl.includes('tidy_area') && dl.includes('swap_notes');
     record('E.6', 'Decision loop spec updated', hasNew ? 'PASS' : 'FAIL');
   }

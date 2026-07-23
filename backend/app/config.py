@@ -17,11 +17,17 @@ class Settings(BaseSettings):
     # LLM Limits
     LLM_MAX_TOKENS_PER_CALL: int = 2048
     LLM_PROJECT_RPM_LIMIT: int = 30
-    LLM_GLOBAL_RPM_LIMIT: int = 300
+    # Phase 37: lowered 300 → 116 to match measured sustainable throughput
+    # (llm-bench-report §6: two-provider knee ≈ 145 rpm × 0.8). Env-overridable.
+    LLM_GLOBAL_RPM_LIMIT: int = 116
     LLM_CALL_TIMEOUT_SECONDS: int = 60
     LLM_STREAM_CONNECT_TIMEOUT_SECONDS: int = 15
     LLM_PROVIDER_COOLDOWN_SECONDS: int = 30
     LLM_PROVIDER_REGISTRY_TTL_SECONDS: int = 30
+    # Phase 42 D5 (G14 / #35, spec 20 §13.2)：LLM 持續不可用 → fail-stop。
+    # reactive 連續硬失敗門檻 / proactive 健康檢查間隔（同門檻套用 proactive streak）。
+    LLM_DOWN_CONSECUTIVE_FAILURES: int = 3
+    LLM_HEALTH_CHECK_INTERVAL_SECONDS: int = 30
 
     # Embedding (Qwen3-Embedding-8B)
     EMBEDDING_BASE_URL: str = "https://embedding.example.com/v1"

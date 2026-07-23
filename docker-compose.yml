@@ -42,7 +42,7 @@ services:
       # LLM provider 設定改為 DB 真理來源（Phase 25），這裡不再注入任何 endpoint / key。
       LLM_MAX_TOKENS_PER_CALL: ${LLM_MAX_TOKENS_PER_CALL:-2048}
       LLM_PROJECT_RPM_LIMIT: ${LLM_PROJECT_RPM_LIMIT:-30}
-      LLM_GLOBAL_RPM_LIMIT: ${LLM_GLOBAL_RPM_LIMIT:-300}
+      LLM_GLOBAL_RPM_LIMIT: ${LLM_GLOBAL_RPM_LIMIT:-116}
       LLM_CALL_TIMEOUT_SECONDS: "60"  # 顯式設定，防止被 .env 覆蓋
       LLM_STREAM_CONNECT_TIMEOUT_SECONDS: "15"
       APP_ENV: production

@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Awaitable, Callable
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
 # Grace period before pausing agents after the last human disconnects.
 _GRACE_PERIOD_SECONDS = 30.0
+
+# Phase 43：present↔absent 轉換時觸發的 async hook（接 room_hibernation）。
+PresenceHook = Callable[[UUID], Awaitable[None]]
 
 
 class PresenceTracker:
@@ -26,6 +30,47 @@ class PresenceTracker:
         self._counts: dict[str, int] = {}
         self._events: dict[str, asyncio.Event] = {}
         self._grace_timers: dict[str, asyncio.Task[None]] = {}
+        # Phase 43：在席轉換 hook（休眠/喚醒編排）；None＝未註冊。
+        self._on_absent: PresenceHook | None = None
+        self._on_present: PresenceHook | None = None
+        # 持有 fire-and-forget hook task 參考，避免被 GC 中途回收。
+        self._hook_tasks: set[asyncio.Task[None]] = set()
+
+    def set_presence_hooks(
+        self,
+        *,
+        on_absent: PresenceHook | None = None,
+        on_present: PresenceHook | None = None,
+    ) -> None:
+        """註冊在席轉換 hook（main.py 啟動時接 room_hibernation 的 suspend/resume）。
+
+        - ``on_present``：absent→present（人重連）→ 喚醒休眠房。
+        - ``on_absent``：present→absent（grace 後離席）→ 全房休眠。
+        兩者皆須為 idempotent / 自帶守則（resume 只解凍 awaiting_human、suspend 遇
+        已暫停 no-op），因為 hook 會在每次轉換時觸發（含正常開房/關房）。
+        """
+        self._on_absent = on_absent
+        self._on_present = on_present
+
+    def _fire_hook(self, hook: PresenceHook | None, key: str) -> None:
+        """以 fire-and-forget task 觸發 hook（key＝str(project_id)）。"""
+        if hook is None:
+            return
+
+        def _done(task: asyncio.Task[None]) -> None:
+            self._hook_tasks.discard(task)
+            if not task.cancelled() and task.exception() is not None:
+                logger.error(
+                    "presence hook failed project=%s: %r", key, task.exception()
+                )
+
+        try:
+            task = asyncio.create_task(hook(UUID(key)))
+            self._hook_tasks.add(task)
+            task.add_done_callback(_done)
+        except RuntimeError:
+            # 無 running loop（理論上不會：connect / grace 皆在 event loop 內）。
+            logger.debug("presence hook skipped (no running loop) project=%s", key)
 
     # ------------------------------------------------------------------
     # Public API
@@ -51,6 +96,8 @@ class PresenceTracker:
                 key,
                 self._counts[key],
             )
+            # Phase 43：人重連 → 喚醒休眠房（resume_room 自帶守則，非休眠房 no-op）。
+            self._fire_hook(self._on_present, key)
         else:
             logger.debug(
                 "Project %s human connect (count=%d)", key, self._counts[key]
@@ -124,6 +171,8 @@ class PresenceTracker:
             if event is not None and event.is_set():
                 event.clear()
                 logger.info("Project %s human presence: present → absent", key)
+                # Phase 43：離席（grace 後）→ 全房休眠（suspend_room 遇已暫停 no-op）。
+                self._fire_hook(self._on_absent, key)
 
             self._grace_timers.pop(key, None)
 

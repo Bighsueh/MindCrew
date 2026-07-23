@@ -23,7 +23,10 @@ const COLOR_MAP: Record<string, string> = {
   red: 'red',
   orange: 'orange',
   violet: 'violet',
-  pink: 'light-red',
+  // 補齊 8 色池剩餘 token（tldraw 原生支援），避免靜默 fallback 成 yellow。
+  'light-blue': 'light-blue',
+  'light-green': 'light-green',
+  pink: 'violet',
   purple: 'light-violet',
 }
 
@@ -37,7 +40,16 @@ function toIndexKey(n: number): string {
   return `a${BASE62[n % BASE62.length]}`
 }
 
-function buildRecord(
+/**
+ * 只接受有限數字（擋掉 undefined / null / 字串 / NaN / Infinity）。
+ * 注意：刻意保留合法的 0 —— 舊版用 `value || fallback` 會把座標 0 誤判成 falsy 而被換掉。
+ */
+function finiteOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+// Exported for unit testing（純函式，無 DOM 依賴）。
+export function buildRecord(
   key: string,
   shape: Record<string, unknown>,
   idx: number,
@@ -47,8 +59,8 @@ function buildRecord(
     id: id as TLRecord['id'],
     typeName: 'shape',
     type: 'note',
-    x: (shape.x as number) || 100 + idx * 30,
-    y: (shape.y as number) || 100 + idx * 30,
+    x: finiteOr(shape.x, 100 + idx * 30),
+    y: finiteOr(shape.y, 100 + idx * 30),
     rotation: 0,
     parentId: 'page:page' as TLRecord['id'],
     index: toIndexKey(idx),
@@ -60,6 +72,18 @@ function buildRecord(
       // Phase 24：把 sidecar 寫入的 createdAt 帶進 tldraw meta，
       // 供 Activity Highlight（聊天氣泡 ⇄ 便利貼）時間配對使用。
       created_at: typeof shape.createdAt === 'string' ? shape.createdAt : '',
+      // Spec 27 (Phase 36)：便條欄位帶進 meta（kind / group_id）。
+      kind: typeof shape.kind === 'string' ? shape.kind : 'content',
+      group_id: typeof shape.group_id === 'string' ? shape.group_id : '',
+      // Phase 42 C0 (spec 06 v4.25)：引用鏈 + 強推標記；gate_violation 供違規 badge。
+      cites: Array.isArray(shape.cites)
+        ? (shape.cites.filter((c) => typeof c === 'string') as string[])
+        : [],
+      time_box_forced: shape.time_box_forced === true,
+      gate_violation:
+        shape.gate_violation && typeof shape.gate_violation === 'object'
+          ? JSON.stringify(shape.gate_violation)
+          : '',
     },
     props: {
       text: (shape.content as string) || '',
@@ -95,21 +119,28 @@ export function useAnimatedYjsSync(
         let idx = 0
 
         shapesMap.forEach((value: unknown, key: string) => {
-          const shape = value as Record<string, unknown>
-          if (!shape || typeof shape !== 'object') return
+          // 逐張隔離：單張便條建構失敗只跳過它，不讓整批同步中斷。
+          try {
+            const shape = value as Record<string, unknown>
+            if (!shape || typeof shape !== 'object') return
 
-          const record = buildRecord(key, shape, idx)
-          const id = record.id as string
-          const newX = record.x as number
-          const newY = record.y as number
+            const record = buildRecord(key, shape, idx)
+            const id = record.id as string
+            // record 為 note shape，x/y 不在 TLRecord union 的共同欄位上，明確取出。
+            const pos = record as unknown as { x: number; y: number }
+            const newX = pos.x
+            const newY = pos.y
 
-          const prev = positions.get(id)
-          if (prev && (prev.x !== newX || prev.y !== newY)) {
-            hasMoved = true
+            const prev = positions.get(id)
+            if (prev && (prev.x !== newX || prev.y !== newY)) {
+              hasMoved = true
+            }
+            positions.set(id, { x: newX, y: newY })
+            records.push(record)
+            idx++
+          } catch (err) {
+            console.warn('useAnimatedYjsSync: skipped malformed shape', key, err)
           }
-          positions.set(id, { x: newX, y: newY })
-          records.push(record)
-          idx++
         })
 
         // Enable CSS transition BEFORE updating store
@@ -117,10 +148,23 @@ export function useAnimatedYjsSync(
           onPositionChange()
         }
 
-        // Write final positions to store (instant in store, CSS animates visually)
+        // Write final positions to store (instant in store, CSS animates visually).
+        // 批次 put 若因單張 record 通不過 tldraw 驗證而 throw，降級為逐張 put，
+        // 跳過壞的那張、保住其餘便條 —— 避免「一張壞便條讓整面白板的便條全部消失」。
         if (records.length > 0) {
           store.mergeRemoteChanges(() => {
-            store.put(records)
+            try {
+              store.put(records)
+            } catch (batchErr) {
+              console.warn('useAnimatedYjsSync: batch put failed, falling back to per-record', batchErr)
+              for (const r of records) {
+                try {
+                  store.put([r])
+                } catch (recErr) {
+                  console.warn('useAnimatedYjsSync: skipped invalid record', r.id, recErr)
+                }
+              }
+            }
           })
         }
 

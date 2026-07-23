@@ -1,9 +1,16 @@
 # Environment
 .env
 
-# Specs & diagrams (PRD phase, not in version control)
-specs/
-diagrams/
+# SDD private assets (know-how, not delivered)
+# Anchored to repo root（不影響 backend/app/agents/prompts/、frontend 等子路徑）
+/specs/
+/diagrams/
+/prompts/
+/docs/
+/CLAUDE.md
+/DT-Gap-Analysis.md
+/DT-Phase-Facilitation-Guide.md
+/.cursor/
 
 # Python
 __pycache__/
@@ -54,6 +61,8 @@ ws-warnings.txt
 e2e/screenshots/
 e2e/test-report.json
 e2e/node_modules/
+e2e/test-results-*/
+e2e/playwright-report/
 
 # Sidecar build output
 sidecar/dist/

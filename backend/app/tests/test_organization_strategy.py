@@ -112,19 +112,20 @@ class TestCrossClusterSimilarity:
 
 class TestOrganizationHint:
     def test_diverge_phase(self) -> None:
-        """In diverge phase 3.1, should not suggest grouping."""
+        """In diverge phase 1.1, should not suggest grouping."""
         analysis = _make_analysis(orderliness=0.6)
-        hint = _generate_organization_hint(analysis, "3.1")
+        hint = _generate_organization_hint(analysis, "1.1")
         assert "發散階段" in hint
         assert "分群" not in hint or "禁止" in hint or "不做" in hint or "不需" in hint
 
     def test_converge_phase_high_ungrouped(self) -> None:
-        """In converge phase 3.2 with many ungrouped notes, suggest systematic organize."""
+        """In heavy-organize converge phase 2.1（痛點歸類）with many ungrouped
+        notes, suggest systematic organize.（Phase 42 C1：舊 1.3 → 2.1）"""
         analysis = _make_analysis(
             n_notes=10, cluster_sizes=[3, 2], orderliness=0.4,
         )
         # ungrouped = 5/10 = 50% > 40%
-        hint = _generate_organization_hint(analysis, "3.2")
+        hint = _generate_organization_hint(analysis, "2.1")
         assert "收斂整理" in hint
         assert "get_canvas_snapshot" in hint
 
@@ -203,46 +204,39 @@ class TestRuleXPhaseAware:
         }
 
     def test_diverge_high_tolerance(self) -> None:
-        """Phase 3.1 (diverge), orderliness=0.30 > threshold 0.20: should NOT trigger."""
-        from app.agents.assess import AssessEngine
-
-        context = self._make_context(orderliness=0.30, micro_phase="3.1")
-        # We just test the threshold logic directly
+        """Phase 1.1 (diverge), orderliness=0.30 > threshold 0.25: should NOT trigger."""
+        context = self._make_context(orderliness=0.30, micro_phase="1.1")
         micro_phase = context.get("current_micro_phase", "")
         thresholds = {
             "1.1": 0.25, "1.2": 0.25, "1.3": 0.50,
             "2.1": 0.40, "2.2": 0.45, "2.3": 0.50,
-            "3.1": 0.20, "3.2": 0.50, "3.3": 0.55,
-            "4.1": 0.40, "4.2": 0.45, "4.3": 0.45,
         }
         threshold = thresholds.get(micro_phase, 0.45)
-        assert 0.30 >= threshold  # 0.30 >= 0.20, so should NOT trigger
+        assert 0.30 >= threshold  # 0.30 >= 0.25, so should NOT trigger
 
     def test_converge_low_tolerance(self) -> None:
-        """Phase 3.2 (converge), orderliness=0.48 < threshold 0.50: should trigger."""
-        micro_phase = "3.2"
+        """Phase 1.3 (converge), orderliness=0.48 < threshold 0.50: should trigger."""
+        micro_phase = "1.3"
         thresholds = {
             "1.1": 0.25, "1.2": 0.25, "1.3": 0.50,
             "2.1": 0.40, "2.2": 0.45, "2.3": 0.50,
-            "3.1": 0.20, "3.2": 0.50, "3.3": 0.55,
-            "4.1": 0.40, "4.2": 0.45, "4.3": 0.45,
         }
         threshold = thresholds.get(micro_phase, 0.45)
         assert 0.48 < threshold  # 0.48 < 0.50, so should trigger
 
     def test_cooldown_diverge_longer(self) -> None:
         """Diverge phases should have 600s cooldown, converge 300s."""
-        diverge_phases = frozenset(("1.1", "1.2", "3.1"))
+        diverge_phases = frozenset(("1.1", "1.2"))
         for phase in diverge_phases:
             cooldown = 600 if phase in diverge_phases else 300
             assert cooldown == 600
-        assert (600 if "3.2" in diverge_phases else 300) == 300
+        assert (600 if "1.3" in diverge_phases else 300) == 300
 
     def test_default_threshold_fallback(self) -> None:
         """Unknown micro_phase should use default 0.45."""
         thresholds = {
             "1.1": 0.25, "1.2": 0.25, "1.3": 0.50,
-            "3.1": 0.20, "3.2": 0.50, "3.3": 0.55,
+            "2.1": 0.40, "2.2": 0.45, "2.3": 0.50,
         }
         assert thresholds.get(None, 0.45) == 0.45
         assert thresholds.get("", 0.45) == 0.45

@@ -1,4 +1,4 @@
-"""DT 教練的時間預算摘要 builder（specs/16-timer-system.md §6.5.6）。
+"""DT 教練的時間預算摘要 builder（）。
 
 設計原則：
   - Coach「看得到大概」當前 sub_phase 的 used_pct + 壓力等級 + 階段意圖，

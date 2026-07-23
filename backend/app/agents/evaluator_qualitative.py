@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 _STAGE_NAMES = {
     "discover": "Discover（發現）",
     "define": "Define（定義）",
-    "develop": "Develop（發展）",
-    "deliver": "Deliver（交付）",
+    # Phase 29 (2026-05-26): develop / deliver removed (spec/04-06 §4.10).
+    "completed": "第一鑽石完成",
 }
 
 

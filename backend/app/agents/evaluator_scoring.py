@@ -166,83 +166,7 @@ def score_define(canvas: dict, chat: list[dict], seats: list[dict]) -> float:
     )
 
 
-def score_develop(canvas: dict, chat: list[dict], seats: list[dict]) -> float:
-    total_notes = canvas.get("total_notes", 0)
-    groups = canvas.get("groups", [])
-
-    # New note count (30%): >= 20 = 100
-    note_score = min(100.0, total_notes / 20 * 100)
-
-    # Slowdown (20%): conservative 0
-    slowdown_score = 0.0
-
-    # Idea diversity (25%): >= 3 groups = 100
-    diversity_score = min(100.0, len(groups) / 3 * 100)
-
-    # Extension behaviour (15%): proxy — group count > 0
-    extension_score = 100.0 if len(groups) > 0 else 0.0
-
-    # Participant coverage (10%)
-    coverage_score = participant_coverage(canvas, seats)
-
-    return (
-        note_score * 0.30
-        + slowdown_score * 0.20
-        + diversity_score * 0.25
-        + extension_score * 0.15
-        + coverage_score * 0.10
-    )
-
-
-def score_deliver(canvas: dict, chat: list[dict], seats: list[dict]) -> float:
-    groups = canvas.get("groups", [])
-    total_notes = canvas.get("total_notes", 0)
-
-    # Priority sorting (30%)
-    priority_score = 0.0
-    sort_keywords = ["優先", "排序", "先做", "重要", "priority"]
-    if len(groups) >= 1 and any(
-        any(kw in m.get("content", "").lower() for kw in sort_keywords)
-        for m in chat
-    ):
-        priority_score = 100.0
-    elif len(groups) >= 1:
-        priority_score = 50.0
-
-    # Implementation steps (25%)
-    step_keywords = ["步驟", "第一步", "step", "實施", "計畫", "action"]
-    notes: list[dict] = canvas.get("notes", [])
-    has_steps = any(
-        any(kw in n.get("content", "").lower() for kw in step_keywords)
-        for n in notes
-    )
-    steps_score = 100.0 if has_steps else 0.0
-
-    # Evaluation discussion depth (25%): >= 10 evaluation-related messages
-    eval_keywords = ["可行", "評估", "風險", "成本", "效益", "impact"]
-    eval_msgs = sum(
-        1 for m in chat
-        if any(kw in m.get("content", "").lower() for kw in eval_keywords)
-    )
-    eval_score = min(100.0, eval_msgs / 10 * 100)
-
-    # Team activity (10%)
-    activity_score = min(100.0, len(chat) / 15 * 100)
-
-    # Consensus expression (10%)
-    consensus_keywords = ["同意", "決定", "確定", "共識", "就這樣", "agree"]
-    consensus_score = 100.0 if any(
-        any(kw in m.get("content", "").lower() for kw in consensus_keywords)
-        for m in chat
-    ) else 0.0
-
-    return (
-        priority_score * 0.30
-        + steps_score * 0.25
-        + eval_score * 0.25
-        + activity_score * 0.10
-        + consensus_score * 0.10
-    )
+# 兩個 macro-stage scorer 整體刪除（spec/04-05 §5.5）。
 
 
 async def compute_quantitative(
@@ -261,8 +185,6 @@ async def compute_quantitative(
     fn = {
         "discover": score_discover,
         "define": score_define,
-        "develop": score_develop,
-        "deliver": score_deliver,
     }.get(stage, score_discover)
     rule_score = fn(canvas, recent_chat, seats)
 

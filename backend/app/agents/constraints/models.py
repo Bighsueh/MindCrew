@@ -1,6 +1,6 @@
 """ConstraintSuggestions data structure.
 
-See ``specs/17-dynamic-persona-system.md`` §3.0.2.
+See `` §3.0.2.
 
 Note on immutability: fields are ``tuple[str, ...]`` (not list) so that
 ``frozen=True`` provides full deep immutability — preventing the trap

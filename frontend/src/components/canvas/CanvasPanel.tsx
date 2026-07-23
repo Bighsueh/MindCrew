@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import '../../lib/tldrawColorPatch'
 import { Tldraw, TLComponents, createTLStore, defaultShapeUtils } from '@tldraw/tldraw'
+import type { Editor } from '@tldraw/tldraw'
 import '@tldraw/tldraw/tldraw.css'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
@@ -7,27 +9,30 @@ import type { DTStage, MicroPhaseId } from '../../types/models'
 import { MiniToolbar } from './MiniToolbar'
 import { ZoomControls } from './ZoomControls'
 import { NoteAuthorOverlay } from './NoteAuthorOverlay'
+import { NoteHighlightOverlay } from './NoteHighlightOverlay'
 import { HumanNoteColorInjector } from './HumanNoteColorInjector'
 import { AnimatedYjsBridge } from './AnimatedYjsBridge'
+import { WhiteboardErrorFallback } from './WhiteboardErrorFallback'
+// Phase 42 C0：真人建立便條接線（gate + RejectToast）、引用 UI、違規 badge
+import { HumanNoteCreateSync } from './HumanNoteCreateSync'
+import { NoteCitationTool } from './NoteCitationTool'
+import { GateViolationOverlay } from './GateViolationOverlay'
+// Phase 42 C2：設計題目（2.7）外框＋角標（kind 驅動、不用顏色，spec 23 §2.4 / 25 §3.3）
+import { DesignQuestionOverlay } from './DesignQuestionOverlay'
+import { OverflowHint } from './OverflowHint'
 // Phase 17 Stream B (Spec 13) — Sticky-Only Strategy overlays
 import { ZoneOverlay } from './ZoneOverlay'
 import { HmwTabBar } from './HmwTabBar'
-import { CommModeIndicator } from './CommModeIndicator'
-// Phase 17 Stream B (Spec 14 + 15) — Timer + Advance vote
+// Phase 17 Stream B (Spec 15) — Timer（v4.15：advance vote 已移除）
 import { TimerControlPanel } from '../timer/TimerControlPanel'
-import { AdvanceVoteBanner } from '../vote/AdvanceVoteBanner'
 import { useProjectRealtime } from '@/hooks/useProjectRealtime'
+import { useCanvasStatsStore } from '@/stores/canvasStatsStore'
 // Phase 20 — Empty state for the start-action UX
 import { CanvasEmptyState, type StartActionStage } from './CanvasEmptyState'
 
 interface CanvasPanelProps {
   projectId: string
   currentStage?: DTStage
-  // Phase 17 Stream B: parent injects current sub_phase + comm_mode
-  subPhase?: string | null
-  commMode?: 'silent_write' | 'reveal_round' | 'silent_rearrange' | 'discussion'
-  subPhaseName?: string
-  nextRevealSeat?: string | null
   // Phase 17 Stream B: teacher mode + current user id for vote / timer
   isTeacher?: boolean
   currentUserId?: string
@@ -39,15 +44,16 @@ interface CanvasPanelProps {
   emptyStateVisible?: boolean
   // 當 EmptyState 退場動畫（飛入「起頭」chip）完成時觸發 → 父層用來同步 chip flash
   onEmptyStateHide?: () => void
-  // micro-phase 細粒度 hint（1.1–4.3）
+  // micro-phase 細粒度 hint（1.1–2.3, Phase 29 縮為第一鑽石）
   currentMicroPhase?: MicroPhaseId | null
   // Observer mode → render tldraw in read-only mode
   isObserver?: boolean
 }
 
-// Phase 20: narrow DTStage to the 4 stages the EmptyState recognises (matches STAGE_ACTIONS keys)
+// Phase 20: narrow DTStage to the stages the EmptyState recognises (matches STAGE_ACTIONS keys).
+// Phase 29 (spec/04-06 §4.10): only discover / define remain.
 function asStartActionStage(s: DTStage | undefined): StartActionStage {
-  if (s === 'discover' || s === 'define' || s === 'develop' || s === 'deliver') return s
+  if (s === 'discover' || s === 'define') return s
   return 'discover'
 }
 
@@ -69,25 +75,23 @@ const TLDRAW_COMPONENTS: TLComponents = {
   NavigationPanel: null,
   Minimap: null,
   MenuPanel: null,
+  // 容錯隔離：單張便條渲染失敗只隱藏那一張，不再升級成整面白板崩潰。
+  ShapeErrorFallback: () => null,
+  ShapeIndicatorErrorFallback: () => null,
 }
 
+// Phase 29 (spec/04-06 §4.10): develop / deliver removed.
 const STAGE_BG: Record<string, string> = {
   discover: 'bg-[#fefce8]',
   define: 'bg-[#fef3e2]',
-  develop: 'bg-[#fdf5ee]',
-  deliver: 'bg-[#faf0e6]',
+  completed: 'bg-[#faf0e6]',
 }
 
 export function CanvasPanel({
   projectId,
   currentStage,
-  // Phase 17 Stream B
-  subPhase = null,
-  commMode = 'discussion',
-  subPhaseName,
-  nextRevealSeat = null,
   isTeacher = false,
-  currentUserId = '',
+  // currentUserId 仍保留在 props 介面（callers 相容），advance vote 移除後不再使用
   // Phase 20
   onEmptyStateAction,
   onShapeCountChange,
@@ -96,15 +100,30 @@ export function CanvasPanel({
   currentMicroPhase,
   isObserver = false,
 }: CanvasPanelProps) {
-  // Phase 17 Stream B (Spec 14 + 15): pull timer + vote state
-  const { voteSession } = useProjectRealtime(projectId)
+  // Spec 15: pull timer state（每 5s polling 寫進 timerStore）
+  useProjectRealtime(projectId)
   const [connected, setConnected] = useState(false)
   const store = useMemo(() => createTLStore({ shapeUtils: defaultShapeUtils }), [])
+  const editorRef = useRef<Editor | null>(null)
   const docRef = useRef<Y.Doc | null>(null)
   const providerRef = useRef<WebsocketProvider | null>(null)
   const [shapesMap, setShapesMap] = useState<Y.Map<unknown> | null>(null)
   // Phase 20: track shape count for EmptyState visibility fallback
   const [shapeCount, setShapeCount] = useState(0)
+  // 暫態渲染崩潰後，用 remount（換 key）原地復原白板，不必整頁 refresh、不丟資料。
+  const [tldrawKey, setTldrawKey] = useState(0)
+  const components = useMemo<TLComponents>(
+    () => ({
+      ...TLDRAW_COMPONENTS,
+      ErrorFallback: ({ error }) => (
+        <WhiteboardErrorFallback
+          error={error}
+          onReload={() => setTldrawKey((k) => k + 1)}
+        />
+      ),
+    }),
+    [],
+  )
 
   useEffect(() => {
     const doc = new Y.Doc()
@@ -136,14 +155,32 @@ export function CanvasPanel({
   useEffect(() => {
     const update = () => {
       const records = store.allRecords()
-      const next = records.filter((r) => r.typeName === 'shape').length
+      const shapes = records.filter((r) => r.typeName === 'shape')
+      const next = shapes.length
       setShapeCount(next)
       onShapeCountChange?.(next)
+      // Phase 42 B1（spec 28 §3.2）：暖場「N／目標」計數——kind=content 便條數
+      // （label 標題不計；meta 沒帶 kind 的本地人類便條視為 content）。
+      const contentNotes = shapes.filter((r) => {
+        const rec = r as unknown as { type?: string; meta?: Record<string, unknown> }
+        if (rec.type !== 'note') return false
+        const kind = rec.meta?.kind
+        return kind === undefined || kind === '' || kind === 'content'
+      }).length
+      useCanvasStatsStore.getState().setContentNoteCount(contentNotes)
     }
     update()
     const unlisten = store.listen(update, { source: 'all', scope: 'document' })
     return unlisten
   }, [store, onShapeCountChange])
+
+  // 讓 editor 的 readonly 隨 isObserver 持續同步（不能只靠 onMount）。
+  // 根因：seats 非同步載入，canvas 掛載當下 isObserver=true（座位還沒回）→ onMount 把
+  // editor 設成 readonly；座位載入後 isObserver 翻 false，但 onMount 不會重跑 → editor
+  // 永久卡 readonly → 入座學生按便利貼時 createShape 變 no-op、tldraw 取 undefined.id 崩潰。
+  useEffect(() => {
+    editorRef.current?.updateInstanceState({ isReadonly: isObserver })
+  }, [isObserver])
 
   const stageBg = currentStage ? STAGE_BG[currentStage] ?? '' : ''
 
@@ -155,10 +192,12 @@ export function CanvasPanel({
         </div>
       )}
       <Tldraw
+        key={tldrawKey}
         store={store}
         inferDarkMode={false}
-        components={TLDRAW_COMPONENTS}
+        components={components}
         onMount={(editor) => {
+          editorRef.current = editor
           editor.updateInstanceState({ isReadonly: isObserver })
         }}
       >
@@ -166,30 +205,31 @@ export function CanvasPanel({
         <MiniToolbar />
         <ZoomControls />
         <NoteAuthorOverlay />
+        {/* Phase 42 A3（WP7，#34）：組長指認便條高亮（ttl 自動退場） */}
+        <NoteHighlightOverlay />
         {/* Phase 22：人類新貼便利貼時自動套席位鎖定色 */}
         <HumanNoteColorInjector />
+        {/* Phase 42 C0 ⑥(b)：真人建便條 → POST gate → RejectToast / force_publish */}
+        {!isObserver && (
+          <HumanNoteCreateSync projectId={projectId} shapesMap={shapesMap} />
+        )}
+        {/* Phase 42 C0 ⑤：選自己的便條 → 點選引用 */}
+        {!isObserver && <NoteCitationTool projectId={projectId} />}
+        {/* Phase 42 C0：force_publish 違規標記 badge */}
+        <GateViolationOverlay />
+        {/* Phase 42 C2：設計題目專屬外框＋角標（依文字句型辨識） */}
+        <DesignQuestionOverlay />
         {/* Phase 17 Stream B (Spec 13): zone overlay. Camera coords passthrough — store internal aligns. */}
         <ZoneOverlay cameraX={0} cameraY={0} cameraZ={1} />
+        {/* Phase 42 D1b（#33）：內容超出視野時的「縮小看全部」提示鈕 */}
+        <OverflowHint />
       </Tldraw>
       {/* Phase 17 Stream B (Spec 13) overlays — outside Tldraw to avoid double-render */}
       <HmwTabBar />
-      <CommModeIndicator
-        subPhase={subPhase}
-        commMode={commMode}
-        subPhaseName={subPhaseName}
-        nextRevealSeat={nextRevealSeat}
-      />
       {/* Phase 17 Stream B (Spec 16 §6.5.3): Timer 改放 Workspace navbar（TimerInline）。
           這裡保留註解便於追蹤；舊浮動 TimerBadge 已下架避免與 navbar 重複。 */}
       {/* Phase 17 Stream B (Spec 15): teacher-only timer control */}
       <TimerControlPanel projectId={projectId} isTeacher={isTeacher} />
-      {/* Phase 17 Stream B (Spec 14 N2): Crew advance vote */}
-      <AdvanceVoteBanner
-        projectId={projectId}
-        isTeacher={isTeacher}
-        currentUserId={currentUserId}
-        session={voteSession}
-      />
       {/* Phase 20: EmptyState must be a <Tldraw> sibling, not a child (tldraw double-renders children).
           Only mount when parent registered onEmptyStateAction, to avoid surprising pre-wired callers. */}
       {onEmptyStateAction !== undefined && (

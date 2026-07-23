@@ -8,14 +8,19 @@ from dataclasses import dataclass, field
 from typing import AsyncContextManager
 from uuid import UUID
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 # Spec §3.2: queue timeout before auto-abandon
 _QUEUE_TIMEOUT_SECONDS = 30.0
 
-# Rate limits (spec §3): per-project and global RPM
-_PROJECT_RPM_LIMIT = 30
-_GLOBAL_RPM_LIMIT = 300
+# Rate limits (spec §3): per-project and global RPM.
+# Phase 37: read from settings (env-configurable) instead of hardcoding, so the
+# global cap can track real sustainable throughput (~116 rpm per llm-bench-report
+# §6) without a code edit, and config/coordinator no longer diverge.
+_PROJECT_RPM_LIMIT = settings.LLM_PROJECT_RPM_LIMIT
+_GLOBAL_RPM_LIMIT = settings.LLM_GLOBAL_RPM_LIMIT
 _RPM_WINDOW_SECONDS = 60.0
 
 

@@ -17,6 +17,7 @@ from app.agents.coordinator import agent_coordinator
 from app.agents.evaluator import StageEvaluator
 from app.agents.phase_strategy import PHASE_STRATEGIES
 from app.agents.throttle import ThrottleGate
+from app.agents.turn_controller import TurnController, get_controller
 from app.llm.factory import LLMProviderFactory
 from app.ws.presence_tracker import presence_tracker
 
@@ -161,6 +162,17 @@ class BaseAgent:
 
             try:
                 await self._decision_cycle()
+                # Phase 42 A1：組長心跳——「一輪決策無例外跑完」才算活著（hang 在
+                # LLM 或 crash-loop 都不會刷新），watcher 據此判定失能才兜底。
+                if self._is_supervisor:
+                    try:
+                        from app.progression.supervisor_activity import (
+                            mark_supervisor_active,
+                        )
+
+                        await mark_supervisor_active(self._project_id)
+                    except Exception:
+                        logger.debug("supervisor heartbeat failed", exc_info=True)
             except Exception as exc:
                 logger.error(
                     "Unhandled error in agent %s decision cycle: %s",
@@ -213,56 +225,45 @@ class BaseAgent:
             await agent_coordinator.wait_for_round_gate(self._project_id)
 
     # ------------------------------------------------------------------
-    # Dynamic proactive cooldown (Solution C)
+    # Dynamic proactive cooldown — 委派給 TurnController (Phase 28)
     # ------------------------------------------------------------------
 
-    def _compute_proactive_cooldown(self, context: dict) -> float:
-        """Dynamic cooldown based on conversation state."""
-        seats = context.get("seats", [])
-        is_all_ai = all(s.get("type") == "ai" for s in seats)
-        # Check if humans are actively chatting (not just occupying a seat)
-        recent_chat = context.get("recent_chat", [])
-        human_active = any(m.get("sender_type") == "human" for m in recent_chat[-10:])
-        if is_all_ai or not human_active:
-            # All-AI mode OR human present but silent: equal footing, short cooldown.
-            # Fix #2: supervisor 不套 0.3 倍率，避免在 all-AI 下每 2-7 秒就再開口。
-            if self._is_supervisor:
-                base = 40.0
-            else:
-                base = 25.0 * 0.3
-        else:
-            # Human actively participating: longer cooldown to give them space
-            base = 30.0 if self._is_supervisor else 40.0
+    async def _compute_proactive_cooldown(
+        self, context: dict, controller: TurnController
+    ) -> float:
+        """Proactive cooldown 秒數。
 
-        # New thread starting → halve cooldown
-        active_thread = context.get("active_thread")
-        if active_thread and active_thread.get("turn_count", 0) <= 3:
-            base *= 0.5
-
-        # Long silence (>20s) → greatly reduce cooldown
-        last_event_time = context.get("_last_event_time")
-        if last_event_time:
-            silence = time.time() - last_event_time
-            if silence > 20:
-                base *= 0.3
-
-        # Directive invitation → bypass entirely
-        directive = context.get("blackboard", {}).get("coordination_directive")
-        if directive and directive.get("invited_speaker"):
-            if self._seat_role.lower() in directive["invited_speaker"].lower():
-                return 0.0
-
-        return base
+        實際公式依當前 turn_policy 而異 (Open-Floor 沿用既有公式，
+        Cued 沿用 supervisor 分支，Round-Robin 直接 0/inf)。
+        詳 ``app/agents/turn_controller.py`` 各 Policy.compute_cooldown。
+        """
+        return await controller.compute_cooldown(
+            self._seat_role, context, is_supervisor=self._is_supervisor
+        )
 
     # ------------------------------------------------------------------
     # Main decision cycle
     # ------------------------------------------------------------------
 
     async def _decision_cycle(self) -> None:
+        # Phase 42 D5 (G14, spec 20 §13.3)：LLM 判定 down 期間，全房暫停、agent 停止
+        # 呼叫 LLM（不在「裁判缺席、閘門全開」狀態續跑）。in-memory O(1)；provider
+        # 恢復後 health_monitor 自動 resume、下一 tick 即恢復決策。
+        from app.llm.health_monitor import health_monitor
+
+        if health_monitor.is_down():
+            return
         # Step 1: Observe
         context = await self._context_buffer.get_current_context()
         # Stash project_id so downstream engines (assess, act) can access Redis-backed state.
         context["_project_id"] = self._project_id
+
+        # Phase 28: build TurnController for this tick (never cached — supports
+        # PATCH /api/projects/{id}/turn-policy 即時切換生效)。
+        turn_policy_value = context.get("turn_policy", "cued")
+        controller = await get_controller(turn_policy_value, self._project_id)
+        # 注入 context 供 assembler 在 system prompt 第 2.5 層 inject fragment 使用。
+        context["_turn_controller"] = controller
 
         # Load PhaseStrategy and inject into context (Phase 13)
         micro_phase = context.get("current_micro_phase", "1.1")
@@ -278,6 +279,10 @@ class BaseAgent:
         if "supervisor" in self._seat_role.lower():
             try:
                 from app.agents.supervisor.router import select_supervisor_persona
+                # Phase 42 B2：B 系內容 trigger 走 llm_judge，judge_content 無
+                # owning_user_id 時會保守跳過（永不開火）——把歸屬塞進 ctx 供
+                # triggers_b 轉傳（修 B1/B2/B6/B9/B12 在 prod 全為 no-op 的 dead path）。
+                context["_owning_user_id"] = self._owning_user_id
                 decision = await select_supervisor_persona(self._project_id, context)
                 if decision.persona is not None:
                     context["_supervisor_persona_invocation"] = decision.persona.invocation
@@ -308,6 +313,7 @@ class BaseAgent:
             another_agent_acting=another_acting,
             throttle_min_interval=self._throttle.params.min_interval,
             llm_ctx=self._make_llm_ctx("assess"),
+            controller=controller,
         )
 
         if assess_result.decision == "observe":
@@ -361,7 +367,7 @@ class BaseAgent:
         ))
         is_reactive = assess_result.rule in _REACTIVE_RULES
         if not is_reactive:
-            budget = self._compute_proactive_cooldown(context)
+            budget = await self._compute_proactive_cooldown(context, controller)
             if self._last_proactive_time is not None:
                 elapsed = time.time() - self._last_proactive_time
                 if elapsed < budget:
@@ -383,6 +389,43 @@ class BaseAgent:
         if health:
             context["conversation_health"] = health
 
+        # Step 3+4: Think→Act — Phase 42 option C（WP9 #9，spec 13 §6.4 v1.2）：
+        # 在 think（LLM 生成＝真正耗時處）開始「前」就發 agent_typing(start)，使 chat
+        # typing 真的看得見（D2 的 act-level start/stop 因 think 已完成、chat 窗極短而
+        # 不可見）。kind 先樂觀預設 chat、act 進入白板動作時細化為 canvas（act.py）。
+        # try/finally 保證任何 return / raise / no_action 都發 stop（best-effort，不擋輸出）。
+        await self._emit_round_typing("start")
+        try:
+            await self._think_and_act(context, assess_result, controller, is_reactive)
+        finally:
+            await self._emit_round_typing("stop")
+
+    async def _emit_round_typing(self, state: str) -> None:
+        """Phase 42 option C：回合層 agent_typing（best-effort）。think 前發 start、回合
+        結束（act 完成／放棄／例外）發 stop，覆蓋 LLM 生成耗時使 chat typing 可見。payload
+        無 chat_id＝群組廣播；本決策迴圈只跑 supervisor/crew（群組），個人 channel DT 教練
+        不經此路徑（spec 13 §6.4 範圍排除）。kind 預設 chat、canvas 由 act 層細化。
+        emit_agent_typing 本身已 best-effort（內部吞例外），失敗不擋 agent 真正輸出。"""
+        from app.agents.act_signals import emit_agent_typing
+
+        await emit_agent_typing(
+            project_id=self._project_id,
+            seat_id=self._seat_role,
+            display_name=self._agent_name,
+            kind="chat",
+            state=state,
+        )
+
+    async def _think_and_act(
+        self,
+        context: dict,
+        assess_result: AssessResult,
+        controller: Any,
+        is_reactive: bool,
+    ) -> None:
+        """Step 3（Think）＋ Step 4（Act）。由 _decision_cycle 以回合層 typing try/finally
+        包覆（Phase 42 option C）——早 return（no_action／backpressure／lock 未取得）與例外
+        皆由外層 finally 發 agent_typing stop。行為與抽出前等價（只是把 think→act 尾段封裝）。"""
         # Step 3: Think
         think_engine = self._get_think_engine()
         think_result = await think_engine.generate_actions(
@@ -437,6 +480,8 @@ class BaseAgent:
                 sub_phase=context.get("current_sub_phase"),
                 comm_mode=context.get("comm_mode", "discussion"),
                 seats=context.get("seats", []),
+                controller=controller,
+                context=context,
             )
 
             # Record this action in context buffer for self-awareness
@@ -457,6 +502,19 @@ class BaseAgent:
                 self._agent_id,
                 len(act_result.executed_actions),
             )
+
+            # RC4 版面保底（spec 10 §5.8 / spec 27 §7）：回合結束、仍持 coordinator
+            # 鎖時跑確定性讓位＋收斂期單群收攏——與 LLM 是否吐 tidy 動作脫鉤。
+            # best-effort：版面保底失敗不得影響回合。
+            if act_result.executed_actions:
+                try:
+                    from app.canvas.auto_reflow import maybe_auto_reflow
+
+                    await maybe_auto_reflow(
+                        self._project_id, context.get("current_sub_phase")
+                    )
+                except Exception:
+                    logger.debug("auto_reflow failed", exc_info=True)
         finally:
             await agent_coordinator.release(self._project_id, self._agent_id)
 
@@ -521,6 +579,7 @@ class BaseAgent:
                 seat_role=self._seat_role,
                 agent_name=self._agent_name,
                 is_supervisor=self._is_supervisor,
+                owning_user_id=self._owning_user_id,
             )
         return self._act_engine
 
@@ -528,10 +587,8 @@ class BaseAgent:
     # External integration hooks
     # ------------------------------------------------------------------
 
-    async def on_human_seat_event(self, agreed: bool) -> None:
-        """Called when a human responds to a stage advancement proposal."""
-        if self._evaluator is not None:
-            self._evaluator.register_human_response(agreed)
+    # Phase 42 A1：on_human_seat_event（stage advance proposal 回應 hook）已隨
+    # propose_advance 移除——production 從無呼叫者（60s 窗實務上必 timeout）。
 
     def update_contribution(self, new_level: str) -> None:
         """Hot-reload AI contribution level without restarting the agent."""

@@ -214,10 +214,14 @@ def test_resolve_suppressed_excludes_protagonist() -> None:
 
 
 def test_get_role_status_with_custom_personas() -> None:
-    """A dramatically different persona layout still produces sensible roles."""
+    """A dramatically different persona layout still produces sensible roles.
+
+    Phase 29 (spec/04-06 §4.10): rewritten to use first-diamond phases (1.1 empathy,
+    2.2 structure). Original test used 3.1 creativity which no longer exists.
+    """
     from app.stages.micro_phases import get_role_status
 
-    # 4 personas all biased toward creativity except one toward empathy on seat_4
+    # 4 personas: crew_4 is the empathy specialist, crew_2 is the structure specialist.
     seats = [
         _seat("supervisor", None),
         _seat(
@@ -235,7 +239,7 @@ def test_get_role_status_with_custom_personas() -> None:
                 name="P2",
                 role="r",
                 expertise="e",
-                lens_affinities=LensAffinities(0.2, 0.2, 0.85, 0.2),
+                lens_affinities=LensAffinities(0.2, 0.95, 0.2, 0.2),
             ),
         ),
         _seat(
@@ -244,7 +248,7 @@ def test_get_role_status_with_custom_personas() -> None:
                 name="P3",
                 role="r",
                 expertise="e",
-                lens_affinities=LensAffinities(0.2, 0.2, 0.95, 0.2),
+                lens_affinities=LensAffinities(0.2, 0.2, 0.85, 0.2),
             ),
         ),
         _seat(
@@ -257,10 +261,10 @@ def test_get_role_status_with_custom_personas() -> None:
             ),
         ),
     ]
-    # Phase 1.1 needs empathy → crew_4 should be protagonist
+    # Phase 1.1 needs empathy → crew_4 (0.9 empathy) should be protagonist
     assert get_role_status("1.1", "crew_4", seats=seats) == "protagonist"
-    # Phase 3.1 needs creativity → highest creativity is crew_3
-    assert get_role_status("3.1", "crew_3", seats=seats) == "protagonist"
+    # Phase 2.2 needs structure → crew_2 (0.95 structure) should be protagonist
+    assert get_role_status("2.2", "crew_2", seats=seats) == "protagonist"
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +287,20 @@ def test_render_persona_prompt_returns_empty_for_invalid() -> None:
 
     assert render_persona_prompt(None) == ""
     assert render_persona_prompt({}) == ""
+
+
+def test_render_persona_prompt_appends_conduct_rules() -> None:
+    """Spec 17 §5（v2.2，Phase 42 B2）：【行為規範】段由渲染層固定附加。"""
+    from app.agents.prompts.roles import CREW_CONDUCT_RULES, render_persona_prompt
+
+    payload = persona_to_dict(_sample_persona())
+    prompt = render_persona_prompt(payload)
+    assert CREW_CONDUCT_RULES in prompt
+    assert "【行為規範】" in prompt
+    assert "絕不批評別人的想法" in prompt
+    assert "示範義務" in prompt
+    assert "繁體中文大白話" in prompt
+    assert "【請依此身分參與討論，不要跳脫角色。】" in prompt
 
 
 # ---------------------------------------------------------------------------

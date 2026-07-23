@@ -30,6 +30,14 @@ interface SeatBarProps {
   recentSpeaker?: RecentSpeaker
   /** 各座位的最新訊息預覽——顯示在 popover 中 */
   seatPreviews?: Record<string, string>
+  /** SeatChip popover 彈出方向；置於頂部 bar 時傳 'bottom'。 */
+  popoverPlacement?: 'top' | 'bottom'
+  /** 目前使用者是否為建立者；true 時 AI 組員座位卡可就地編輯人設。 */
+  isCreator?: boolean
+  /** 內嵌人設編輯需要的 projectId。 */
+  projectId?: string
+  /** 人設儲存成功 → 回傳更新後 Seat，父層更新座位 store。 */
+  onPersonaSaved?: (seat: Seat) => void
 }
 
 function deriveStatus(seat: Seat, typingSet: Set<string>): SeatStatus {
@@ -48,6 +56,10 @@ export function SeatBar({
   typingNames,
   recentSpeaker,
   seatPreviews,
+  popoverPlacement = 'top',
+  isCreator = false,
+  projectId,
+  onPersonaSaved,
 }: SeatBarProps) {
   const [openSeatId, setOpenSeatId] = useState<string | null>(null)
   const [bubbles, setBubbles] = useState<Map<string, { key: number; preview: string }>>(new Map())
@@ -87,8 +99,11 @@ export function SeatBar({
         const isAI = seat.occupant_type === 'ai'
         const isCurrentUser = seat.user_id === currentUserId
         const roleLabel = SEAT_ROLE_LABELS[seat.seat_role] ?? seat.seat_role
-        const label = seat.display_name ?? (isAI ? `AI ${roleLabel}` : '人類')
-        const displayName = seat.display_name ?? label
+        // 名字優先序：display_name → persona.name → 角色佔位。中間多一層 persona.name，
+        // 避免 WS 短暫缺 display_name 時退化成「AI 組員 A」（盲測 2026-06-08）。
+        const label =
+          seat.display_name ?? seat.persona?.name ?? (isAI ? `AI ${roleLabel}` : '人類')
+        const displayName = seat.display_name ?? seat.persona?.name ?? label
         const status = deriveStatus(seat, typingSet)
         const bubble = bubbles.get(seat.id)
         const preview = seatPreviews?.[seat.id]
@@ -106,6 +121,10 @@ export function SeatBar({
             isPopoverOpen={openSeatId === seat.seat_role}
             onOpenPopover={() => setOpenSeatId(seat.seat_role)}
             onClosePopover={() => setOpenSeatId((cur) => (cur === seat.seat_role ? null : cur))}
+            popoverPlacement={popoverPlacement}
+            isCreator={isCreator}
+            projectId={projectId}
+            onPersonaSaved={onPersonaSaved}
           />
         )
       })}

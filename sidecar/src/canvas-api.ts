@@ -13,14 +13,24 @@ import {
   getCanvasStateFull,
   batchUpdateCoordinates,
   updateSingleNoteCoordinates,
+  updateNoteGroupId,
+  updateNoteCites,
+  setNoteMetadata,
 } from './yjs-utils.js'
+import { getMoveEvents } from './move-events.js'
 
 export const canvasRouter = Router()
 
 // POST /api/projects/:id/notes — add note
 canvasRouter.post('/projects/:id/notes', (req: Request, res: Response) => {
   const { id } = req.params
-  const { content, author, color, position, createdAt } = req.body
+  const {
+    content, author, color, position, createdAt,
+    // Spec 27 (Phase 36) 便條欄位
+    kind, group_id,
+    // Spec 06 v4.25 (Phase 42 C0)：cites（引用鏈）/ time_box_forced（C2 強推標記）
+    cites, time_box_forced,
+  } = req.body
 
   if (!content || !author) {
     res.status(400).json({ detail: 'content and author are required' })
@@ -35,7 +45,13 @@ canvasRouter.post('/projects/:id/notes', (req: Request, res: Response) => {
 
   const createdAtOverride =
     typeof createdAt === 'string' && createdAt.length > 0 ? createdAt : undefined
-  const note = addNote(id, content, author, color || 'yellow', position, createdAtOverride)
+  const concept = {
+    kind: kind === 'label' ? 'label' as const : 'content' as const,
+    group_id: typeof group_id === 'string' ? group_id : null,
+    cites: Array.isArray(cites) ? (cites as string[]) : undefined,
+    time_box_forced: time_box_forced === true,
+  }
+  const note = addNote(id, content, author, color || 'yellow', position, createdAtOverride, concept)
   res.status(201).json(note)
 })
 
@@ -50,6 +66,61 @@ canvasRouter.patch('/projects/:id/notes/:noteId', (req: Request, res: Response) 
   }
 
   const updated = editNote(id, noteId, content)
+  if (!updated) {
+    res.status(404).json({ detail: 'Note not found' })
+    return
+  }
+  res.json(updated)
+})
+
+// PATCH /api/projects/:id/notes/:noteId/group — update semantic concept group_id
+canvasRouter.patch('/projects/:id/notes/:noteId/group', (req: Request, res: Response) => {
+  const { id, noteId } = req.params
+  const { group_id } = req.body
+
+  // group_id may be null to clear grouping
+  if (!('group_id' in req.body)) {
+    res.status(400).json({ detail: 'group_id is required' })
+    return
+  }
+
+  const updated = updateNoteGroupId(id, noteId, group_id ?? null)
+  if (!updated) {
+    res.status(404).json({ detail: 'Note not found' })
+    return
+  }
+  res.json(updated)
+})
+
+// PATCH /api/projects/:id/notes/:noteId/cites — 全量覆蓋引用鏈（Spec 06 v4.25, Phase 42 C0）
+canvasRouter.patch('/projects/:id/notes/:noteId/cites', (req: Request, res: Response) => {
+  const { id, noteId } = req.params
+  const { cites } = req.body
+
+  if (!Array.isArray(cites)) {
+    res.status(400).json({ detail: 'cites must be an array of note ids' })
+    return
+  }
+
+  const updated = updateNoteCites(id, noteId, cites)
+  if (!updated) {
+    res.status(404).json({ detail: 'Note not found' })
+    return
+  }
+  res.json(updated)
+})
+
+// PATCH /api/projects/:id/notes/:noteId/metadata — 合併 metadata（gate_violation 標記）
+canvasRouter.patch('/projects/:id/notes/:noteId/metadata', (req: Request, res: Response) => {
+  const { id, noteId } = req.params
+  const { metadata } = req.body
+
+  if (!metadata || typeof metadata !== 'object') {
+    res.status(400).json({ detail: 'metadata object is required' })
+    return
+  }
+
+  const updated = setNoteMetadata(id, noteId, metadata as Record<string, unknown>)
   if (!updated) {
     res.status(404).json({ detail: 'Note not found' })
     return
@@ -165,10 +236,18 @@ canvasRouter.get('/projects/:id/canvas-state/full', (req: Request, res: Response
   res.json(shapes)
 })
 
+// GET /api/projects/:id/move-events?since=<seq> — move-delta 可讀事件（Spec 10 v2.0 §4.7）
+canvasRouter.get('/projects/:id/move-events', (req: Request, res: Response) => {
+  const { id } = req.params
+  const since = Number.parseInt(String(req.query.since ?? '0'), 10)
+  const result = getMoveEvents(id, Number.isFinite(since) ? since : 0)
+  res.json(result)
+})
+
 // POST /api/projects/:id/batch-update-coordinates — atomic batch coordinate update
 canvasRouter.post('/projects/:id/batch-update-coordinates', (req: Request, res: Response) => {
   const { id } = req.params
-  const { updates } = req.body
+  const { updates, moved_by } = req.body
 
   if (!Array.isArray(updates) || updates.length === 0) {
     res.status(400).json({ detail: 'updates array is required and must not be empty' })
@@ -182,7 +261,9 @@ canvasRouter.post('/projects/:id/batch-update-coordinates', (req: Request, res: 
     }
   }
 
-  const ok = batchUpdateCoordinates(id, updates)
+  const ok = batchUpdateCoordinates(
+    id, updates, typeof moved_by === 'string' && moved_by.length > 0 ? moved_by : undefined,
+  )
   if (!ok) {
     res.status(404).json({ detail: 'Project or one or more notes not found' })
     return
@@ -193,7 +274,9 @@ canvasRouter.post('/projects/:id/batch-update-coordinates', (req: Request, res: 
 // POST /api/projects/:id/staggered-update-coordinates — one-by-one with delays
 canvasRouter.post('/projects/:id/staggered-update-coordinates', (req: Request, res: Response) => {
   const { id } = req.params
-  const { updates, stagger_ms = 150, moving_by } = req.body
+  const { updates, moving_by } = req.body
+  // Phase 42 D1b (spec 12 §3.3 v4.1)：stagger 下限 400ms（舊預設 150 廢除——低於使用者跟不上）。
+  const stagger_ms = Math.max(400, Number(req.body.stagger_ms) || 400)
 
   if (!Array.isArray(updates) || updates.length === 0) {
     res.status(400).json({ detail: 'updates array is required and must not be empty' })

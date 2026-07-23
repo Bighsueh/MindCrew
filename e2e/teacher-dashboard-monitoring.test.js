@@ -1,6 +1,6 @@
 /**
  * Teacher Dashboard Monitoring E2E Test Suite
- * Tests the monitoring features added in specs/10-teacher-dashboard-monitoring.md
+ * Tests the monitoring features added in 
  * Run with: node e2e/teacher-dashboard-monitoring.test.js
  */
 

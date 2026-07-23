@@ -131,3 +131,17 @@ class ProviderRegistry:
         for entry in entries:
             buckets.setdefault(entry.row.tier, []).append(entry)
         return buckets
+
+    @classmethod
+    async def by_class_tier(cls) -> dict[tuple[str, int], list[ProviderEntry]]:
+        """Phase 37: bucket entries by (capability_class, tier).
+
+        Within each bucket the router round-robins (load-balances) and across
+        tiers it cascades — both scoped to a single capability_class.
+        """
+        entries = await cls.get_entries()
+        buckets: dict[tuple[str, int], list[ProviderEntry]] = {}
+        for entry in entries:
+            key = (entry.row.capability_class, entry.row.tier)
+            buckets.setdefault(key, []).append(entry)
+        return buckets

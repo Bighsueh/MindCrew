@@ -64,11 +64,29 @@ class SpatialAnalyzer:
     def __init__(self) -> None:
         self._embedding_client = get_embedding_client()
 
-    async def get_full_state(self, project_id: UUID) -> list[SpatialNote]:
-        """Fetch full geometry with 3s Redis cache to reduce sidecar load."""
+    async def get_full_state(
+        self, project_id: UUID, *, fresh: bool = False
+    ) -> list[SpatialNote]:
+        """Fetch full geometry with 3s Redis cache to reduce sidecar load.
+
+        fresh=True（RC3）：放置路徑專用——繞過讀快取直接打 sidecar（仍回寫快取，
+        讓其他讀者也變新），確保「寫後一致」。感知／序列化路徑維持吃快取。
+        """
         cache_key = _FULL_STATE_KEY.format(project_id=project_id)
 
-        # Try cache first
+        if not fresh:
+            cached = await self._read_state_cache(cache_key)
+            if cached is not None:
+                return cached
+
+        shapes = await self._fetch_full_state(project_id)
+        if shapes is None:
+            return []
+
+        await self._write_state_cache(cache_key, shapes)
+        return self._deserialize_notes(shapes)
+
+    async def _read_state_cache(self, cache_key: str) -> list[SpatialNote] | None:
         try:
             r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
             try:
@@ -79,8 +97,9 @@ class SpatialAnalyzer:
                 await r.aclose()
         except Exception:
             pass  # Cache miss or Redis down — fetch from sidecar
+        return None
 
-        # Fetch from sidecar
+    async def _fetch_full_state(self, project_id: UUID) -> list[dict] | None:
         import httpx
         url = f"{settings.SIDECAR_URL}/api/projects/{project_id}/canvas-state/full"
         try:
@@ -88,13 +107,13 @@ class SpatialAnalyzer:
                 resp = await client.get(url)
                 if resp.status_code != 200:
                     logger.warning("Sidecar canvas-state/full returned %d", resp.status_code)
-                    return []
-                shapes = resp.json()
+                    return None
+                return resp.json()
         except Exception:
             logger.exception("Failed to fetch canvas-state/full from sidecar")
-            return []
+            return None
 
-        # Write to cache (best-effort)
+    async def _write_state_cache(self, cache_key: str, shapes: list[dict]) -> None:
         try:
             r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
             try:
@@ -103,8 +122,6 @@ class SpatialAnalyzer:
                 await r.aclose()
         except Exception:
             pass
-
-        return self._deserialize_notes(shapes)
 
     @staticmethod
     def _deserialize_notes(shapes: list[dict]) -> list[SpatialNote]:
@@ -122,6 +139,12 @@ class SpatialAnalyzer:
                 author_name=s.get("author", ""),
                 created_at=s.get("createdAt", ""),
                 group_id=s.get("groupId"),
+                # Spec 27：概念便條欄位（full state 由 sidecar getCanvasStateFull 帶出）
+                kind=s.get("kind", "content"),
+                concept_group_id=s.get("group_id"),
+                # Spec 06 v4.25 (Phase 42 C0)：引用關聯＋強推標記。
+                cites=tuple(c for c in (s.get("cites") or []) if isinstance(c, str)),
+                time_box_forced=bool(s.get("time_box_forced", False)),
             )
             for s in shapes
         ]
@@ -137,9 +160,14 @@ class SpatialAnalyzer:
         except Exception:
             pass
 
-    async def analyze(self, project_id: UUID) -> CanvasAnalysis:
-        """Main analysis entry point. Uses Redis cache for semantic layer."""
-        notes = await self.get_full_state(project_id)
+    async def analyze(
+        self, project_id: UUID, *, fresh: bool = False
+    ) -> CanvasAnalysis:
+        """Main analysis entry point. Uses Redis cache for semantic layer.
+
+        fresh=True：空間層繞過 3s 讀快取（放置路徑用，RC3）；語意層快取不受影響。
+        """
+        notes = await self.get_full_state(project_id, fresh=fresh)
         if not notes:
             return CanvasAnalysis()
 

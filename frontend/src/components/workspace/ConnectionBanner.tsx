@@ -19,7 +19,7 @@ export function ConnectionBanner({ status }: ConnectionBannerProps) {
       {isFailed ? (
         <>
           <WifiOff size={16} />
-          無法連線，請檢查網路後重新整理頁面。
+          連線不穩，仍在自動嘗試重連…（資料每幾秒會自動同步，不需手動重整）
         </>
       ) : (
         <>

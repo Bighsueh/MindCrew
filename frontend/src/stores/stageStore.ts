@@ -17,7 +17,7 @@ interface StageState {
 }
 
 export const useStageStore = create<StageState>((set) => ({
-  currentStage: 'discover',
+  currentStage: 'warmup',
   currentMicroPhase: null,
   startedAt: null,
   durationSeconds: 0,

@@ -48,7 +48,7 @@ const STEPS: DriveStep[] = [
     element: '[data-tour="teacher-stage-distribution"]',
     popover: {
       title: '階段分布總覽',
-      description: '一眼看出全班設計專案散落在雙鑽石的哪些階段，誰收斂太慢、誰還在發散都看得出來。',
+      description: '一眼看出全班設計專案各在哪個設計思考階段，誰收斂太慢、誰還在發散都看得出來。',
       side: 'bottom',
     },
   },
@@ -64,7 +64,7 @@ const STEPS: DriveStep[] = [
     element: '[data-tour="teacher-monitor-card"]',
     popover: {
       title: '單一設計專案監控卡',
-      description: '每張卡顯示一組的當前階段、micro-phase、團隊組成；點進去即可加入該組工作區。',
+      description: '每張卡顯示一組的當前階段、細項階段、團隊組成；點進去即可加入該組工作區。',
       side: 'top',
     },
   },

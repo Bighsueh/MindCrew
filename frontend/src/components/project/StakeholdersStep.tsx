@@ -6,6 +6,10 @@ import type { StakeholderSuggestion } from '../../types/models'
 
 /**
  * Phase 27 Step 2：利害關係人地圖。
+ *
+ * Phase 28 narrative refactor：文案改成引導式問句，明確點出「勾選的這些
+ * 人會化身為 AI 隊友」的因果連結，幫助使用者建立 stakeholder → persona
+ * 的心智模型。
  */
 interface Props {
   suggestions: StakeholderSuggestion[]
@@ -32,12 +36,13 @@ export function StakeholdersStep({
   onNext,
   canAdvance,
 }: Props) {
+  const remaining = requiredCount - selected.length
   return (
     <div className="flex flex-col gap-4">
       <MindsetHintCard
         icon={<Users size={16} />}
-        title="利害關係人地圖"
-        hint="從 AI 建議的人裡，挑你想去訪談、想派出當 AI 隊友的對象。"
+        title="這個設計是為了誰？"
+        hint="先想想誰會用、誰會反對、誰會受影響。你勾選的這幾位等下會化身為 AI 隊友，從他們的視角陪你想設計。"
       />
       <StakeholderPicker
         suggestions={suggestions}
@@ -54,7 +59,8 @@ export function StakeholdersStep({
         </div>
       )}
 
-      <div className="flex gap-3 pt-1">
+      {/* 行動列固定貼底（sticky）：內容再長，「下一步」永遠看得到 */}
+      <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex gap-3 border-t border-border bg-surface px-6 py-4">
         <Button variant="secondary" className="flex-1" onClick={onBack}>
           上一步
         </Button>
@@ -65,10 +71,12 @@ export function StakeholdersStep({
           title={
             canAdvance
               ? undefined
-              : `還差 ${requiredCount - selected.length} 位才能進下一步`
+              : `還差 ${remaining} 位才能進下一步`
           }
         >
-          下一步：設計 AI 隊友
+          {canAdvance
+            ? `下一步：把這 ${requiredCount} 位請進團隊 →`
+            : `下一步：把這 ${requiredCount} 位請進團隊`}
         </Button>
       </div>
     </div>

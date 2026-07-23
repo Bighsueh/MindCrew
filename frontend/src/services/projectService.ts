@@ -26,14 +26,33 @@ import type {
   CanvasStateResponse,
   ProjectSummaryResponse,
   StakeholderSuggestion,
+  TurnPolicy,
 } from '../types/models'
+
+/** Phase 28：PATCH /api/projects/{id}/turn-policy 回傳值。 */
+export interface TurnPolicyResponse {
+  policy: TurnPolicy
+  applied_at: string
+}
+
+/** Phase 28：教師 / admin 切換專案輪流規則。學生（含 creator）無權呼叫。 */
+export async function updateTurnPolicy(
+  projectId: string,
+  policy: TurnPolicy,
+): Promise<TurnPolicyResponse> {
+  const response = await api.patch<TurnPolicyResponse>(
+    `/projects/${projectId}/turn-policy`,
+    { policy },
+  )
+  return response.data
+}
 
 export async function createProject(data: CreateProjectRequest): Promise<Project> {
   const response = await api.post<Project>('/projects', data)
   return response.data
 }
 
-// specs/16-timer-system.md：舊專案啟用 timer 的 lazy bootstrap。
+// ：舊專案啟用 timer 的 lazy bootstrap。
 export async function initProjectTimer(
   projectId: string,
   config?: import('./../types/api').TimerConfigInput,
@@ -55,19 +74,47 @@ export interface CreateNoteForceResponse {
   }
 }
 
+export interface CreateHumanNotePayload {
+  text: string
+  color: string
+  x: number
+  y: number
+  sub_phase_id: string
+  cites?: string[]
+}
+
 export async function createNoteForcePublish(
   projectId: string,
-  payload: {
-    text: string
-    color: string
-    x: number
-    y: number
-    sub_phase_id: string
-  },
+  payload: CreateHumanNotePayload,
 ): Promise<CreateNoteForceResponse> {
   const response = await api.post<CreateNoteForceResponse>(
     `/projects/${projectId}/canvas/notes`,
     { ...payload, force_publish: true },
+  )
+  return response.data
+}
+
+// Phase 42 C0 ⑥(b)：真人便條的常規送出（過 content gate；被擋回 rejection）。
+export async function createHumanNote(
+  projectId: string,
+  payload: CreateHumanNotePayload,
+): Promise<CreateNoteForceResponse> {
+  const response = await api.post<CreateNoteForceResponse>(
+    `/projects/${projectId}/canvas/notes`,
+    { ...payload, force_publish: false },
+  )
+  return response.data
+}
+
+// Phase 42 C0 ⑤（spec 06 v4.25）：全量覆蓋自己便條的引用鏈。
+export async function updateNoteCites(
+  projectId: string,
+  noteId: string,
+  cites: string[],
+): Promise<{ success: boolean; note_id: string; cites: string[] }> {
+  const response = await api.patch<{ success: boolean; note_id: string; cites: string[] }>(
+    `/projects/${projectId}/canvas/notes/${encodeURIComponent(noteId)}`,
+    { cites },
   )
   return response.data
 }
@@ -129,6 +176,37 @@ export async function leaveProject(id: string): Promise<void> {
 
 export async function getStage(id: string): Promise<StageInfo> {
   const response = await api.get<StageInfo>(`/projects/${id}/stage`)
+  return response.data
+}
+
+export async function getSeats(id: string): Promise<Seat[]> {
+  const response = await api.get<Seat[]>(`/projects/${id}/seats`)
+  return response.data
+}
+
+/** Phase 42 補正 R4（A-P1，spec 06 v4.28）：user_task／回合鎖等待的重連水合快照。 */
+export interface HumanGateSnapshot {
+  user_task: {
+    task_text: string | null
+    sub_phase: string
+    action_kind: string
+  } | null
+  waiting: {
+    sub_phase: string
+    round: number
+    required: {
+      note?: boolean
+      chat?: boolean
+      move?: boolean
+      confirm?: boolean
+      mode?: 'all' | 'any'
+    }
+  } | null
+  sub_phase: string | null
+}
+
+export async function getHumanGate(id: string): Promise<HumanGateSnapshot> {
+  const response = await api.get<HumanGateSnapshot>(`/projects/${id}/human-gate`)
   return response.data
 }
 

@@ -136,6 +136,19 @@ async def canvas_websocket(ws: WebSocket, project_id: UUID) -> None:
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
+    # 1b. 存取守門：creator（參與）/ 列管老師・admin（旁觀）才可連線 canvas。
+    from app.db.models.project import Project
+    from app.projects.access import viewer_role_for
+
+    async with async_session_factory() as session:
+        proj_row = await session.execute(
+            select(Project).where(Project.id == project_id)
+        )
+        project = proj_row.scalar_one_or_none()
+        if project is None or viewer_role_for(project, user) is None:
+            await ws.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
     # 2. Accept
     await ws.accept()
     canvas_manager.connect(project_id, ws)

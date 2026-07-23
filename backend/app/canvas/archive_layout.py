@@ -1,4 +1,8 @@
-"""Canvas archive layout — compact positioning for archived phase notes.
+"""⚠ 死碼註記（2026-07-03）：spec 11 已廢除、本模組無任何 production 呼叫者；
+ACTIVE_ZONE_MAX_Y=4500 與 RC1 帶模型（帶最深 y≈6720）不相容，若未來要復活封存
+功能必須重算。保留僅供參考。
+
+Canvas archive layout — compact positioning for archived phase notes.
 
 Provides spatial zones below the active viewport (y > 4500) where
 notes from completed phases are stored in a compact grid layout.
@@ -15,7 +19,6 @@ from app.canvas.spatial import SpatialNote
 ARCHIVE_ZONES: dict[str, tuple[int, int]] = {
     "discover": (5000, 80),   # (y_start, x_start)
     "define": (7000, 80),
-    "develop": (9000, 80),
 }
 
 # Active zone upper boundary — notes below this are considered archived.
@@ -43,7 +46,7 @@ def compute_archive_positions(
 
     Args:
         notes: Notes to archive.
-        zone: One of "discover", "define", "develop".
+        zone: One of "discover", "define".
         columns: Number of columns in the archive grid.
 
     Returns:

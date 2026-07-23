@@ -1,7 +1,7 @@
 /**
  * Phase 23 — Lobby 三視圖 + 每專案 1 位人類硬限 E2E
  *
- * 規格：specs/17 §3.4、specs/06 §2.3、specs/05 §4。
+ * 規格：、、。
  *
  * 三視圖：
  *  - 教師（creator） → 看到完整 SeatSelectionGrid + ObserverCard + 各 crew row 入座鈕

@@ -2,7 +2,7 @@
 
 `get_messages` 接受 router 傳入的 ``raw_chat_id`` 與 ``current_user_id``，
 透過 ``app.chat.chat_id.normalize_for_query`` 解析後決定走 ``list_group``
-還是 ``list_personal``。詳見 specs/13-personal-chat.md §5.1、§8.1。
+還是 ``list_personal``。詳、§8.1。
 """
 
 from __future__ import annotations

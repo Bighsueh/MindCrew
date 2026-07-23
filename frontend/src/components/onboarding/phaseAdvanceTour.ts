@@ -1,5 +1,5 @@
 /**
- * Phase advance tour — specs/16-timer-system.md §6.5.3 + UX 改動 2026-05-11。
+ * Phase advance tour —  + UX 改動 2026-05-11。
  *
  * 當 stage / micro_phase 切換時，自動跑兩步 driver.js spotlight：
  *   1. 把 navbar 上「新 current stage 的 chip」打亮，說明這個階段要做什麼（白話）
@@ -57,7 +57,7 @@ export function triggerPhaseAdvanceTour({
 
   const stageDesc = microMeta
     ? `<strong>${macro.label}</strong><br/>` +
-      `現在這一步：<strong>${microMeta.label}</strong>（${microMeta.id}）<br/>` +
+      `現在這一步：<strong>${microMeta.label}</strong><br/>` +
       `<span style="color:#666">${microMeta.description}</span>`
     : `<strong>${macro.label}</strong><br/>` +
       `<span style="color:#666">${macro.summary}</span>`
@@ -65,7 +65,7 @@ export function triggerPhaseAdvanceTour({
   const timerDesc =
     `時間預算已重設為新階段的額度。` +
     (budgetMinutes ? `這一步預算 <strong>${budgetMinutes} 分鐘</strong>。` : '') +
-    `<br/><span style="color:#666">時間越緊，AI 組長越會推大家做收斂——投票、挑點、收尾。</span>`
+    `<br/><span style="color:#666">時間越緊，AI 組長越會推大家加快收斂——聚焦重點、挑出關鍵、把結論收尾。</span>`
 
   activeDriver = driver({
     showProgress: true,

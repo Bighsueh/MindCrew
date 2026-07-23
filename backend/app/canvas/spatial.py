@@ -24,7 +24,11 @@ NOTE_GAP = 15
 
 # Board logical dimensions for region assignment
 BOARD_WIDTH = GRID_START_X + GRID_COLS * GRID_COL_WIDTH + 200
-BOARD_HEIGHT = 2000  # generous default
+# RC1 帶模型（2026-07-03）：帶最深至 y≈6720（hmw_dock 帶底）——原 2000 會讓
+# region 語意標籤（top-/bottom-*）對所有 y>1000 的便條一律誤報 bottom、
+# free_regions 永遠誤報 top-* 空閒。region 為過渡感知欄位（spec 10 §4.3），
+# 僅供描述，不影響落點（AI 的 region: 落點語彙已封鎖）。
+BOARD_HEIGHT = 7000
 
 
 @dataclass(frozen=True)
@@ -57,8 +61,16 @@ class SpatialNote:
     color: str
     author_type: str  # "human" | "ai"
     created_at: str
-    group_id: str | None = None
+    group_id: str | None = None   # 既有：空間 Yjs groupId（與下方語意 concept_group_id 不同）
     author_name: str = ""
+    # Spec 27 (Phase 36)：概念便條欄位（來自 NoteShape）。
+    kind: str = "content"             # "content" | "label"
+    concept_group_id: str | None = None  # 所屬主題群（語意，顧客/店員…）
+    # Spec 06 v4.25 / 27 §10 (Phase 42 C0)：引用關聯＋強推標記（來自 NoteShape）。
+    # cites＝本便條引用的其他便條 id（2.2 問題定義引痛點、2.6 理由指問題定義/準則、
+    # 2.7 設計題目 from→選定問題定義）；time_box_forced＝2.6 強制收口兜底理由標記。
+    cites: tuple[str, ...] = ()
+    time_box_forced: bool = False
 
     @property
     def cx(self) -> float:

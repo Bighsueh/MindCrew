@@ -93,11 +93,26 @@ export default {
       },
       animation: {
         'pulse-slow': 'pulse-slow 2.5s ease-in-out infinite',
+        'chip-enter': 'chip-enter 0.18s ease-out both',
+        'text-rotate-in': 'text-rotate-in 280ms var(--ease-standard) both',
+        'stagger-in': 'stagger-in 320ms var(--ease-standard) both',
       },
       keyframes: {
         'pulse-slow': {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.5' },
+        },
+        'chip-enter': {
+          from: { opacity: '0', transform: 'translateX(-6px) scale(0.9)' },
+          to: { opacity: '1', transform: 'translateX(0) scale(1)' },
+        },
+        'text-rotate-in': {
+          from: { opacity: '0', transform: 'translateY(10px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'stagger-in': {
+          from: { opacity: '0', transform: 'translateY(8px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
         },
       },
     },

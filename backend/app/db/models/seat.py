@@ -1,11 +1,24 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import String, ForeignKey, Index, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB
 
 from app.db.base import Base
+
+# ── Seat role / state / occupant constants（單一真理來源，跨 service 與 manager 共用）──
+SEAT_ROLE_SUPERVISOR = "supervisor"
+# 真人專屬席：額外 +1，綁定專案 creator，crew_* 永遠是常駐 AI、不可被真人頂替。
+SEAT_ROLE_HUMAN_CREATOR = "human_creator"
+
+OCCUPANT_AI = "ai"
+OCCUPANT_HUMAN = "human"
+
+SEAT_STATE_DORMANT = "dormant"          # AI 席尚未啟動（第一位真人入座前）
+SEAT_STATE_AI_RUNNING = "ai_running"    # AI agent 運行中
+SEAT_STATE_HUMAN_ACTIVE = "human_active"  # 真人在座
+SEAT_STATE_VACANT = "vacant"            # 真人專屬席空置（creator 尚未入座／已離開）
 
 
 class Seat(Base):
@@ -37,7 +50,7 @@ class Seat(Base):
         String(16), nullable=True
     )
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default="now()"
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
 
     __table_args__ = (

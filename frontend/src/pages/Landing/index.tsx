@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ArrowRight, Lightbulb, Users, Zap, MessageSquare, LayoutGrid, BarChart3 } from 'lucide-react'
+import { ArrowRight, Lightbulb, Users, Zap, MessageSquare, LayoutGrid, BarChart3, Flame, Brain, Compass, LifeBuoy } from 'lucide-react'
 import { StickyNoteSVG } from '@/components/landing/StickyNoteSVG'
 import { ScrollReveal } from '@/components/common/ScrollReveal'
 import { TransitionLink } from '@/components/common/TransitionLink'
@@ -22,43 +22,44 @@ function useNavScrolled(threshold = 32) {
   return scrolled
 }
 
+// Phase 42 補正 R2（稽核 §4.2）：公開頁零英文階段代號／縮寫（#25，spec 28 §6 口徑）。
 const PROCESS_CARDS = [
-  { phase: 'Discover', desc: '發散：探索痛點與需求', icon: Lightbulb, tag: '發散', accent: '#F5E6C8' },
-  { phase: 'Define', desc: '收斂：歸納洞察與 HMW', icon: LayoutGrid, tag: '收斂', accent: '#F0D9C4' },
-  { phase: 'Develop', desc: '發散：快速發想解決方案', icon: Zap, tag: '發散', accent: '#D4E4C8' },
-  { phase: 'Deliver', desc: '收斂：評估可行性與排序', icon: BarChart3, tag: '收斂', accent: '#C8D8E8' },
+  { phase: '發現', desc: '發散：探索痛點與需求', icon: Lightbulb, tag: '發散', accent: '#F8DC98' },
+  { phase: '定義', desc: '收斂：歸納洞察與設計題目', icon: LayoutGrid, tag: '收斂', accent: '#F4C59A' },
+  { phase: '發展', desc: '發散：快速發想解決方案', icon: Zap, tag: '發散', accent: '#CCDC9A' },
+  { phase: '交付', desc: '收斂：評估可行性與排序', icon: BarChart3, tag: '收斂', accent: '#BBD0CC' },
 ] as const
 
 const FEATURES = [
   {
     icon: Users,
-    title: '1 Supervisor + 4 Crew',
-    desc: 'AI 團隊各司其職：Supervisor 引導方向，Crew 積極貢獻觀點。人類可隨時替換任一席位。',
+    title: '一個人，也是一整隊',
+    desc: '一報名就有 5 位 AI 隊友：AI組長帶方向、4 位 AI組員 各有觀點。沒揪到人，也能立刻開工。',
+  },
+  {
+    icon: Flame,
+    title: '開場破冰，不再尷尬',
+    desc: '一進專案先玩 4 分鐘暖身小遊戲，輕鬆熱開腦袋、順手認識 AI 隊友，不用對著空白白板發呆。',
+  },
+  {
+    icon: Brain,
+    title: '四種視角，照出盲點',
+    desc: '4 位 AI組員 分別盯著同理、結構、創意、可行性，每階段換人主導，逼你的點子被四個角度檢查過。',
   },
   {
     icon: MessageSquare,
-    title: '即時聊天室',
-    desc: 'AI 先說再做——每次白板操作前先在聊天室說明意圖，像真正的團隊成員一樣溝通。',
+    title: '看得懂 AI 在想什麼',
+    desc: 'AI 動手貼便條前，先在聊天室說「我要做什麼、為什麼」。你不只看結果，還能邊看邊學方法。',
   },
   {
-    icon: Zap,
-    title: '全 AI 自主模式',
-    desc: '建立設計專案後讓 AI 自行運作，事後回來看成果。人類可隨時加入或離開。',
+    icon: Compass,
+    title: '全程有人帶，不迷路',
+    desc: '跟著雙鑽石進度條走，AI 隨時提示「現在該做什麼」、自動判斷何時推進，不怕在某一步呆住。',
   },
   {
-    icon: LayoutGrid,
-    title: '教師儀表板',
-    desc: '一覽所有設計專案的即時狀態、觀察模式不佔席位、課後紀錄完整回顧。',
-  },
-  {
-    icon: Lightbulb,
-    title: 'AI 決策透明',
-    desc: '教師可回溯每一次 AI 決策的思考歷程：觀察了什麼、為何介入、執行了什麼。',
-  },
-  {
-    icon: BarChart3,
-    title: 'LLM 用量追蹤',
-    desc: '追蹤每個設計專案的 AI 運算資源消耗，精確到各 Agent 的 input/output token 分布。',
+    icon: LifeBuoy,
+    title: '卡住了？私下問教練',
+    desc: '有個只屬於你的 AI 個人助理，一對一問笨問題、求救都行；組員和老師都看不到，還會幫你留紀錄。',
   },
 ] as const
 
@@ -82,12 +83,12 @@ const FAQ_ITEMS = [
 ] as const
 
 const SHOWCASE_NOTES = [
-  { color: '#F5E6C8', text: '使用者在哪裡遇到困難？', rot: -2 },
-  { color: '#F0D9C4', text: '痛點：等待時間太長', rot: 1 },
-  { color: '#D4E4C8', text: '如果能自動分類呢？', rot: -1 },
-  { color: '#C8D8E8', text: 'HMW: 如何減少步驟？', rot: 3 },
-  { color: '#EEDCE4', text: '整合 AI 輔助建議', rot: -3 },
-  { color: '#F5E6C8', text: '原型：一鍵匯出摘要', rot: 2 },
+  { color: '#F8DC98', text: '使用者在哪裡遇到困難？', rot: -2 },
+  { color: '#F4C59A', text: '痛點：等待時間太長', rot: 1 },
+  { color: '#CCDC9A', text: '如果能自動分類呢？', rot: -1 },
+  { color: '#BBD0CC', text: '我們可以怎麼減少步驟？', rot: 3 },
+  { color: '#F0C3D8', text: '整合 AI 輔助建議', rot: -3 },
+  { color: '#F8DC98', text: '原型：一鍵匯出摘要', rot: 2 },
 ] as const
 
 function useInView() {
@@ -178,10 +179,10 @@ export function LandingPage() {
 
         {/* Floating sticky notes decoration */}
         <div className="animate-fade-up pointer-events-none relative z-10 mt-6 flex shrink-0 justify-center gap-8" style={{ animationDelay: '0.5s' }}>
-          <StickyNoteSVG color="#F5E6C8" rotation={-6} text="痛點" float floatDelay="0s" />
-          <StickyNoteSVG color="#F0D9C4" rotation={3} text="洞察" float floatDelay="1s" />
-          <StickyNoteSVG color="#D4E4C8" rotation={-2} text="點子" float floatDelay="2s" />
-          <StickyNoteSVG color="#C8D8E8" rotation={5} text="方案" float floatDelay="3s" />
+          <StickyNoteSVG color="#F8DC98" rotation={-6} text="痛點" float floatDelay="0s" />
+          <StickyNoteSVG color="#F4C59A" rotation={3} text="洞察" float floatDelay="1s" />
+          <StickyNoteSVG color="#CCDC9A" rotation={-2} text="點子" float floatDelay="2s" />
+          <StickyNoteSVG color="#BBD0CC" rotation={5} text="方案" float floatDelay="3s" />
         </div>
       </section>
 

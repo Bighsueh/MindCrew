@@ -25,14 +25,19 @@ CANVAS_ACTION_TYPES = frozenset({
     "swap_notes",
     "tidy_area",
     "draw_zone",
-    "draw_template",
+    # draw_template 已移除（Phase 42 補正 R3／P1-4：目標 zone C1 全刪的殭屍工具）
+    # Phase 42 C0 (spec 10 v2.0 §5.9)
+    "open_section",
 })
 
-# Spec 13: only supervisor can draw zones/templates
-SUPERVISOR_ONLY_ACTIONS = frozenset({"draw_zone", "draw_template"})
+# Spec 13: only supervisor can draw zones
+# Phase 42 C0: open_section 同為組長專屬（spec 10 §5.9，#32）
+SUPERVISOR_ONLY_ACTIONS = frozenset({"draw_zone", "open_section"})
 
-# Maximum content-gate retries for AI before giving up
-AI_GATE_RETRY_LIMIT = 2
+# Spec 27 P5: max gate/dedup rejection explanations an agent surfaces to chat
+# per turn (teaching transparency, capped to avoid flooding). A true
+# regenerate-on-rejection retry belongs to the think loop, not this act layer.
+MAX_GATE_REJECTION_NOTICES = 2
 
 
 async def execute_canvas_tool(
@@ -43,6 +48,7 @@ async def execute_canvas_tool(
     agent_name: str,
     sub_phase_id: str | None = None,
     seat_role: str | None = None,
+    owning_user_id: UUID | None = None,
 ) -> dict[str, Any]:
     """Dispatch a canvas action to the appropriate tool handler.
 
@@ -52,9 +58,9 @@ async def execute_canvas_tool(
     from app.canvas.tools_manipulation import (
         tool_arrange_notes,
         tool_create_note,
-        tool_draw_template,
         tool_draw_zone,
         tool_move_note,
+        tool_open_section,
         tool_swap_notes,
         tool_tidy_area,
     )
@@ -83,7 +89,21 @@ async def execute_canvas_tool(
     if op_type == "create_note":
         text = _cn(action.get("text", action.get("content", "")))
         color = action.get("color", "yellow")
-        position = action.get("position", "region:center")
+        # RC3/spec 10 §5.5：LLM 沒帶 position → ""（省略）＝系統放到當前作用帶
+        # 的空位（舊預設 region:center 會把所有便條往板中心堆）。
+        position = action.get("position") or ""
+        # Spec 27：接話式便條欄位（LLM 在 threaded_reveal 模式下帶上）。
+        kind = action.get("kind", "content")
+        # Spec 27 §6：分類標籤便條多半由 Supervisor 寫；crew AI 嘗試 → 降級為 content。
+        if kind == "label" and not (seat_role and "supervisor" in seat_role.lower()):
+            kind = "content"
+        group_id = action.get("group_id")
+        # Phase 42 C0 (spec 06 v4.25)：引用鏈透傳；非字串項丟棄，sidecar 再過濾不存在 id。
+        raw_cites = action.get("cites")
+        cites = (
+            [c for c in raw_cites if isinstance(c, str)]
+            if isinstance(raw_cites, list) else None
+        )
         result = await tool_create_note(
             project_id=project_id,
             text=text,
@@ -94,6 +114,11 @@ async def execute_canvas_tool(
             author_type="ai",
             sub_phase_id=sub_phase_id,
             force_publish=False,
+            kind=kind,
+            group_id=group_id,
+            owning_user_id=owning_user_id,
+            seat_role=seat_role,  # Phase 42 B1：暖場「組長限示範一張」cap 判定用
+            cites=cites,
         )
         if not result.get("success"):
             logger.info(
@@ -113,14 +138,25 @@ async def execute_canvas_tool(
         to = action.get("to", "")
         direction = action.get("direction")
         spacing = action.get("spacing", "default")
+        group_id = action.get("group_id")
 
         if not to:
             target_group = action.get("target_group")
             if target_group:
-                to = f"cluster:{target_group}"
+                to = f"group:{target_group}"  # spec 10 v2.0 正式語彙（原 cluster: 對不上群名）
+                if not group_id:
+                    group_id = target_group
             else:
                 logger.warning("move_note: no 'to' or 'target_group' specified")
                 return {"success": False, "error": "missing_destination"}
+
+        # spec 10 v2.0 §5.3：LLM 永不給座標/全板區域——AI 的 move 目的地逃生口封鎖
+        # （create 側已在 _resolve_concept_position 封鎖）。
+        if to.startswith(("absolute:", "grid:", "region:")):
+            logger.info(
+                "move_note to=%r blocked（LLM 永不給座標）agent=%s", to, agent_id,
+            )
+            return {"success": False, "error": f"forbidden_destination:{to}"}
 
         result = await tool_move_note(
             project_id=project_id,
@@ -128,6 +164,8 @@ async def execute_canvas_tool(
             to=to,
             direction=direction,
             spacing=spacing,
+            group_id=group_id,
+            moved_by=f"{agent_name}(ai)",  # spec 10 v2.0 §4.7 move 事件歸因
         )
         logger.info(
             "Agent %s move_note project=%s note=%s to=%s ok=%s",
@@ -167,10 +205,13 @@ async def execute_canvas_tool(
     elif op_type == "arrange_notes":
         note_ids = action.get("note_ids", [])
         layout = action.get("layout", "grid")
-        target_region = action.get("target_region", "top-left")
+        # spec 10 v2.0 §5.4：LLM 不再指定區域 → 省略＝就地錨定併群（不跨帶）。
+        target_region = action.get("target_region", "")
         columns = action.get("columns")
         spacing = action.get("spacing", "default")
         label = _cn(action.get("label", "")) or None
+        # Spec 27 §6：標籤便條歸屬的主題群（LLM 在 arrange 時帶上）。
+        group_id = action.get("group_id")
         result = await tool_arrange_notes(
             project_id=project_id,
             note_ids=note_ids,
@@ -179,6 +220,8 @@ async def execute_canvas_tool(
             columns=columns,
             spacing=spacing,
             label=label,
+            group_id=group_id,
+            moved_by=f"{agent_name}(ai)",
         )
         await _update_last_tidy_ts(project_id)
         logger.info(
@@ -192,6 +235,7 @@ async def execute_canvas_tool(
             project_id=project_id,
             note_id_a=action.get("note_id_a", ""),
             note_id_b=action.get("note_id_b", ""),
+            moved_by=f"{agent_name}(ai)",
         )
         logger.info(
             "Agent %s swap_notes project=%s ok=%s",
@@ -200,14 +244,27 @@ async def execute_canvas_tool(
         return result
 
     elif op_type == "tidy_area":
-        scope = action.get("scope", "all")
+        scope = action.get("scope") or ""
         target = action.get("target")
         strategy = action.get("strategy", "align_grid")
+        # spec 27 §7 鐵律：不提供全板一次性重排——scope 缺省/all 一律擋下
+        # （教學已改教 scope="group" target=群名；cluster/region 為 legacy 局部範圍）。
+        if scope in ("", "all"):
+            logger.info(
+                "tidy_area scope=%r blocked（spec 27 §7 鐵律：永不整面重排）agent=%s",
+                scope, agent_id,
+            )
+            return {
+                "success": False,
+                "error": "tidy_scope_forbidden",
+                "hint": '一次只收攏一小撮：tidy_area(scope="group", target="群名")',
+            }
         result = await tool_tidy_area(
             project_id=project_id,
             scope=scope,
             target=target,
             strategy=strategy,
+            moved_by=f"{agent_name}(ai)",
         )
         await _update_last_tidy_ts(project_id)
         logger.info(
@@ -232,19 +289,18 @@ async def execute_canvas_tool(
         )
         return result
 
-    elif op_type == "draw_template":
-        template = action.get("template", "")
-        origin = action.get("origin")
-        result = await tool_draw_template(
+    elif op_type == "open_section":
+        # Phase 42 C0 (spec 10 v2.0 §5.9)：組長動態往下開新 section（標題過 OpenCC）。
+        title = _cn(action.get("title", ""))
+        result = await tool_open_section(
             project_id=project_id,
-            template=template,
-            origin=tuple(origin) if origin else None,
+            title=title,
             author_id=agent_id,
             author_name=agent_name,
         )
         logger.info(
-            "Supervisor %s draw_template project=%s template=%s ok=%s",
-            agent_id, project_id, template, result.get("success"),
+            "Supervisor %s open_section project=%s section=%s ok=%s",
+            agent_id, project_id, result.get("section_id"), result.get("success"),
         )
         return result
 

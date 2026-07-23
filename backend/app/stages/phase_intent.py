@@ -1,7 +1,4 @@
 """Phase intent — Double Diamond 發散 / 收斂 / 過渡單一真實來源。
-
-依 specs/16-timer-system.md §6.5.2：
-
 原本 `_DIVERGE_PHASES` 等定義散落在 `canvas/tools_perception.py`、
 `agents/prompts/assembler.py`、`agents/supervisor/triggers_a.py` 三處，
 彼此粒度（micro_phase vs sub_phase）也不一致。本模組把兩種粒度的判定
@@ -23,34 +20,38 @@ from typing import Literal
 PhaseIntent = Literal["divergent", "convergent", "transitional"]
 
 
-#: Double Diamond micro-phase 級別發散階段（對應 discover/develop 前半的擴張期）。
-#: 與既有 `canvas/tools_perception._DIVERGE_PHASES` 對齊。
-_DIVERGENT_MICRO_PHASES = frozenset(("1.1", "1.2", "3.1"))
+# phase_intent 語意（spec 27 v3.1 §3.1 釘死）：**只表達雙鑽石宏觀形狀**（把問題打開＝
+# 發散／收窄＝收斂／深掘銜接＝過渡）。**不表達「該生新便條還是整理現成的」**——那是便條
+# 手法，由 comm_mode＋逐格進場語（04-03 §3）承載。兩軸正交、不可混填（例：2.1 貼法是
+# 整理現成便條，但宏觀意圖＝收斂）。
+
+#: Double Diamond micro-phase 級別發散階段。
+#: Phase 42 C1（spec 16 v2.0 §6.5.2）：1.x 全程 divergent；舊 1.3 桶已移除。
+_DIVERGENT_MICRO_PHASES = frozenset(("1.1", "1.2"))
 
 
-#: Double Diamond micro-phase 級別收斂階段（discover/define 後半 + develop/deliver 後半）。
-#: 與既有 `agents/prompts/assembler._CONVERGE_PHASES` 對齊。
-_CONVERGENT_MICRO_PHASES = frozenset(("1.3", "2.3", "3.2", "3.3"))
+#: Double Diamond micro-phase 級別收斂階段。
+#: Phase 42 C1：2.1（痛點歸類）/2.3（訂準則收斂）；2.2 桶（問題定義與深掘）混合屬性
+#: → transitional（不入兩集合，細格判定見下方 sub-phase 表）。
+_CONVERGENT_MICRO_PHASES = frozenset(("2.1", "2.3"))
 
 
-#: Sub-phase 級別發散：來自既有 `triggers_a._divergence_label` 的 divergent 集合。
-#: 注意：sub_phase "3.2"、"3.3"（無字母後綴）在 sub_phase 粒度視為發散，
-#: 但對應 micro_phase 3.2/3.3 在 micro-phase 粒度則是收斂——
-#: 兩者刻意保留差異：sub-phase 是更細的「當下動作」、micro-phase 是「整體階段意圖」。
+#: Sub-phase 級別發散 — Phase 42 C1（spec 16 v2.0 §6.5.2 ＋ spec 27 v3.1 §3.1 已對齊一致）。
+#: 發現階段全程「只打開、不收攏」（模擬 phase1-discover-redesign-DRAFT §15「發散為主」、
+#: §43「別偷偷收斂」）→ 1.x 全 divergent（含 1.1c/1.1d——輕整理／排序是便條手法、不是
+#: 宏觀收斂；標收斂會讓收斂護欄叫 crew 在 1.1c 禁拖動格去拖便條）；0.0a 衝量、2.2 生成候選
+#: 亦發散。**2.3/2.4 不在此集合也不在收斂集合 → transitional**（接話式深掘：要貼新概念便條、
+#: 2.3 禁搬動，收斂護欄「先別貼/優先搬動」對它有害；不掛任何發散/收斂護欄）。
 _DIVERGENT_SUB_PHASES = frozenset((
-    "1.1a", "1.1b", "1.5",
+    "0.0a",
+    "1.1a", "1.1b", "1.1c", "1.1d", "1.2",
     "2.2",
-    "3.2", "3.3",
 ))
 
 
-#: Sub-phase 級別收斂：來自既有 `triggers_a._divergence_label` 的 convergent 集合。
+#: Sub-phase 級別收斂 — Phase 42 C1（整理/挑選格）。
 _CONVERGENT_SUB_PHASES = frozenset((
-    "1.1c", "1.1d", "1.6",
     "2.1", "2.5", "2.6", "2.7",
-    "3.4",
-    "4.1a", "4.1b", "4.1c", "4.1d", "4.1e",
-    "4.2", "4.3",
 ))
 
 

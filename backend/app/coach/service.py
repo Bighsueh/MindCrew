@@ -1,6 +1,4 @@
 """DT 教練 service：背景任務寫 DB + 廣播個人聊天訊息（Phase 20 重寫）。
-
-依 specs/13-personal-chat.md §7：
   - ``reply_to_personal_message`` 由 router / WS handler 用
     ``asyncio.create_task`` 排程；本 service 不做 RBAC 與 user_message
     持久化（那兩件事在觸發點已完成）。

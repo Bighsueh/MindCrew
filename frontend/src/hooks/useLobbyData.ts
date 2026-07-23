@@ -160,12 +160,13 @@ export function useLobbyData(projectId: string | undefined): LobbyData {
     [projectId, stageInfo?.current_stage, updateSeat, setCurrentStage],
   )
 
-  // Determine if user can connect to WS (creator or has a seat)
+  // 可連 WS：creator（參與）或列管老師・admin（旁觀，viewer_role 非空）或已入座者。
   const canConnectWS =
     !!projectId &&
     !!user &&
-    (currentProject?.creator_id === user.id ||
-      seats.some((s) => s.occupant_type === 'human' && s.user_id === user.id))
+    (currentProject?.viewer_role != null ||
+      currentProject?.creator_id === user.id ||
+      seats.some((s) => s.occupant_type === 'human' && !!s.user_id && s.user_id === user.id))
 
   const wsUrl = projectId
     ? import.meta.env.DEV

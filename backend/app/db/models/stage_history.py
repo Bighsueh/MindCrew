@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, ForeignKey, Index
+from sqlalchemy import String, Integer, ForeignKey, Index, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID, TIMESTAMP, JSONB
 
@@ -23,7 +23,7 @@ class StageHistory(Base):
     canvas_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False, server_default="now()"
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
 
     __table_args__ = (

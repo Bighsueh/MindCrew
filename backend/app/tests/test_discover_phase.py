@@ -1,6 +1,4 @@
 """Tests for Discover phase Supervisor behavior improvements.
-
-Covers:
 - Sub-phase determination (discover_subphase.py)
 - Dynamic slowdown_score (evaluator_scoring.py)
 - Blind spot veto and challenge gate (evaluator.py)
@@ -209,10 +207,14 @@ class TestBlindSpotVeto:
 
 
 class TestBlindSpotChallengeGate:
-    """Test the two-pass challenge gate logic."""
+    """Test the two-pass challenge gate logic.
 
-    def test_first_pass_sends_challenge_not_advance(self) -> None:
-        """First time reaching required_passes → challenge, not advance."""
+    Phase 42 A1：通過後不再 propose/advance，改寫邊界訊號給組長
+    （action='boundary_signal'，spec 04-06 §5.8）。
+    """
+
+    def test_first_pass_sends_challenge_not_signal(self) -> None:
+        """First time reaching required_passes → challenge, not boundary signal."""
         blind_spot_challenge_sent = False
         consecutive_pass_count = 3
         required_passes = 3
@@ -222,14 +224,14 @@ class TestBlindSpotChallengeGate:
             blind_spot_challenge_sent = True
             consecutive_pass_count = required_passes - 1
         else:
-            action = "propose_advance"
+            action = "boundary_signal"
 
         assert action == "blind_spot_challenge"
         assert blind_spot_challenge_sent is True
         assert consecutive_pass_count == 2  # Reset to require one more pass
 
-    def test_second_pass_proposes_advance(self) -> None:
-        """After challenge was sent, next pass → propose advance."""
+    def test_second_pass_emits_boundary_signal(self) -> None:
+        """After challenge was sent, next pass → 邊界訊號餵組長（不直接推進）。"""
         blind_spot_challenge_sent = True
         consecutive_pass_count = 3
         required_passes = 3
@@ -237,8 +239,6 @@ class TestBlindSpotChallengeGate:
         if consecutive_pass_count >= required_passes and not blind_spot_challenge_sent:
             action = "blind_spot_challenge"
         else:
-            action = "propose_advance"
-            blind_spot_challenge_sent = False
+            action = "boundary_signal"
 
-        assert action == "propose_advance"
-        assert blind_spot_challenge_sent is False  # Reset for next time
+        assert action == "boundary_signal"

@@ -8,8 +8,8 @@
 4. Teacher overview 的 participation（human / ai / active_members）只算 group。
 5. Agent ``ContextBuffer`` 的 DB fallback path 只載入 group 訊息。
 
-對應 specs/13-personal-chat.md §4.4、§8.5、§9.1 與
-specs/11-organization-turn.md §9.1。
+、§8.5、§9.1 與
+。
 
 ## 執行方式
 

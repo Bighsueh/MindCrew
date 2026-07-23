@@ -16,7 +16,12 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
-  const from = (location.state as { from?: Location })?.from?.pathname ?? '/projects'
+  // Phase 43（spec/29 §3.5）：保留 query string——深連結（如 study 參數）未登入時
+  // 經此回跳，丟掉 search 會讓參數失效。ProtectedRoute 傳的是完整 location。
+  const fromLocation = (location.state as { from?: Location })?.from
+  const from = fromLocation
+    ? `${fromLocation.pathname}${fromLocation.search ?? ''}`
+    : '/projects'
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -71,7 +76,7 @@ export function LoginPage() {
       </Button>
 
       <p className="text-center text-sm text-text-muted">
-        還沒有帳號（教師）？{' '}
+        還沒有帳號？{' '}
         <Link to="/register" className="font-medium text-primary hover:underline">
           立即註冊
         </Link>

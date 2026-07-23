@@ -47,21 +47,46 @@ class TestZoneRegistry:
 
 
 class TestActiveZones:
-    def test_1_6_has_empathy_quadrants(self) -> None:
-        active_ids = {z.id for z in get_active_zones("1.6")}
-        assert {"empathy_says", "empathy_thinks", "empathy_does", "empathy_feels"} <= active_ids
+    def test_removed_zones_absent(self) -> None:
+        """Phase 42 C1（spec 22 v2.0 §10.10 / 23 v2.0 §4.2）：隨格移除的 zone 不存在。"""
+        for removed in (
+            "task_clarification_zone", "stakeholder_private", "scope_zone",
+            "division_zone", "interview_strategy_zone", "raw_wall",
+            "empathy_says", "empathy_thinks", "empathy_does", "empathy_feels",
+            "persona_card", "journey_map", "need_cluster_zone",
+        ):
+            assert removed not in ZONES, removed
+
+    def test_stakeholder_wall_active_1_1b_to_1_1d(self) -> None:
+        for sub_id in ("1.1b", "1.1c", "1.1d"):
+            active_ids = {z.id for z in get_active_zones(sub_id)}
+            assert "stakeholder_public" in active_ids, sub_id
+
+    def test_pain_wall_active_1_2_and_2_1(self) -> None:
+        for sub_id in ("1.2", "2.1"):
+            active_ids = {z.id for z in get_active_zones(sub_id)}
+            assert "pain_wall" in active_ids, sub_id
 
     def test_2_2_has_pov_wall(self) -> None:
         active_ids = {z.id for z in get_active_zones("2.2")}
         assert "pov_wall" in active_ids
 
-    def test_3_2_has_idea_pool(self) -> None:
-        active_ids = {z.id for z in get_active_zones("3.2")}
-        assert "idea_pool" in active_ids
+    def test_idea_pool_zone_removed(self) -> None:
+        """Phase 29 (spec/04-06 §4.10): idea_pool zone removed with second diamond."""
+        assert "idea_pool" not in ZONES
+        # 3.2 sub-phase itself is also removed
+        assert get_active_zones("3.2") == []
 
     def test_unknown_sub_phase_returns_empty(self) -> None:
         """Phase 21：Park 已移除，未知 sub_phase 無 active zone。"""
         assert get_active_zones("99.9") == []
+
+    def test_zone_titles_empty_no_english_leak(self) -> None:
+        """Phase 42 C1（#13/#25）：框標題全留空——視覺錨點＝組長標題便條；
+        消掉舊標題英文外漏（POV/HMW/Define）。"""
+        for zone in ZONES.values():
+            if zone.visual is not None:
+                assert zone.visual.title_sticky == "", zone.id
 
 
 class TestColorRules:
@@ -76,15 +101,15 @@ class TestColorRules:
         assert "blue" in z.allowed_colors
         assert "pink" in z.allowed_colors
 
-    def test_raw_wall_yellow_only(self) -> None:
-        z = get_zone("raw_wall")
-        assert z.allowed_colors == ("yellow",)
+    def test_pain_wall_colors(self) -> None:
+        z = get_zone("pain_wall")
+        assert "yellow" in z.allowed_colors
 
 
 class TestResolveByPosition:
     def test_resolve_pov_wall(self) -> None:
-        # pov_wall default x=100..2100 y=100..1300
-        z = resolve_zone_by_position(500, 500, "2.2")
+        # RC1 帶模型：pov_wall default 帶 x=100..2100 y=3660..4860
+        z = resolve_zone_by_position(500, 3800, "2.2")
         assert z is not None
         assert z.id == "pov_wall"
 

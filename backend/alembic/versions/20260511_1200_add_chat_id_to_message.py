@@ -1,7 +1,7 @@
 """add_chat_id_to_message
 
 新增 message.chat_id 欄位以支援個人聊天（DT 教練）。
-詳見 specs/13-personal-chat.md §4.3.4。
+詳見 chat_id 設計文件。
 
 格式：
   - 群組：NULL（向下相容）或 "{project_id}:group"

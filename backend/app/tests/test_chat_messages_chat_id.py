@@ -1,6 +1,6 @@
 """GET /api/projects/{id}/messages 帶 chat_id query 的 RBAC 整合測試。
 
-涵蓋 specs/13-personal-chat.md §5.1、§8.1：
+涵蓋 、§8.1：
 
 1. 不帶 chat_id → fallback group（向下相容）
 2. chat_id=group → 只回 group 訊息

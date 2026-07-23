@@ -8,6 +8,7 @@ import { useProjectStore } from '../../stores/projectStore'
 import { useLobbyData } from '../../hooks/useLobbyData'
 import { Loading } from '../../components/common/Loading'
 import { LobbyHeader } from './LobbyHeader'
+import { WorkshopInfoCard } from './WorkshopInfoCard'
 import { SeatSelectionGrid } from './SeatSelectionGrid'
 import { ObserverCard } from './ObserverCard'
 import { JoinSeatCard } from './JoinSeatCard'
@@ -19,7 +20,12 @@ export function ProjectLobbyPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuthStore()
-  const { currentProject } = useProjectStore()
+  const {
+    currentProject,
+    isLoading: projectLoading,
+    error: projectError,
+    errorStatus,
+  } = useProjectStore()
   const { seats } = useSeatStore()
 
   const {
@@ -37,7 +43,10 @@ export function ProjectLobbyPage() {
   const [joinError, setJoinError] = useState('')
 
   const myCurrentSeat = seats.find(
-    (s) => s.occupant_type === 'human' && s.user_id === user?.id,
+    (s) =>
+      s.occupant_type === 'human' &&
+      !!s.user_id &&
+      s.user_id === user?.id,
   )
 
   const handleJoin = async (seatRole: SeatRole) => {
@@ -70,16 +79,23 @@ export function ProjectLobbyPage() {
     }
   }
 
-  const isTeacherView =
-    user?.role === 'teacher' || currentProject?.creator_id === user?.id
+  // viewer_role 由後端依 current_user 計算（creator 可入座 / observer 旁觀 / null 無權）。
+  // 後備：若欄位缺漏，以 creator_id 比對推斷。
+  const viewerRole: 'creator' | 'observer' | null =
+    currentProject?.viewer_role ??
+    (currentProject?.creator_id === user?.id ? 'creator' : null)
+  const isCreator = viewerRole === 'creator'
+  const isObserverView = viewerRole === 'observer'
 
-  const firstAvailableCrewRole = (
-    seats.find(
-      (s) => s.seat_role !== 'supervisor' && s.occupant_type !== 'human',
-    )?.seat_role ?? null
-  ) as SeatRole | null
+  // 唯一可入座席 = 空置的真人專屬席（綁 creator）。
+  const humanSeat = seats.find((s) => s.seat_role === 'human_creator')
+  const humanSeatVacant = !!humanSeat && !humanSeat.user_id
+  const humanSeatRole = (humanSeat?.seat_role ?? 'human_creator') as SeatRole
 
-  const projectHasHuman = seats.some((s) => s.occupant_type === 'human')
+  // 真人席被「別人」佔走（理論上不會，因只有 creator 能入座）。
+  const projectHasHuman = seats.some(
+    (s) => s.occupant_type === 'human' && !!s.user_id,
+  )
 
   const handleEnterWorkspace = () => {
     navigate(`/projects/${id}/workspace`)
@@ -115,49 +131,69 @@ export function ProjectLobbyPage() {
     infoTabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
+  // 載入失敗（403 無權 / 404 不存在 / 其他）→ 導回專案列表並帶提示，
+  // 避免過去「沒權限卻無限轉圈」的死路（403 不像 401，不會被攔截器導回登入）。
+  useEffect(() => {
+    if (projectLoading || currentProject || !projectError) return
+    const notice =
+      errorStatus === 403
+        ? '你沒有這個專案的存取權，已為你返回專案列表。'
+        : errorStatus === 404
+          ? '找不到這個專案，可能已被刪除。'
+          : '載入專案失敗，請稍後再試。'
+    // 用 sessionStorage 傳遞一次性提示，避免 react-router location.state 在
+    // 導向後的 render 時序/重掛載中遺失；Projects 頁讀取後即清除。
+    sessionStorage.setItem('mc_redirect_notice', notice)
+    navigate('/projects', { replace: true })
+  }, [projectLoading, currentProject, projectError, errorStatus, navigate])
+
+  // 失敗待導向期間不顯示載入動畫（否則仍像卡住）；交由上面的 effect 導回。
+  if (projectError && !currentProject && !projectLoading) {
+    return null
+  }
+
   if (isLoading || !currentProject) {
     return <Loading fullScreen text="載入活動資訊…" />
   }
 
   return (
-    <div className="relative pb-8">
+    <div className="relative mx-auto max-w-6xl pb-8">
       <LobbyHeader project={currentProject} />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
+        {/* 左欄：脈絡（工作坊資訊 → 設計團隊 → 利害關係人） */}
+        <div className="space-y-6 lg:col-span-2">
+          <WorkshopInfoCard project={currentProject} />
           <SeatSelectionGrid
             seats={seats}
             currentUserId={user?.id}
-            onJoin={handleJoin}
-            joiningRole={joiningRole}
-            joinError={joinError}
-            isLocked={joiningRole !== null}
-            hideJoinButtons={!isTeacherView}
-            hideObserverHint={!isTeacherView}
+            viewerRole={viewerRole}
           />
+          <StakeholderPanel stakeholders={currentProject.stakeholders ?? []} />
         </div>
-        {isTeacherView ? (
-          <ObserverCard
-            onEnter={handleEnterWorkspace}
-            hasCurrentSeat={!!myCurrentSeat}
-            isLocked={joiningRole !== null}
-            canObserve
-          />
-        ) : (
-          <JoinSeatCard
-            onJoin={() =>
-              firstAvailableCrewRole && handleJoin(firstAvailableCrewRole)
-            }
-            onEnter={handleEnterWorkspace}
-            hasCurrentSeat={!!myCurrentSeat}
-            canJoin={firstAvailableCrewRole !== null}
-            isLocked={joiningRole !== null}
-            projectFull={projectHasHuman && !myCurrentSeat}
-          />
-        )}
-      </div>
 
-      <StakeholderPanel stakeholders={currentProject.stakeholders ?? []} />
+        {/* 右欄：行動卡（sticky 跟隨捲動，CTA 永遠在視線內） */}
+        <div className="lg:sticky lg:top-6">
+          {isCreator ? (
+            <JoinSeatCard
+              onJoin={() => handleJoin(humanSeatRole)}
+              onEnter={handleEnterWorkspace}
+              hasCurrentSeat={!!myCurrentSeat}
+              canJoin={humanSeatVacant}
+              isLocked={joiningRole !== null}
+              projectFull={projectHasHuman && !myCurrentSeat}
+              joinError={joinError}
+            />
+          ) : (
+            <ObserverCard
+              onEnter={handleEnterWorkspace}
+              hasCurrentSeat={!!myCurrentSeat}
+              isLocked={joiningRole !== null}
+              canObserve={isObserverView}
+            />
+          )}
+        </div>
+      </div>
 
       <div ref={infoTabsRef} className="mt-6">
         <InfoTabs

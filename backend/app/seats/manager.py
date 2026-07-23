@@ -13,7 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.seat import Seat
+from app.db.models.seat import (
+    Seat,
+    SEAT_ROLE_HUMAN_CREATOR,
+    SEAT_STATE_VACANT,
+)
 from app.db.session import async_session_factory
 from app.events.bus import event_bus
 from app.events.types import SeatChangedEvent, ChatMessageEvent
@@ -69,9 +73,11 @@ class SeatManager:
         If `session` is provided (e.g. from the service layer), it is used
         for the DB update to preserve transactional consistency in tests.
         """
-        if seat_role == "supervisor":
+        # 只有真人專屬席可被指派給人類；supervisor 與 crew_* 皆為 AI。
+        if seat_role != SEAT_ROLE_HUMAN_CREATOR:
             raise ValueError(
-                "Supervisor seat is AI-only and cannot be assigned to a human"
+                f"Seat {seat_role} is AI-only; only the dedicated human seat "
+                "can be assigned to a human"
             )
         key = (project_id, seat_role)
 
@@ -92,16 +98,15 @@ class SeatManager:
         # 4. Update Redis seat state
         await self._update_redis_seat(project_id, seat_role, "human", str(user_id))
 
-        # 5. Broadcast — pull persona for accurate display name
-        persona = await self._fetch_seat_persona(project_id, seat_role)
-        ai_display_name = self._role_to_display_name(seat_role, persona)
+        # 5. Broadcast — 真人席先前為空置（occupant_type="human", 無 user_id）。
         event = SeatChangedEvent(
             project_id=project_id,
             seat_role=seat_role,
-            previous_occupant_type="ai",
-            previous_display_name=ai_display_name,
+            previous_occupant_type="human",
+            previous_display_name="",
             current_occupant_type="human",
             current_display_name=user_name,
+            current_user_id=str(user_id),
         )
         await event_bus.publish(event)
         logger.info(
@@ -122,6 +127,7 @@ class SeatManager:
 
         Supervisor 為 AI-only，不會經由此路徑進入 dormant，但守衛仍保留。
         """
+        is_human_seat = seat_role == SEAT_ROLE_HUMAN_CREATOR
         agent_id = f"agent_{seat_role}"
         previous_human_name: str = "（未知使用者）"
         # 是否要保留為 dormant（在 _do_release 內依據剩餘人類數決定）
@@ -153,6 +159,18 @@ class SeatManager:
                 if user_obj is not None:
                     previous_human_name = user_obj.display_name
 
+            if is_human_seat:
+                # 真人專屬席離席 → 回到空置（vacant）：不轉 AI、不啟動 agent，
+                # 仍以 occupant_type="human" + user_id=NULL 表示「保留給 creator 的空椅」。
+                seat.occupant_type = "human"
+                seat.user_id = None
+                seat.joined_at = None
+                seat.agent_id = None
+                seat.state = SEAT_STATE_VACANT
+                seat.updated_at = datetime.now(timezone.utc)
+                return
+
+            # ── 以下為舊版 crew/legacy 釋放路徑（新模型中 crew_* 永遠是 AI，不會走到，保留作防守）──
             # 計算「扣掉自己」之後仍在場的人類數
             remaining_humans = await self._count_remaining_humans(
                 s, project_id, excluding_seat_role=seat_role
@@ -177,6 +195,24 @@ class SeatManager:
             async with async_session_factory() as own_session:
                 await _do_release(own_session)
                 await own_session.commit()
+
+        if is_human_seat:
+            # 真人席空置：Redis 標記為 human/無值，廣播 user_id=None 讓前端畫回「待入座」空椅。
+            await self._update_redis_seat(project_id, seat_role, "human", "")
+            event = SeatChangedEvent(
+                project_id=project_id,
+                seat_role=seat_role,
+                previous_occupant_type="human",
+                previous_display_name=previous_human_name,
+                current_occupant_type="human",
+                current_display_name="",
+                current_user_id=None,
+            )
+            await event_bus.publish(event)
+            logger.info(
+                "Human seat %s in project %s released → vacant", seat_role, project_id
+            )
+            return
 
         # Redis：dormant 時也清掉 agent_id，與其他 dormant 座位一致
         await self._update_redis_seat(
@@ -225,6 +261,7 @@ class SeatManager:
             select(Seat).where(
                 Seat.project_id == project_id,
                 Seat.occupant_type == "human",
+                Seat.user_id.isnot(None),  # 空置的真人席不算「在場真人」
                 Seat.seat_role != excluding_seat_role,
             )
         )
@@ -316,6 +353,18 @@ class SeatManager:
             await self._promote_dormant_seat(
                 project_id, supervisor_seat.seat_role, session=session
             )
+
+        # 初次啟動：專案開局停在 1.1a 沒有 sub_phase transition，故在此 seed 當前
+        # sub_phase 的 zones（背景執行，不阻斷 join 回應），否則 agent 便條全被
+        # no_active_zone 拒絕、白板長期空白。
+        async def _seed_initial_zones() -> None:
+            try:
+                from app.canvas.zone_seed import seed_zones_for_current_sub_phase
+                await seed_zones_for_current_sub_phase(project_id)
+            except Exception as exc:  # pragma: no cover - background safety
+                logger.warning("Initial zone seed failed project=%s: %s", project_id, exc)
+
+        asyncio.create_task(_seed_initial_zones())
 
         async def _stagger_crew() -> None:
             for idx, seat in enumerate(crew_seats):
@@ -573,16 +622,22 @@ class SeatManager:
         )
         await asyncio.sleep(5.0)
 
-        # Only restart if seat is still AI-occupied
+        # Only restart if seat is still AI-occupied AND the room is active.
+        # Phase 43：休眠房 status="suspended" → 不把崩潰的 agent 重啟進休眠房，
+        # 否則喚醒時 start_all_agents 會與這個孤兒 task 造成同席重複 agent。
+        from app.db.models.project import Project
+
         async with async_session_factory() as session:
-            result = await session.execute(
+            seat = (await session.execute(
                 select(Seat).where(
                     Seat.project_id == project_id,
                     Seat.seat_role == seat_role,
                 )
-            )
-            seat = result.scalar_one_or_none()
-            if seat and seat.occupant_type == "ai":
+            )).scalar_one_or_none()
+            status = (await session.execute(
+                select(Project.status).where(Project.id == project_id)
+            )).scalar_one_or_none()
+            if seat and seat.occupant_type == "ai" and status == "active":
                 self._restart_counts[key] = count + 1
                 await self._start_agent(project_id, seat_role, agent_id)
 
@@ -680,41 +735,14 @@ class SeatManager:
         return "medium"
 
     async def _resolve_owning_user(self, project_id: UUID) -> UUID:
-        """Pick the user that owns LLM calls fired by this project's agents.
+        """Delegate to the shared resolver (single source of truth).
 
-        Strategy:
-          1. project.linked_teacher_id (Phase 22) — preferred.
-          2. project.owner_id — created the project.
-          3. seeded admin user — last-resort fallback so the NOT NULL FK
-             on llm_request_logs is always satisfied.
+        See ``app.llm.owning_user.resolve_owning_user`` — same creator →
+        admin → uuid4 fallback chain, now reused by the closing ritual too.
         """
-        from app.db.models.project import Project
-        from app.db.models.user import User
+        from app.llm.owning_user import resolve_owning_user
 
-        try:
-            async with async_session_factory() as session:
-                project = (
-                    await session.execute(select(Project).where(Project.id == project_id))
-                ).scalar_one_or_none()
-                if project is not None:
-                    if project.linked_teacher_id is not None:
-                        return project.linked_teacher_id
-                    if getattr(project, "owner_id", None) is not None:
-                        return project.owner_id
-                admin = (
-                    await session.execute(
-                        select(User).where(User.role == "admin").limit(1)
-                    )
-                ).scalar_one_or_none()
-                if admin is not None:
-                    return admin.id
-        except Exception as exc:
-            logger.warning("_resolve_owning_user fallback (%s): %s", project_id, exc)
-        # Final fallback: re-raise the choice to the LLM layer by returning a
-        # known-bad uuid. log_service will fail to insert and warn, but the
-        # critical path stays up.
-        from uuid import uuid4
-        return uuid4()
+        return await resolve_owning_user(project_id)
 
     @staticmethod
     async def _update_seat_in_session(

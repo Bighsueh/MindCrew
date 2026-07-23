@@ -2,8 +2,8 @@ import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { CheckCircle2, AlertCircle, ArrowRight, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
-
-export type DTStage = 'discover' | 'define' | 'develop' | 'deliver'
+import type { DTStage } from '../../types/models'
+import { STAGE_LABELS_PLAIN } from '../../utils/formatters'
 
 export interface AdvanceCheck {
   id: string
@@ -21,53 +21,44 @@ export interface AdvanceStageConfirmProps {
   isAdvancing?: boolean
 }
 
+// Phase 42 補正 R2：吃 STAGE_LABELS_PLAIN 單一真相來源（spec 28 §6，學生面零英文）；
+// completed 在推進確認語境用完整說法覆蓋。
 const STAGE_LABEL: Record<DTStage, string> = {
-  discover: 'Discover',
-  define: 'Define',
-  develop: 'Develop',
-  deliver: 'Deliver',
+  ...STAGE_LABELS_PLAIN,
+  completed: '第一鑽石完成',
 }
 
 const NEXT_STAGE: Record<DTStage, DTStage | null> = {
+  warmup: 'discover',
   discover: 'define',
-  define: 'develop',
-  develop: 'deliver',
-  deliver: null,
+  define: 'completed',
+  completed: null,
 }
 
 const DEFAULT_CHECKS: Record<DTStage, AdvanceCheck[]> = {
+  warmup: [
+    { id: 'human-played', label: '人類已參與破冰遊戲', status: 'done' },
+  ],
   discover: [
-    { id: 'interview', label: '已上傳訪談資料', status: 'done' },
-    { id: 'consensus', label: '群組聊天有共識訊息', status: 'done' },
-    {
-      id: 'persona',
-      label: '尚未產生 user persona',
-      status: 'warn',
-      hint: '建議補上再推進',
-    },
-    {
-      id: 'assistant',
-      label: '個人助理使用率偏低',
-      status: 'warn',
-      hint: '鼓勵學員善用 AI 諮詢',
-    },
+    { id: 'experience', label: '已聊過自己的經驗、列出會被影響的人', status: 'done' },
+    { id: 'pain-points', label: '已想像各群人卡住的情境、貼成痛點便條', status: 'done' },
+    { id: 'consensus', label: '群組聊天有討論共識', status: 'done' },
   ],
   define: [
-    { id: 'hmw', label: '已撰寫 HMW 問題', status: 'done' },
-    { id: 'cluster', label: '痛點分群完成', status: 'done' },
     {
-      id: 'hmw-count',
-      label: 'HMW 數量偏少',
+      id: 'problem-statement',
+      label: '已寫出問題定義（某使用者 需要 某需求，因為 某洞察）',
+      status: 'done',
+    },
+    { id: 'cluster', label: '痛點已按「同一件事」重新分群', status: 'done' },
+    {
+      id: 'design-question',
+      label: '設計題目數量偏少',
       status: 'warn',
-      hint: '建議至少 3 條再推進',
+      hint: '建議把選定的問題定義都收成「我們可以怎麼…？」',
     },
   ],
-  develop: [
-    { id: 'crazy8', label: '已完成 Crazy 8s 發散', status: 'done' },
-    { id: 'vote', label: '已點點投票收斂', status: 'done' },
-    { id: 'pick', label: '尚未選定主構想', status: 'warn' },
-  ],
-  deliver: [],
+  completed: [],
 }
 
 function CheckIcon({ status }: { status: 'done' | 'warn' }) {

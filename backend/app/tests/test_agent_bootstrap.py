@@ -1,6 +1,4 @@
 """Tests for P0 fixes: Agent lifecycle bootstrap and round gate.
-
-Covers:
 - ASSESS Rule 0.1 (fresh project bootstrap)
 - Seed last_event_ts (NX behavior)
 - Round gate opens on first INTERVENE

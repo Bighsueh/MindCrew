@@ -3,7 +3,7 @@
 每 10 秒掃 active project：
   - 跨越 warning threshold (75/90/100%) → fire TimerWarningEvent
   - 100% + auto_advance → 呼叫 advance_sub_phase
-  - 100% + !auto_advance → fire TimerTimeoutEvent（給 Stream D crew vote 聽）
+  - 100% + !auto_advance → fire TimerTimeoutEvent（推進交由 progression watcher 兜底）
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from app.db.models.project import Project
 from app.db.session import async_session_factory
 from app.timer.calculator import get_phase_budget_seconds
 from app.timer.events import TimerStateEvent, TimerTimeoutEvent, TimerWarningEvent
+from app.timer.scaling import warmup_goal_for, warmup_soft_seconds_for
+from app.timer.schemas import TimerConfig
 from app.timer.service import TimerService
 
 logger = logging.getLogger(__name__)
@@ -76,10 +78,11 @@ async def _check_one(project_id: UUID, current_sub_phase: str | None) -> None:
         return
     used_pct = used_secs / budget * 100.0
 
-    # specs/16-timer-system.md §6.5.3：每 tick 都廣播 state，讓所有訂閱者
+    # ：每 tick 都廣播 state，讓所有訂閱者
     # （前端 TimerBadge、AI agent 觀察者）即時對齊 pause/resume 狀態。
     await _broadcast_state(
-        project_id, current_sub_phase, used_secs, budget, used_pct, paused=False,
+        project_id, current_sub_phase, used_secs, budget, used_pct,
+        paused=False, config=config,
     )
 
     # Fire warnings for crossed thresholds
@@ -104,6 +107,7 @@ async def _broadcast_state(
     budget_seconds: int,
     used_pct: float,
     paused: bool,
+    config: TimerConfig | None = None,
 ) -> None:
     """每 tick 廣播一次 TimerStateEvent，讓前端與 AI 訂閱者即時對齊。"""
     try:
@@ -115,6 +119,11 @@ async def _broadcast_state(
             used_seconds=used_seconds,
             paused=paused,
             used_pct=used_pct,
+            # Spec 16 v2.0 §4.5：本關上限/已用的明確化別名 + 暖場團隊目標。
+            sub_phase_budget_seconds=budget_seconds,
+            sub_phase_used_seconds=used_seconds,
+            warmup_goal=warmup_goal_for(sub_phase, config),
+            warmup_soft_seconds=warmup_soft_seconds_for(sub_phase, config),
         )
         await event_bus.publish(event)
     except Exception:
@@ -162,10 +171,17 @@ async def _handle_timeout(
         logger.warning("Timer timeout broadcast failed", exc_info=True)
 
     if not auto_advance:
-        # 不強制推進 → 由 Stream D crew vote 接手或 Supervisor B11 主動問
+        # 不強制推進 → time-box 到的推進由 progression watcher 兜底與組長推進迴路負責
+        # （spec 16 v2.0 §4 / spec 04-06 §5.8 v4.25），timer 模組不執行推進。
         return
 
-    # auto_advance=true：直接推進
+    # auto_advance=true：直接推進。
+    # ⚠️ Phase 42 D1d 註：此路徑直呼 advance_sub_phase、**繞過 execute_advance_target**，
+    # 故不經 G01 真人硬閘——但它只在 time-box 100% timeout 觸發（時間到＝最終覆蓋，
+    # 真人閘本就該豁免），語意正確。且所有現役 preset 皆 auto_advance_on_timeout=False
+    # （見 timer/calculator.py），此路徑現況為 dead code，正常 time-box 推進由
+    # progression watcher 兜底（skip_gate_check=True）負責。若未來啟用 auto_advance，
+    # 應改走 execute_advance_target(skip_gate_check=True) 以正確處理 micro/macro 邊界。
     try:
         from app.agents.stage_advancement import advance_sub_phase
         from app.stages.sub_phases import get_next_sub_phase

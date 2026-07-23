@@ -14,6 +14,9 @@ interface UseWebSocketOptions {
 const HEARTBEAT_INTERVAL = 30_000
 const MAX_RETRIES = 5
 const RETRY_BASE_DELAY = 1_000
+// 快速退避用罄後，不永久放棄——改每 SLOW_RETRY_DELAY 慢速重試一次。連回時 onOpen → resync
+// 自動補回斷線期間遺失的狀態（取代叫使用者「整頁重整」；盲測 2026-06-09 R5 學生被迫重整）。
+const SLOW_RETRY_DELAY = 20_000
 
 export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
   const { onMessage, onOpen, onClose, enabled = true } = options
@@ -104,7 +107,11 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
         retriesRef.current += 1
         reconnectTimerRef.current = setTimeout(connect, delay)
       } else {
+        // 標 failed 顯示橫幅，但**持續慢速重試**（不永久放棄）；重置退避計數，
+        // 每 SLOW_RETRY_DELAY 再連一次，連回即 onOpen → resync 補回狀態。
         setStatus('failed')
+        retriesRef.current = 0
+        reconnectTimerRef.current = setTimeout(connect, SLOW_RETRY_DELAY)
       }
     }
 

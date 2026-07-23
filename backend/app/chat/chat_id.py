@@ -1,6 +1,6 @@
 """Chat ID 字串組裝與解析。
 
-格式（對應 frontend/src/lib/chatId.ts 與 specs/13-personal-chat.md §4.3.3）：
+格式（對應 frontend/src/lib/chatId.ts 與 ）：
   - 群組：``{project_id}:group`` 或 NULL（向下相容）
   - 個人：``{project_id}:personal:{user_id}``
 

@@ -1,7 +1,7 @@
 /**
  * Phase 24 — 對話活動高亮共用層。
  *
- * 規格：_discussion/specs/19-activity-highlight-draft.md
+ * 規格：_discussion/
  *
  * 「對話活動」= 同一作者 (type:name) + 時間差在 ACTIVITY_WINDOW_MS 內。
  * 配對 key 採 `${type}:${name}`，因為便利貼 meta.author 目前只存 display name。

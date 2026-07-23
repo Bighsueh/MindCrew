@@ -5,8 +5,8 @@ non-chat（None） / group / personal-self / personal-other / 未知格式
 與缺 owner 等邊界。
 
 對應 spec：
-  - `specs/13-personal-chat.md` §6.2 ``should_deliver``
-  - `specs/13-personal-chat.md` §8.4 WS forward RBAC
+  -  §6.2 ``should_deliver``
+  -  §8.4 WS forward RBAC
   - `prompts/phases/phase-20.md` Step 17.5
 """
 

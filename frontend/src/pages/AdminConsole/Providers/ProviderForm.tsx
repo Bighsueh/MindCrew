@@ -6,6 +6,7 @@ import type {
   AdminProvider,
   AdminProviderCreate,
   AdminProviderUpdate,
+  CapabilityClass,
   ProviderKind,
 } from '../../../services/adminService'
 
@@ -20,6 +21,7 @@ interface FormState {
   name: string
   kind: ProviderKind
   tier: number
+  capability_class: CapabilityClass
   weight: number
   base_url: string
   model: string
@@ -35,6 +37,7 @@ const EMPTY: FormState = {
   name: '',
   kind: 'vllm',
   tier: 1,
+  capability_class: 'standard',
   weight: 1,
   base_url: '',
   model: '',
@@ -51,6 +54,7 @@ function fromProvider(p: AdminProvider): FormState {
     name: p.name,
     kind: p.kind,
     tier: p.tier,
+    capability_class: p.capability_class,
     weight: p.weight,
     base_url: p.base_url,
     model: p.model,
@@ -87,6 +91,7 @@ export function ProviderForm({ isOpen, onClose, initial, onSubmit }: ProviderFor
         name: form.name,
         kind: form.kind,
         tier: form.tier,
+        capability_class: form.capability_class,
         weight: form.weight,
         base_url: form.base_url,
         model: form.model,
@@ -162,6 +167,18 @@ export function ProviderForm({ isOpen, onClose, initial, onSubmit }: ProviderFor
                   Tier {n}
                 </option>
               ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-text">品質池（capability_class）</label>
+            <select
+              value={form.capability_class}
+              onChange={(e) => update('capability_class', e.target.value as CapabilityClass)}
+              className="rounded-md border border-border bg-surface px-3 py-2.5 text-sm text-text"
+              data-testid="provider-capability-class"
+            >
+              <option value="standard">standard（快速預設）</option>
+              <option value="quality">quality（高品質）</option>
             </select>
           </div>
           <Input

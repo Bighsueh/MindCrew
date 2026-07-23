@@ -28,11 +28,43 @@ def test_detect_mention_by_display_name() -> None:
 
 
 @pytest.mark.unit
-def test_detect_mention_skips_supervisor_and_human() -> None:
-    # supervisor 不該被當成 awaited
+def test_detect_mention_skips_supervisor() -> None:
+    # supervisor 不該被當成 awaited（避免自我點名死循環）
     assert detect_crew_mention("AI 引導者開場", _SEATS) is None
-    # human 不在 seats[type=ai] → 不被偵測
-    assert detect_crew_mention("Alice 你覺得呢？", _SEATS) is None
+
+
+@pytest.mark.unit
+def test_detect_mention_hits_human_seat_by_user_name() -> None:
+    # Phase 28：人類席位也應該被命中（用 user_name fallback）
+    assert detect_crew_mention("Alice 你覺得呢？", _SEATS) == ("crew_3", "Alice")
+
+
+@pytest.mark.unit
+def test_detect_mention_prefers_display_name_over_user_name() -> None:
+    # 當 human seat 同時有 display_name 與 user_name 時，優先使用 display_name
+    seats = [
+        {
+            "role": "crew_1",
+            "type": "human",
+            "display_name": "小明",
+            "user_name": "ming123",
+        },
+    ]
+    assert detect_crew_mention("小明，輪到你了", seats) == ("crew_1", "小明")
+    # user_name 不應命中（因為 display_name 是優先選擇）
+    assert detect_crew_mention("ming123，輪到你了", seats) is None
+
+
+@pytest.mark.unit
+def test_detect_mention_falls_back_to_agent_id() -> None:
+    # 罕見場景：seat 既沒 display_name 也沒 user_name，fallback 到 agent_id
+    seats = [
+        {"role": "crew_2", "type": "ai", "agent_id": "agent_crew_2"},
+    ]
+    assert detect_crew_mention("agent_crew_2 請接話", seats) == (
+        "crew_2",
+        "agent_crew_2",
+    )
 
 
 @pytest.mark.unit
@@ -95,3 +127,50 @@ async def test_lock_ignores_other_crew_messages() -> None:
     awaited = await check_awaiting_reply(project_id, recent_chat=chat)
     assert awaited is not None
     assert awaited.seat_role == "crew_1"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_clear_awaiting_if_seat_matches_only_awaited() -> None:
+    """主動清鎖：只有「等的對象」發話才清，等別人時不清（修暖場連環催）。"""
+    from app.agents.supervisor.awaiting_reply import clear_awaiting_if_seat
+
+    project_id = uuid4()
+    await set_awaiting_reply(project_id, "crew_1", "tt")
+
+    # 別的席位發話 → 不清
+    assert await clear_awaiting_if_seat(project_id, "crew_2") is False
+    assert (await check_awaiting_reply(project_id, recent_chat=[])) is not None
+
+    # 等的對象（crew_1 / 人類 tt）發話 → 清掉
+    assert await clear_awaiting_if_seat(project_id, "crew_1") is True
+    assert (await check_awaiting_reply(project_id, recent_chat=[])) is None
+
+    # 沒鎖時呼叫 → False（不炸）
+    assert await clear_awaiting_if_seat(project_id, "crew_1") is False
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_clear_awaiting_any_clears_regardless_of_seat() -> None:
+    """A1（連發死房修）：clear_awaiting_any 不論鎖在誰身上都清。
+
+    場景：組長 @ 點名 crew_1 設鎖 → 人類（非 crew_1）在群組發話 → 應清掉 crew 鎖，
+    讓組長下個 tick 接話（clear_awaiting_if_seat 因 seat 不符不會清 → 死房根因）。
+    """
+    from app.agents.supervisor.awaiting_reply import clear_awaiting_any
+
+    project_id = uuid4()
+    await set_awaiting_reply(project_id, "crew_1", "陳建宏")
+    assert (await check_awaiting_reply(project_id, recent_chat=[])) is not None
+
+    # clear_awaiting_if_seat 對「不是被等對象」的人類席位不清（對照）
+    from app.agents.supervisor.awaiting_reply import clear_awaiting_if_seat
+    assert await clear_awaiting_if_seat(project_id, "human_creator") is False
+    assert (await check_awaiting_reply(project_id, recent_chat=[])) is not None
+
+    # clear_awaiting_any 無條件清
+    assert await clear_awaiting_any(project_id) is True
+    assert (await check_awaiting_reply(project_id, recent_chat=[])) is None
+    # 沒鎖時回 False（不炸）
+    assert await clear_awaiting_any(project_id) is False

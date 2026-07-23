@@ -1,6 +1,6 @@
 """ConstraintSuggester — Phase 27 LLM-driven 限制條件建議。
 
-接 ``POST /api/projects/draft/suggest-constraints`` 端點（見 ``specs/06`` §2.3）。
+接 ``POST /api/projects/draft/suggest-constraints`` 端點（見 `` §2.3）。
 """
 from __future__ import annotations
 

@@ -210,7 +210,7 @@ def fallback_persona_for(seat_role: str) -> Persona | None:
 
 # ---------------------------------------------------------------------------
 # Phase 27: StakeholderSuggestion — concrete people the user picks from
-# (see specs/17-dynamic-persona-system.md §3.0.1)
+#
 # ---------------------------------------------------------------------------
 
 

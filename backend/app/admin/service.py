@@ -21,7 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.admin.schemas import (
+    AffectedRoomEntry,
     HealthCheckResponse,
+    LLMHealthResponse,
     LogDetailResponse,
     LogEntryResponse,
     LogListResponse,
@@ -29,6 +31,7 @@ from app.admin.schemas import (
     PayloadAccessEntry,
     PayloadAccessListResponse,
     ProviderCreateRequest,
+    ProviderHealthDetail,
     ProviderResponse,
     ProviderUpdateRequest,
     mask_api_key,
@@ -50,6 +53,7 @@ def _to_response(row: LLMProviderRow) -> ProviderResponse:
         name=row.name,
         kind=row.kind,  # type: ignore[arg-type]
         tier=row.tier,
+        capability_class=row.capability_class,  # type: ignore[arg-type]
         weight=row.weight,
         base_url=row.base_url,
         model=row.model,
@@ -89,6 +93,7 @@ async def create_provider(
         name=payload.name,
         kind=payload.kind,
         tier=payload.tier,
+        capability_class=payload.capability_class,
         weight=payload.weight,
         base_url=payload.base_url,
         model=payload.model,
@@ -161,6 +166,47 @@ async def health_check_provider(
     )
 
 
+async def get_llm_health(session: AsyncSession) -> LLMHealthResponse:
+    """整體 LLM 健康判定 + per-provider 詳情 + 受影響房（Phase 42 D5 / spec 20 §13.6）。
+
+    健康狀態讀自 ``health_monitor`` 單例（背景健檢迴圈維護，零 DB）；受影響房由
+    active project 的 ``timer_state.pause_reason == 'llm_down'`` 篩出。
+    """
+    from app.llm.health_monitor import health_monitor
+
+    snap = health_monitor.snapshot()
+    providers = [ProviderHealthDetail(**p) for p in snap["providers"]]
+
+    result = await session.execute(
+        select(Project.id, Project.name, Project.timer_state).where(
+            Project.status == "active"
+        )
+    )
+    affected: list[AffectedRoomEntry] = []
+    for pid, name, timer_state in result.all():
+        ts = timer_state or {}
+        if ts.get("pause_reason") == "llm_down":
+            affected.append(
+                AffectedRoomEntry(
+                    project_id=pid,
+                    project_name=name,
+                    pause_reason=ts.get("pause_reason"),
+                    paused_at=ts.get("paused_at"),
+                )
+            )
+
+    return LLMHealthResponse(
+        overall_status=snap["overall_status"],
+        reactive_consecutive_failures=snap["reactive_consecutive_failures"],
+        reactive_threshold=snap["reactive_threshold"],
+        proactive_unhealthy_streak=snap["proactive_unhealthy_streak"],
+        proactive_threshold=snap["proactive_threshold"],
+        last_status_change=snap["last_status_change"],
+        providers=providers,
+        affected_rooms=affected,
+    )
+
+
 # ── logs (Phase 25.J: name JOINs + detail) ──────────────────────────────
 
 
@@ -173,6 +219,9 @@ async def list_logs(
     since: datetime | None = None,
     until: datetime | None = None,
     success: bool | None = None,
+    caller: str | None = None,
+    model: str | None = None,
+    triggered_by_user_id: UUID | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> LogListResponse:
@@ -198,8 +247,20 @@ async def list_logs(
         conditions.append(log.created_at < until)
     if success is not None:
         conditions.append(log.success.is_(success))
+    if caller:
+        conditions.append(log.caller == caller)
+    if model:
+        # ``model`` lives on the provider; filter via the (already-joined) row.
+        conditions.append(prov.model == model)
+    if triggered_by_user_id is not None:
+        conditions.append(log.triggered_by_user_id == triggered_by_user_id)
 
-    count_stmt = select(func.count(log.id))
+    # Count shares the provider join so a ``model`` filter resolves identically.
+    count_stmt = (
+        select(func.count(log.id))
+        .select_from(log)
+        .outerjoin(prov, prov.id == log.provider_id)
+    )
     for c in conditions:
         count_stmt = count_stmt.where(c)
     total = (await session.execute(count_stmt)).scalar_one()
@@ -208,6 +269,7 @@ async def list_logs(
         select(
             log,
             prov.name.label("provider_name"),
+            prov.model.label("provider_model"),
             owning.display_name.label("owning_display_name"),
             triggered.display_name.label("triggered_display_name"),
             proj.name.label("project_name"),
@@ -235,6 +297,7 @@ def _log_row_to_entry(row) -> LogEntryResponse:
         created_at=log.created_at,
         provider_id=log.provider_id,
         provider_name=row.provider_name,
+        model=row.provider_model,
         owning_user_id=log.owning_user_id,
         owning_user_display_name=row.owning_display_name,
         triggered_by_user_id=log.triggered_by_user_id,
@@ -269,6 +332,7 @@ async def get_log_detail(
         select(
             log,
             prov.name.label("provider_name"),
+            prov.model.label("provider_model"),
             owning.display_name.label("owning_display_name"),
             triggered.display_name.label("triggered_display_name"),
             proj.name.label("project_name"),

@@ -2,7 +2,7 @@
 
 POST /api/projects/{project_id}/dt-coach/ask
 
-依 specs/13-personal-chat.md §5.2、§7、§8.2：
+、§7、§8.2：
   - 必須帶 JWT；project 必須存在；user 必須是 seat 佔用者 OR creator。
   - 同步路徑：寫一筆 user message（chat_id=personal）→ publish event。
   - 非同步路徑：``asyncio.create_task`` 排程 Coach reply 背景任務，

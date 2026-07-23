@@ -31,7 +31,7 @@ class TraceService:
         Args:
             project_id: UUID of the project this agent belongs to.
             agent_id: Identifier of the agent (e.g. "agent_supervisor").
-            stage: Current Design Thinking stage name (discover/define/develop/deliver).
+            stage: Current Design Thinking stage name (warmup/discover/define/completed).
             assess_result: AssessResult dataclass instance (or None if assess was skipped).
             think_result: ThinkResult dataclass instance (or None if think was skipped).
             act_result: ActResult dataclass instance (or None if act was skipped).

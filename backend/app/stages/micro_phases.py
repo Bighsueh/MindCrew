@@ -6,6 +6,8 @@ Phase 19 refactor: Each micro-phase declares a ``needed_lens`` and a set of
 project's actual personas. This decouples DT phase strategy from the
 legacy ``crew_1=empathy`` hardcoding.
 
+System scope: first diamond only (warmup → discover → define → completed).
+
 Backward compatibility:
 - ``get_role_status`` accepts an optional ``seats`` list. When omitted,
   it falls back to the legacy 4-capability personas so existing call
@@ -30,128 +32,83 @@ class MicroPhase:
 
     Attributes:
         id: e.g. "1.1"
-        macro_stage: discover | define | develop | deliver
+        macro_stage: warmup | discover | define
         name_zh / name_en: human-readable labels
         needed_lens: the cognitive lens that should lead this phase (or None)
         suppressed_lenses: lenses that should be muted this phase
     """
 
     id: str
-    macro_stage: str
+    macro_stage: str  # warmup | discover | define
     name_zh: str
     name_en: str
     needed_lens: CognitiveLens | None
     suppressed_lenses: tuple[CognitiveLens, ...]
 
 
+# Phase 42 C1 (spec/22 v2.0 §2.3a)：micro 重寫為 6 桶
+# {0.0, 1.1, 1.2, 2.1, 2.2=2.2–2.4, 2.3=2.5–2.7}；0.1/0.2/1.3 正式移除。
+# name_zh＝in-scene 大白話（講義溯源標籤降到 spec 22 §2.1，#25）。
+# needed_lens/suppressed_lenses 為 spec 未規範項：id 沿用者保留既有配置、
+# 新 1.2（發想痛點）沿用舊發散期配置（EMPATHY 視角主導替各群代言、結構收手），記錄為 C1 裁定。
 MICRO_PHASES: dict[str, MicroPhase] = {
+    # 暖場 macro stage（第一級階段）：目標導向破冰。專案入口。
+    "0.0": MicroPhase(
+        id="0.0",
+        macro_stage="warmup",
+        name_zh="破冰時間",
+        name_en="warmup-icebreaker",
+        needed_lens=None,
+        suppressed_lenses=(),
+    ),
     "1.1": MicroPhase(
         id="1.1",
         macro_stage="discover",
-        name_zh="暖場與經驗分享",
-        name_en="warm-up-and-experience-sharing",
+        name_zh="經驗分享與利害關係人",
+        name_en="experience-sharing-and-stakeholders",
         needed_lens=CognitiveLens.EMPATHY,
         suppressed_lenses=(CognitiveLens.STRUCTURE, CognitiveLens.FEASIBILITY),
     ),
     "1.2": MicroPhase(
         id="1.2",
         macro_stage="discover",
-        name_zh="視角擴展",
-        name_en="perspective-expansion",
-        needed_lens=None,
-        suppressed_lenses=(CognitiveLens.STRUCTURE,),
-    ),
-    "1.3": MicroPhase(
-        id="1.3",
-        macro_stage="discover",
-        name_zh="同理心收斂",
-        name_en="empathy-convergence",
-        needed_lens=CognitiveLens.STRUCTURE,
-        suppressed_lenses=(),
+        name_zh="發想痛點與情境",
+        name_en="pain-point-ideation",
+        needed_lens=CognitiveLens.EMPATHY,
+        suppressed_lenses=(CognitiveLens.FEASIBILITY,),
     ),
     "2.1": MicroPhase(
         id="2.1",
         macro_stage="define",
-        name_zh="使用者旅程追蹤",
-        name_en="user-journey-tracking",
+        name_zh="痛點歸類",
+        name_en="pain-point-clustering",
         needed_lens=CognitiveLens.STRUCTURE,
         suppressed_lenses=(),
     ),
     "2.2": MicroPhase(
         id="2.2",
         macro_stage="define",
-        name_zh="洞察萃取與矛盾發掘",
-        name_en="insight-extraction-and-tension-discovery",
+        name_zh="問題定義與深掘",
+        name_en="problem-definition-and-deepening",
         needed_lens=CognitiveLens.STRUCTURE,
         suppressed_lenses=(),
     ),
     "2.3": MicroPhase(
         id="2.3",
         macro_stage="define",
-        name_zh="HMW 問題陳述",
-        name_en="hmw-problem-statement",
+        name_zh="訂準則、收斂與設計題目",
+        name_en="criteria-convergence-and-design-question",
         needed_lens=None,
-        suppressed_lenses=(),
-    ),
-    "3.1": MicroPhase(
-        id="3.1",
-        macro_stage="develop",
-        name_zh="規則建立與大量發散",
-        name_en="rule-setting-and-mass-divergence",
-        needed_lens=CognitiveLens.CREATIVITY,
-        suppressed_lenses=(CognitiveLens.STRUCTURE, CognitiveLens.FEASIBILITY),
-    ),
-    "3.2": MicroPhase(
-        id="3.2",
-        macro_stage="develop",
-        name_zh="概念分群與合併",
-        name_en="concept-clustering-and-merging",
-        needed_lens=CognitiveLens.STRUCTURE,
-        suppressed_lenses=(
-            CognitiveLens.EMPATHY,
-            CognitiveLens.CREATIVITY,
-            CognitiveLens.FEASIBILITY,
-        ),
-    ),
-    "3.3": MicroPhase(
-        id="3.3",
-        macro_stage="develop",
-        name_zh="評估收斂與方案選定",
-        name_en="evaluation-convergence-and-solution-selection",
-        needed_lens=CognitiveLens.FEASIBILITY,
-        suppressed_lenses=(),
-    ),
-    "4.1": MicroPhase(
-        id="4.1",
-        macro_stage="deliver",
-        name_zh="原型規劃與快速製作",
-        name_en="prototype-planning-and-rapid-making",
-        needed_lens=CognitiveLens.FEASIBILITY,
-        suppressed_lenses=(),
-    ),
-    "4.2": MicroPhase(
-        id="4.2",
-        macro_stage="deliver",
-        name_zh="測試設計",
-        name_en="test-design",
-        needed_lens=CognitiveLens.STRUCTURE,
-        suppressed_lenses=(CognitiveLens.CREATIVITY,),
-    ),
-    "4.3": MicroPhase(
-        id="4.3",
-        macro_stage="deliver",
-        name_zh="模擬測試與學習迭代",
-        name_en="simulated-testing-and-learning-iteration",
-        needed_lens=CognitiveLens.EMPATHY,
         suppressed_lenses=(),
     ),
 }
 
+# Phase 42 C1 (spec/22 v2.0 §2.4)：6 個 micro 桶。
+# 2.3 推進不再進入 3.1，改觸發 FirstDiamondCompletedEvent（見 stage_advancement.py）。
 MICRO_PHASE_ORDER: tuple[str, ...] = (
-    "1.1", "1.2", "1.3",
-    "2.1", "2.2", "2.3",
-    "3.1", "3.2", "3.3",
-    "4.1", "4.2", "4.3",
+    "0.0",            # 暖場（warmup macro stage）
+    "1.1", "1.2",     # 發現階段
+    "2.1", "2.2", "2.3",  # 定義階段
 )
 
 
@@ -166,7 +123,7 @@ def get_macro_stage(phase_id: str) -> str:
 
 
 def get_next_micro_phase(current: str) -> str | None:
-    """Get the next phase in sequence. Returns None for '4.3'."""
+    """Get the next phase in sequence. Returns None at the end of 2.3."""
     try:
         idx = MICRO_PHASE_ORDER.index(current)
     except ValueError as exc:
@@ -185,13 +142,6 @@ def validate_advance(from_id: str, to_id: str) -> bool:
 
 def validate_backtrack(from_id: str, to_id: str) -> bool:
     """Validate backtrack.
-
-    Rules from spec §6.1:
-    - 4.3 can backtrack to 3.1 (core assumption failed) or 4.1 (partial failure)
-    - Any phase can backtrack to 1.3 (persona wrong)
-    - 2.3/3.x can backtrack to 2.2 (insight insufficient)
-    - Any phase stays at current (delivery not met)
-    - Team request: any backward move
 
     For simplicity: allow any backward move (to_id < from_id in MICRO_PHASE_ORDER).
     """
@@ -269,11 +219,12 @@ def is_macro_boundary(from_id: str, to_id: str) -> bool:
 
 
 # Mapping from macro stage to first micro phase
+# 'completed' is a terminal stage without a micro phase.
+# Phase 42 C1 (spec/22 §2.4)：warmup→0.0、discover→1.1（0.1 移除後不再經 Phase 0）、define→2.1。
 _STAGE_TO_FIRST_MICRO: dict[str, str] = {
+    "warmup": "0.0",
     "discover": "1.1",
     "define": "2.1",
-    "develop": "3.1",
-    "deliver": "4.1",
 }
 
 

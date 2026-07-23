@@ -12,12 +12,28 @@ from sqlalchemy import select
 
 from app.auth.codes import generate_code
 from app.db.models.project import Project
-from app.db.models.seat import Seat
+from app.db.models.seat import (
+    Seat,
+    SEAT_ROLE_SUPERVISOR,
+    SEAT_ROLE_HUMAN_CREATOR,
+    SEAT_STATE_DORMANT,
+    SEAT_STATE_AI_RUNNING,
+    SEAT_STATE_VACANT,
+)
 from app.db.models.user import User
+from app.events.bus import event_bus
+from app.events.types import TurnPolicyChangedEvent
+from app.projects.access import (
+    assert_project_access,
+    viewer_role_for,
+    LEVEL_VIEWER,
+)
 from app.projects.repository import ProjectRepository
 from app.projects.schemas import (
+    ALLOWED_TURN_POLICIES,
     CanvasNoteResponse,
     CanvasStateResponse,
+    DEFAULT_TURN_POLICY,
     JoinRequest,
     JoinResponse,
     LinkedTeacherInfo,
@@ -73,6 +89,26 @@ async def _load_linked_teacher(
         return None
     return LinkedTeacherInfo(id=teacher.id, display_name=teacher.display_name)
 
+
+async def _publish_turn_policy_changed(
+    project_id: UUID, policy: str, changed_by: str
+) -> None:
+    """Phase 28：廣播 turn_policy 變更（ws/chat_ws.py forwarder 已加白名單）。
+
+    publish 失敗不應該阻塞 API（agent loop 每次 ASSESS 重讀 DB 也會即時生效），
+    所以 catch 起來只 log。
+    """
+    try:
+        await event_bus.publish(
+            TurnPolicyChangedEvent(
+                project_id=project_id, policy=policy, changed_by=changed_by
+            )
+        )
+    except Exception as exc:  # pragma: no cover - best-effort broadcast
+        logging.getLogger(__name__).warning(
+            "Failed to publish turn_policy_changed for %s: %s", project_id, exc
+        )
+
 logger = logging.getLogger(__name__)
 
 def _seat_roles_for(ai_crew_count: int) -> list[str]:
@@ -81,8 +117,7 @@ def _seat_roles_for(ai_crew_count: int) -> list[str]:
 
 
 # Phase 21: 在第一位真人入座前，AI 座位以此狀態存放（不啟動 agent、前端顯示「待加入」）。
-SEAT_STATE_DORMANT = "dormant"
-SEAT_STATE_AI_RUNNING = "ai_running"
+# SEAT_STATE_* / SEAT_ROLE_* 常數定義集中於 app.db.models.seat（單一真理來源），於檔首匯入。
 
 
 class ProjectService:
@@ -124,7 +159,7 @@ class ProjectService:
             ]
         task_brief_kind = "open" if stakeholders_payload else "legacy"
 
-        project = Project(
+        project_kwargs: dict[str, object] = dict(
             name=request.name,
             description=request.description,
             constraints=request.constraints,
@@ -135,6 +170,10 @@ class ProjectService:
             invite_code=invite_code,
             linked_teacher_id=linked_teacher_id,
         )
+        # Phase 28：建立時若有提供 turn_policy 就帶入，否則由 DB server_default 補 'cued'。
+        if request.turn_policy is not None:
+            project_kwargs["turn_policy"] = request.turn_policy
+        project = Project(**project_kwargs)
         project = await self.repo.create(project)
 
         # Build persona lookup from request (if supplied)
@@ -164,18 +203,51 @@ class ProjectService:
             self.session.add(seat)
             seats.append(seat)
 
+        # 真人專屬席（額外 +1）：綁定 creator，但 user_id 留空到入座為止。
+        # 以 occupant_type="human" + user_id=NULL + state="vacant" 表示「空席」，
+        # 如此所有 occupant_type=="ai" 的 agent 生成路徑都會天生跳過它。
+        human_seat = Seat(
+            project_id=project.id,
+            seat_role=SEAT_ROLE_HUMAN_CREATOR,
+            occupant_type="human",
+            user_id=None,
+            agent_id=None,
+            state=SEAT_STATE_VACANT,
+            persona=None,
+        )
+        self.session.add(human_seat)
+        seats.append(human_seat)
+
         # Phase 22：seed 每個席位的 sticky_color（shuffle 8 色）
         seed_seat_colors(seats)
         await self.session.flush()
 
-        # specs/16-timer-system.md：建立專案時同步初始化 timer。
+        # ：建立專案時同步初始化 timer。
         # timer_config 為必填欄位（schemas.py），由建立者明確選擇。
         # 失敗不再 swallow——沒 timer 的 project 不該存在。
+        from app.timer.schemas import TimerState, now_iso
         from app.timer.service import TimerService
-        await TimerService.initialize_project(
+        config = await TimerService.initialize_project(
             project.id, config=request.timer_config
         )
-        await TimerService.start_phase(project.id, "1.1a")
+        # 專案入口 = 暖場 macro stage 的第一格 0.0a（Alternative Uses 破冰遊戲）。
+        await TimerService.start_phase(project.id, "0.0a")
+        # 直接在本 session 寫頂層欄位（保證活動建立即就位）。
+        # 上面兩個 TimerService 走獨立 session、在本 session 尚未 commit 時對未可見的
+        # project row UPDATE 為 no-op；故 current_* **以及 timer_config / timer_state** 都
+        # 必須在此 session 直接寫到 project 物件，否則：
+        #   - current_sub_phase NULL → progression_watcher 永不開工（keystone）；
+        #   - timer_config 不落 → get_config fallback DEFAULT_PRESET、創建者選的 preset 被吞；
+        #   - timer_state.phase_started_at 不落 → 暖場計時器永不啟動：5 分硬上限兜底失效
+        #     （spec 28 §5.3 防死鎖）、watcher 永不廣播 timer_state → 真人便條拿不到 sub_phase。
+        project.timer_config = config.model_dump()
+        project.timer_state = TimerState(
+            current_sub_phase="0.0a", phase_started_at=now_iso()
+        ).model_dump()
+        project.current_stage = "warmup"
+        project.current_micro_phase = "0.0"
+        project.current_sub_phase = "0.0a"
+        await self.session.flush()
 
         return ProjectResponse(
             id=project.id,
@@ -194,6 +266,10 @@ class ProjectService:
             linked_teacher=await _load_linked_teacher(
                 self.session, project.linked_teacher_id
             ),
+            turn_policy=project.turn_policy,
+            tour_acknowledged_by=dict(project.tour_acknowledged_by or {}),
+            # 剛建立者必為 creator。
+            viewer_role=viewer_role_for(project, user),
         )
 
     async def list_projects(self, user: User) -> list[ProjectListItem]:
@@ -201,7 +277,9 @@ class ProjectService:
         result = []
         for p in projects:
             seats = await self.repo.get_seats(p.id)
-            human_count = sum(1 for s in seats if s.occupant_type == "human")
+            human_count = sum(
+                1 for s in seats if s.occupant_type == "human" and s.user_id is not None
+            )
             ai_count = sum(1 for s in seats if s.occupant_type == "ai")
             result.append(
                 ProjectListItem(
@@ -218,16 +296,19 @@ class ProjectService:
                     linked_teacher=await _load_linked_teacher(
                         self.session, p.linked_teacher_id
                     ),
+                    turn_policy=p.turn_policy,
                 )
             )
         return result
 
-    async def get_project(self, project_id: UUID) -> ProjectResponse:
+    async def get_project(self, project_id: UUID, user: User) -> ProjectResponse:
         project = await self.repo.get_by_id(project_id)
         if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
             )
+        # 存取守門：creator / 列管老師 / admin 才可讀，其餘 403。
+        assert_project_access(project, user, level=LEVEL_VIEWER)
         seats = await self.repo.get_seats(project_id)
         return ProjectResponse(
             id=project.id,
@@ -246,6 +327,9 @@ class ProjectService:
             linked_teacher=await _load_linked_teacher(
                 self.session, project.linked_teacher_id
             ),
+            turn_policy=project.turn_policy,
+            tour_acknowledged_by=dict(project.tour_acknowledged_by or {}),
+            viewer_role=viewer_role_for(project, user),
         )
 
     async def link_teacher(
@@ -271,7 +355,7 @@ class ProjectService:
         project.linked_teacher_id = teacher.id
         project.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
-        return await self.get_project(project_id)
+        return await self.get_project(project_id, user)
 
     async def unlink_teacher(
         self, project_id: UUID, user: User
@@ -283,7 +367,7 @@ class ProjectService:
                 status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
             )
         if project.linked_teacher_id is None:
-            return await self.get_project(project_id)
+            return await self.get_project(project_id, user)
         if user.id not in (project.creator_id, project.linked_teacher_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -292,7 +376,7 @@ class ProjectService:
         project.linked_teacher_id = None
         project.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
-        return await self.get_project(project_id)
+        return await self.get_project(project_id, user)
 
     async def track_by_invite_code(
         self, invite_code: str, teacher: User
@@ -325,7 +409,7 @@ class ProjectService:
         project.linked_teacher_id = teacher.id
         project.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
-        return await self.get_project(project.id)
+        return await self.get_project(project.id, teacher)
 
     async def update_project(
         self, project_id: UUID, request: ProjectUpdateRequest, user: User
@@ -348,8 +432,17 @@ class ProjectService:
             project.constraints = request.constraints
         if request.ai_contribution is not None:
             project.ai_contribution = request.ai_contribution
+        turn_policy_changed = False
+        if request.turn_policy is not None and request.turn_policy != project.turn_policy:
+            project.turn_policy = request.turn_policy
+            turn_policy_changed = True
         project.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
+
+        if turn_policy_changed:
+            await _publish_turn_policy_changed(
+                project_id, project.turn_policy, str(user.id)
+            )
 
         seats = await self.repo.get_seats(project_id)
         return ProjectResponse(
@@ -369,14 +462,80 @@ class ProjectService:
             linked_teacher=await _load_linked_teacher(
                 self.session, project.linked_teacher_id
             ),
+            turn_policy=project.turn_policy,
+            tour_acknowledged_by=dict(project.tour_acknowledged_by or {}),
         )
 
-    async def get_seats(self, project_id: UUID) -> list[SeatResponse]:
+    async def update_turn_policy(
+        self, project_id: UUID, policy: str, user: User
+    ) -> tuple[str, datetime]:
+        """Phase 28：教師/admin 切換專案 turn_policy。
+
+        權限：``user.role == 'teacher'`` 且（``project.linked_teacher_id == user.id``
+        或 ``user.role == 'admin'``）。creator 想改自己的專案請走 ``PATCH /api/projects/{id}``。
+        """
+        if policy not in ALLOWED_TURN_POLICIES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"policy 必須為 {ALLOWED_TURN_POLICIES} 其中之一",
+            )
+
         project = await self.repo.get_by_id(project_id)
         if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
             )
+
+        # admin 可改任何專案；teacher 只能改自己列管的專案
+        is_admin = user.role == "admin"
+        is_linked_teacher = (
+            user.role == "teacher" and project.linked_teacher_id == user.id
+        )
+        if not (is_admin or is_linked_teacher):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the linked teacher or an admin may change turn_policy",
+            )
+
+        if project.turn_policy != policy:
+            project.turn_policy = policy
+            project.updated_at = datetime.now(timezone.utc)
+            await self.session.flush()
+            await _publish_turn_policy_changed(project_id, policy, str(user.id))
+
+        return project.turn_policy, project.updated_at
+
+    async def acknowledge_tour(
+        self, project_id: UUID, user: User
+    ) -> dict[str, str]:
+        """Phase 30 (spec/22 §2.1)：紀錄 ``user`` 完成了 0.1 DEMO 導覽。
+
+        idempotent：重複呼叫不報錯，只更新時戳。回傳目前該專案完整 ack map。
+        """
+        project = await self.repo.get_by_id(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+            )
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        # JSONB column: mutate dict + reassign so SQLAlchemy detects change
+        ack_map = dict(project.tour_acknowledged_by or {})
+        ack_map[str(user.id)] = now_iso
+        project.tour_acknowledged_by = ack_map
+        project.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return ack_map
+
+    async def get_seats(
+        self, project_id: UUID, user: User
+    ) -> list[SeatResponse]:
+        project = await self.repo.get_by_id(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+            )
+        assert_project_access(project, user, level=LEVEL_VIEWER)
         seats = await self.repo.get_seats(project_id)
         return [self._seat_to_response(s) for s in seats]
 
@@ -389,45 +548,45 @@ class ProjectService:
                 status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
             )
 
-        # Supervisor lock 最高優先（Phase 18 規則）。
-        if request.seat_role == "supervisor":
+        # Supervisor 為 AI 專屬、鎖死。
+        if request.seat_role == SEAT_ROLE_SUPERVISOR:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Supervisor seat is AI-only and cannot be occupied by humans",
             )
+        # crew_* 為常駐 AI，永不可被真人頂替；唯一可入座的是真人專屬席。
+        if request.seat_role != SEAT_ROLE_HUMAN_CREATOR:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Crew seats are AI-only; only the dedicated human seat can be occupied",
+            )
+        # 真人專屬席綁定 creator：只有專案建立者能入座（老師只能旁觀、不可入座）。
+        if user.id != project.creator_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the project creator may occupy the human seat",
+            )
 
         all_seats = await self.repo.get_seats(project_id)
         seat = next(
-            (s for s in all_seats if s.seat_role == request.seat_role),
+            (s for s in all_seats if s.seat_role == SEAT_ROLE_HUMAN_CREATOR),
             None,
         )
         if not seat:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid seat role"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This project has no human seat",
             )
-        # Phase 21: 一個人類在同一專案僅能佔一個席位。
-        if any(s.user_id == user.id for s in all_seats):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="You already occupy a seat in this project",
+        # 已被佔（user_id 非空）→ 409。空席以 user_id IS NULL 表示。
+        if seat.user_id is not None:
+            detail = (
+                "You already occupy the human seat in this project"
+                if seat.user_id == user.id
+                else "The human seat is already occupied"
             )
-        # Phase 22: 每個專案最多只能有一個人類參與者。
-        if any(s.occupant_type == "human" for s in all_seats):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This project already has a human participant",
-            )
-        if seat.occupant_type == "human":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Seat is already occupied by a human",
-            )
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
-        # Phase 21：偵測「第一位真人入座」事件，
-        # 若是，則由 seat_manager 把 dormant AI 席位陸續激活（supervisor 立即、crew 錯開）。
-        is_first_human = not any(s.occupant_type == "human" for s in all_seats)
-
-        # Delegate to SeatManager: stops AI agent (if any), updates DB/Redis, broadcasts event
+        # Delegate to SeatManager: updates DB/Redis, broadcasts event
         await seat_manager.assign_human(
             project_id=project_id,
             seat_role=request.seat_role,
@@ -437,16 +596,10 @@ class ProjectService:
         )
         await self.session.flush()
 
-        if is_first_human:
-            # 第一位真人 → 把所有 dormant AI 座位激活（含 supervisor + 其他 crew）。
-            # 傳 self.session 進去，讓 supervisor 的同步激活與本次 request 同交易，
-            # 確保測試 fixture（不 commit）也能看到狀態。
-            await seat_manager.activate_dormant_seats(
-                project_id, session=self.session
-            )
-        else:
-            # 其他真人 → 只確認既有 AI agents 在跑（idempotent）。
-            await seat_manager.start_all_agents(project_id)
+        # creator 入座 → 啟動所有 dormant AI（supervisor 立即、crew 錯開）。
+        # idempotent：重新入座時若 AI 已在跑，activate_dormant_seats 找不到 dormant 即 no-op。
+        # 傳 self.session 讓 supervisor 同步激活與本次 request 同交易（測試 fixture 不 commit 也可見）。
+        await seat_manager.activate_dormant_seats(project_id, session=self.session)
 
         # Re-read seat from DB for the response
         await self.session.refresh(seat)
@@ -496,12 +649,15 @@ class ProjectService:
             logger.warning("Failed to stop agents for project %s: %s", project_id, exc)
         await self.repo.delete(project)
 
-    async def get_canvas_state(self, project_id: UUID) -> CanvasStateResponse:
+    async def get_canvas_state(
+        self, project_id: UUID, user: User
+    ) -> CanvasStateResponse:
         project = await self.repo.get_by_id(project_id)
         if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
             )
+        assert_project_access(project, user, level=LEVEL_VIEWER)
         from app.bridge.canvas_ops import canvas_ops
 
         raw = await canvas_ops.get_canvas_state(project_id)
@@ -519,19 +675,27 @@ class ProjectService:
                     color=n.get("color", "yellow"),
                     author=n.get("author", ""),
                     group_name=n.get("group_name"),
+                    # Spec 27 (Phase 36) 便條欄位
+                    kind=n.get("kind", "content"),
+                    group_id=n.get("group_id"),
+                    # Phase 42 C0 (spec 06 v4.25)
+                    cites=n.get("cites") or [],
+                    time_box_forced=bool(n.get("time_box_forced", False)),
                 )
                 for n in raw.get("notes", [])
             ],
         )
 
     async def generate_summary(
-        self, project_id: UUID, *, owning_user_id: UUID
+        self, project_id: UUID, *, user: User
     ) -> ProjectSummaryResponse:
         project = await self.repo.get_by_id(project_id)
         if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
             )
+        assert_project_access(project, user, level=LEVEL_VIEWER)
+        owning_user_id = user.id
 
         from app.agents.prompts.summary import LOBBY_SUMMARY_PROMPT
         from app.bridge.canvas_ops import canvas_ops
@@ -614,6 +778,9 @@ class ProjectService:
 
         persona_payload = getattr(seat, "persona", None)
         is_dormant = seat.state == SEAT_STATE_DORMANT
+        # 空置的真人專屬席（occupant_type="human" 但無 user_id）視同未啟用，
+        # 前端據此畫成「待入座」空椅而非「在場真人」。
+        is_vacant_human = seat.occupant_type == "human" and seat.user_id is None
         display_name: str | None = None
         # Phase 21：dormant AI 不對外揭露 persona 姓名（前端顯示「待加入」）。
         if seat.occupant_type == "ai" and not is_dormant:
@@ -626,6 +793,6 @@ class ProjectService:
             display_name=display_name,
             # 仍把 persona 帶出，讓教師 / 建立者預覽 — 真正切換到 UI 上的「代理中」需要 is_active=True
             persona=persona_payload,
-            is_active=not is_dormant,
+            is_active=not (is_dormant or is_vacant_human),
             sticky_color=getattr(seat, "sticky_color", None),
         )

@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 ProviderKind = Literal["vllm", "azure_openai"]
+CapabilityClass = Literal["quality", "standard"]  # Phase 37: quality pool axis
 
 
 # ── provider CRUD (unchanged from Phase 25 core) ────────────────────────
@@ -30,6 +31,7 @@ class ProviderCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     kind: ProviderKind
     tier: int = Field(ge=1, le=5)
+    capability_class: CapabilityClass = "standard"
     base_url: str = Field(min_length=1)
     model: str = Field(min_length=1, max_length=128)
     api_key: str = Field(default="", max_length=2048)
@@ -52,6 +54,7 @@ class ProviderCreateRequest(BaseModel):
 class ProviderUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
     tier: int | None = Field(default=None, ge=1, le=5)
+    capability_class: CapabilityClass | None = None
     base_url: str | None = None
     model: str | None = Field(default=None, max_length=128)
     api_key: str | None = Field(default=None, max_length=2048)
@@ -68,6 +71,7 @@ class ProviderResponse(BaseModel):
     name: str
     kind: ProviderKind
     tier: int
+    capability_class: CapabilityClass
     weight: int
     base_url: str
     model: str
@@ -91,6 +95,44 @@ class HealthCheckResponse(BaseModel):
     error: str | None = None
 
 
+# ── LLM fail-stop health (Phase 42 D5 / G14, spec 20 §13.6) ──────────────
+
+
+class ProviderHealthDetail(BaseModel):
+    """單一 provider 的健康快照（背景健檢迴圈維護）。"""
+
+    provider_id: str
+    provider_name: str
+    healthy: bool
+    consecutive_failures: int
+    last_failure_at: str | None = None
+    last_failure_reason: str | None = None
+    last_check_at: str | None = None
+    cooldown_remaining_seconds: float | None = None
+
+
+class AffectedRoomEntry(BaseModel):
+    """因 LLM fail-stop 被暫停的房間（暫停時間軸）。"""
+
+    project_id: UUID
+    project_name: str | None
+    pause_reason: str | None
+    paused_at: str | None
+
+
+class LLMHealthResponse(BaseModel):
+    """整體 LLM 健康判定 + per-provider 詳情 + 受影響房（spec 20 §13.6）。"""
+
+    overall_status: Literal["up", "degraded", "down"]
+    reactive_consecutive_failures: int
+    reactive_threshold: int
+    proactive_unhealthy_streak: int
+    proactive_threshold: int
+    last_status_change: str | None
+    providers: list[ProviderHealthDetail]
+    affected_rooms: list[AffectedRoomEntry]
+
+
 # ── log list + detail (Phase 25.J) ──────────────────────────────────────
 
 
@@ -99,6 +141,7 @@ class LogEntryResponse(BaseModel):
     created_at: datetime
     provider_id: UUID
     provider_name: str | None
+    model: str | None = None
     owning_user_id: UUID
     owning_user_display_name: str | None
     triggered_by_user_id: UUID | None
@@ -235,6 +278,36 @@ class SuccessRateTrendPoint(BaseModel):
 class SuccessRateTrendResponse(BaseModel):
     granularity: Granularity
     points: list[SuccessRateTrendPoint]
+
+
+# ── latency analytics (percentiles + trend) ────────────────────────────
+
+
+class LatencyPercentileRow(BaseModel):
+    """Per-provider latency summary. ``provider_id`` is None for the overall
+    aggregate row across all providers."""
+
+    provider_id: UUID | None
+    provider_name: str | None
+    request_count: int
+    p50_ms: float | None
+    p95_ms: float | None
+    p99_ms: float | None
+    max_ms: int | None
+    avg_ms: float | None
+
+
+class LatencyTrendPoint(BaseModel):
+    bucket_ts: datetime  # bucket start, UTC
+    request_count: int
+    avg_ms: float | None  # null when request_count == 0
+    p95_ms: float | None  # null when request_count == 0
+
+
+class LatencyStatsResponse(BaseModel):
+    granularity: Granularity
+    rows: list[LatencyPercentileRow]  # overall first, then per provider
+    trend: list[LatencyTrendPoint]
 
 
 def mask_api_key(api_key: str) -> str:

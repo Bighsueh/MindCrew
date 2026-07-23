@@ -1,11 +1,22 @@
 import type { DTStage } from '../types/models'
 
+// Phase 29 (spec/04-06 §4.10): develop / deliver removed.
 export const STAGE_LABELS: Record<DTStage, string> = {
+  warmup: '🔥 暖場',
   discover: '🔍 發現',
   define: '📌 定義',
-  develop: '💡 發展',
-  deliver: '🚀 交付',
   completed: '✅ 完成',
+}
+
+/**
+ * 無 emoji 的階段中文標籤——給「已有自身 icon 的元件 / aria-label / 緊湊 tag」用。
+ * 與 STAGE_LABELS 同為階段標籤的**單一真相來源**；元件不得自帶英文 map（spec 28 §6）。
+ */
+export const STAGE_LABELS_PLAIN: Record<DTStage, string> = {
+  warmup: '暖場',
+  discover: '發現',
+  define: '定義',
+  completed: '完成',
 }
 
 /** Parse an ISO string as UTC if it has no timezone suffix. */

@@ -92,6 +92,8 @@ class ProjectStateSnapshot:
     # Phase 27 — 建立時使用者勾選的利害關係人（Discover 階段 prompt 注入素材）
     stakeholders: list[dict] = field(default_factory=list)
     task_brief_kind: str = "legacy"
+    # Phase 28 — Turn-Taking Controller 規則（cued / round_robin / open_floor）
+    turn_policy: str = "cued"
 
 
 @dataclass(frozen=True)
@@ -135,6 +137,12 @@ def _normalize_canvas(snapshot: dict, micro_phase: str | None = None) -> dict:
     spatial_notes = [
         n for n in all_spatial_notes
         if n.get("grid_position", [0, 0])[1] < _ARCHIVE_ROW_THRESHOLD
+        # Phase 42 D1c-前導：選定問題定義豁免封存——選定 band 開在白板最底會落 row≥21，
+        # 否則 2.7 看不到要 cite 的選定 PS（選定集 ≤3，token 衝擊可忽略）。
+        or n.get("selected_ps")
+        # R1b-re：section 全體成員豁免（理由便條、標籤）——否則隊友剛貼的選定理由
+        # 對 agent 隱形 → 重複貼／組長無從點評（帶內成員數量級同選定集，token 可忽略）。
+        or n.get("in_section")
     ]
     result["spatial_notes"] = spatial_notes
 
@@ -284,10 +292,27 @@ class ContextBuffer:
         active_thread = await tracker.get_thread_context()
 
         typing_raw = await r.get(f"project:{self._project_id}:human_typing_ts")
+        # B2（多訊息連發）：人類最後一則群組訊息時戳——assess Rule 2.5 據此 debounce，
+        # 讓 agent 等連發停了再回最後一則（typing 指示只在「打字中」有效，送出後即失效，
+        # 連發第 2 則距第 1 則 0.5s 就不被擋）。由 chat_ws group 分支同步寫入。
+        last_msg_raw = await r.get(f"project:{self._project_id}:human_last_msg_ts")
         event_raw = await r.get(f"project:{self._project_id}:last_event_ts")
+        # Spec 27 P1: revive the tidy throttle — assess Rule X reads
+        # ``_last_tidy_time`` for its cooldown. ``act_canvas`` writes this Redis
+        # key after arrange_notes/tidy_area; previously nothing read it back so
+        # the cooldown was always None (dead throttle). One read per tick here.
+        tidy_raw = await r.get(f"project:{self._project_id}:last_tidy_ts")
 
         blackboard = await self._load_blackboard()
         phase_strategy_dict = self._load_phase_strategy_dict(state.current_micro_phase)
+
+        # Phase 42 C0 (spec 10 v2.0 §4.7)：白板最近的移動（move_ingest 已語意化，取近 5 筆）
+        canvas_moves: list[dict] = []
+        try:
+            raw_moves = await r.lrange(f"canvas_moves:{self._project_id}", -5, -1)
+            canvas_moves = [json.loads(m) for m in raw_moves]
+        except Exception:
+            logger.debug("load canvas_moves failed", exc_info=True)
 
         # Phase 17 — sub-phase / comm_mode / zones / reveal queue / timer
         sub_phase_frame = await self._load_sub_phase_frame(state.current_sub_phase)
@@ -297,6 +322,7 @@ class ContextBuffer:
 
         context: dict = {
             # Core (always present)
+            "project_id": self._project_id,
             "project_name": state.project_name,
             "project_description": state.project_description,
             "canvas_state": state.canvas_state,
@@ -311,8 +337,12 @@ class ContextBuffer:
             "my_recent_actions": my_recent_actions,
             "active_thread": active_thread,
             "blackboard": blackboard,
+            # Phase 42 C0 (spec 10 v2.0 §4.7)
+            "canvas_moves": canvas_moves,
             "_human_typing_timestamp": float(typing_raw) if typing_raw else None,
+            "_human_last_message_timestamp": float(last_msg_raw) if last_msg_raw else None,
             "_last_event_time": float(event_raw) if event_raw else None,
+            "_last_tidy_time": float(tidy_raw) if tidy_raw else None,
             # Phase 17 fields
             "current_sub_phase": sub_phase_frame.current_sub_phase,
             "comm_mode": sub_phase_frame.comm_mode,
@@ -324,11 +354,13 @@ class ContextBuffer:
             # Phase 27 fields — 建立時勾選的利害關係人（Discover 階段使用）
             "stakeholders": state.stakeholders,
             "task_brief_kind": state.task_brief_kind,
+            # Phase 28 — Turn-Taking Controller 規則（每 tick 重讀以支援即時切換）
+            "turn_policy": state.turn_policy,
         }
         if phase_strategy_dict:
             context["phase_strategy"] = phase_strategy_dict
 
-        # specs/16-timer-system.md §6.5.4：把時間壓力等級 + 階段意圖塞進
+        # ：把時間壓力等級 + 階段意圖塞進
         # context，讓 serializer / supervisor triggers / crew prompts 都
         # 能讀取，不必各自重算。
         try:
@@ -341,6 +373,111 @@ class ContextBuffer:
             )
         except Exception:
             logger.debug("phase_intent/pressure injection failed", exc_info=True)
+
+        # Phase 35 (spec/16 §6.5.5): supervisor trigger dedup —
+        # 把已 fire 的 B3* trigger id 集合載入 ctx，讓 triggers_b.py 跳過。
+        try:
+            from app.agents.supervisor.dedup import get_fired_triggers
+
+            context["_supervisor_fired_triggers"] = await get_fired_triggers(
+                self._project_id, state.current_sub_phase,
+            )
+        except Exception:
+            logger.debug("supervisor fired_triggers load failed", exc_info=True)
+            context["_supervisor_fired_triggers"] = set()
+
+        # Phase 32 (spec/24 §2): supervisor 在工具 sub-phase（D4：2.2 問題定義／2.7 設計
+        # 題目，1.6 Persona 已移除）注入 tool_status，讓 supervisor 能精準 cue 各 lens crew
+        # 補空白欄位。crew 不需要這個 block。
+        try:
+            from app.agents.tool_status import (
+                TOOL_STATUS_SUB_PHASES,
+                serialize_tool_status,
+            )
+
+            if (
+                state.current_sub_phase in TOOL_STATUS_SUB_PHASES
+                and self._seat_role == "supervisor"
+            ):
+                context["tool_status"] = await serialize_tool_status(
+                    self._project_id, state.current_sub_phase
+                )
+        except Exception:
+            logger.debug("tool_status injection failed", exc_info=True)
+
+        # Phase 42 A1 (spec 04-06 §5.8 / 16 §4)：「本關訊號」面板——只餵組長。
+        # crew 的 ContextBuffer 不注入此 key → serializer 自然跳過（隔離與
+        # tool_status 同模式）。已序列化繁中字串，passthrough 渲染。
+        if self._seat_role == "supervisor" and state.current_sub_phase:
+            # Phase 42（1.1a 隊友沉默修復，spec 22 1.1a / 04-03 §3.2）：經驗分享參與快照
+            # ——B13 逐一邀請 trigger 與面板「全員分享」行共用同一份，避免雙重 round_lock 讀。
+            share_status_snapshot = None
+            try:
+                from app.progression.share_experience import (
+                    SHARE_SUB_PHASE,
+                    share_status,
+                )
+
+                if state.current_sub_phase == SHARE_SUB_PHASE:
+                    share_status_snapshot = await share_status(self._project_id)
+                    context["_share_status"] = share_status_snapshot
+            except Exception:
+                logger.debug("share_status injection failed", exc_info=True)
+            try:
+                from app.progression.signal_panel import build_signal_panel
+
+                canvas_summary = (state.canvas_state or {}).get("summary") or {}
+                context["sub_phase_signals"] = await build_signal_panel(
+                    self._project_id,
+                    state.current_sub_phase,
+                    time_budget_used_pct=sub_phase_frame.time_budget_used_pct,
+                    cluster_count=canvas_summary.get("cluster_count"),
+                    current_micro_phase=state.current_micro_phase,
+                    share_status=share_status_snapshot,
+                )
+            except Exception:
+                logger.debug("signal panel injection failed", exc_info=True)
+
+        # Phase 42（1.1a 隊友沉默修復，spec 20 §11 cued 死結破除）：**僅 1.1a** cued crew
+        # 注入 round_lock 衍生的「死結放行席位」——_cued_should_open_floor 安全網據此「一次
+        # 只放一位」未分享 crew（本關 scoped、免 0.0a 殘留訊息毒化、反灌爆）。其餘 sub_phase
+        # ／非 cued 不注入 → 沿用既有 recent_chat 掃描分支（行為不變、不多花 round_lock 讀）。
+        if (
+            self._seat_role.startswith("crew_")
+            and state.current_sub_phase == "1.1a"
+            and "cued" in str(state.turn_policy or "").lower()
+        ):
+            # 先用已載入的 seats 廉價判斷有沒有真人席——全 AI 房直接走原掃描分支、不白跑
+            # get_state（round_lock 對全 AI 房不追蹤、participated 恆空）。
+            has_human_seat = any(
+                ((s.get("type") or s.get("occupant_type") or "").lower() == "human")
+                for s in (state.seats or [])
+            )
+            if not has_human_seat:
+                context["_round_lock_has_human"] = False
+                context["_cued_open_seat"] = None
+            else:
+                try:
+                    from app.agents import round_lock
+
+                    rl = await round_lock.get_state(
+                        self._project_id, state.current_sub_phase
+                    )
+                    has_human = bool(rl.get("has_human"))
+                    context["_round_lock_has_human"] = has_human
+                    open_seat = None
+                    if has_human:
+                        ai_crew = sorted(rl.get("ai_crew") or [])
+                        participated = set(rl.get("participated_crews") or [])
+                        # 死結＝本關還沒有任何 crew 出過聲；只放最小未分享席位
+                        # （其餘維持嚴格等待，靠組長 B13 逐一點名）。
+                        if ai_crew and not participated:
+                            open_seat = ai_crew[0]
+                    context["_cued_open_seat"] = open_seat
+                except Exception:
+                    logger.debug("cued open-seat injection failed", exc_info=True)
+                    context["_round_lock_has_human"] = False
+                    context["_cued_open_seat"] = None
 
         return context
 
@@ -522,6 +659,9 @@ class ContextBuffer:
             task_brief_kind = (
                 getattr(project, "task_brief_kind", "legacy") if project else "legacy"
             )
+            turn_policy = (
+                getattr(project, "turn_policy", "cued") if project else "cued"
+            )
 
             stage_duration = await self._compute_stage_duration(
                 session, project, current_stage
@@ -531,7 +671,12 @@ class ContextBuffer:
                 select(Seat).where(Seat.project_id == self._project_id)
             )
             seats = [
-                await self._build_seat_entry(session, s) for s in seat_rows.scalars().all()
+                await self._build_seat_entry(session, s)
+                for s in seat_rows.scalars().all()
+                # 排除「空置的真人專屬席」（occupant_type=="human" 但尚無 user_id）：
+                # 它只是 lobby 顯示用的保留椅，不是現場參與者。若放進 context["seats"]
+                # 會污染 is_all_ai 判定、participation 評分、round-robin 輪轉與人類參與門檻。
+                if not (s.occupant_type == "human" and s.user_id is None)
             ]
 
             canvas_state = await self._load_canvas_perception(
@@ -549,6 +694,7 @@ class ContextBuffer:
             current_sub_phase=current_sub_phase,
             stakeholders=stakeholders_raw,
             task_brief_kind=task_brief_kind,
+            turn_policy=turn_policy,
         )
 
     async def _compute_stage_duration(

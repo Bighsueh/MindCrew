@@ -67,6 +67,22 @@ async def _get_project(session: AsyncSession, project_id: UUID) -> Project | Non
     return result.scalar_one_or_none()
 
 
+async def _resolve_user_seat_role(
+    session: AsyncSession, project_id: UUID, user_id: UUID
+) -> str | None:
+    """查 user 在這個 project 佔有的席位（用於人類群組發話時的 cue 解除 hook）。
+
+    回傳 seat_role 或 None（user 未入座 / 觀察者 / 其他狀態）。
+    """
+    result = await session.execute(
+        select(Seat.seat_role).where(
+            Seat.project_id == project_id,
+            Seat.user_id == user_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def _save_message(
     session: AsyncSession,
     project: Project,
@@ -121,6 +137,78 @@ async def _heartbeat(ws: WebSocket) -> None:
             break
 
 
+_HUMAN_INPUT_DEBOUNCE_SECONDS = 1.5
+
+
+async def _round_lock_human_input(
+    project_id: UUID,
+    user_id: UUID,
+    content: str,
+    sub_phase: str,
+    arrival_ts: float | None = None,
+) -> None:
+    """真人群組 chat → 實質檢核 → 過則嘗試解鎖回合，不過則發 input_bounced。
+
+    Phase 42 A2（spec 20 §11.4 / §12）。背景任務：失敗不影響訊息寫入流程。
+    僅群組輸入呼叫（personal chat 不經此檢核、不解鎖，§4 / §12.1）。
+    完整流程在 human_input_check.process_group_input（與 note 端點共用）。
+
+    B1（多訊息連發）：`arrival_ts` 給定時做 **latest-wins debounce + 內容合併**——等
+    ``_HUMAN_INPUT_DEBOUNCE_SECONDS`` 後若期間又有更新的人類群組訊息
+    （``human_last_msg_ts`` > 本則 arrival_ts），代表這是連發中被取代的中間則 → 跳過；
+    只由**最後一則** task 驅動，且它把**這波連發的所有內容合併**（``human_burst`` list）
+    一起送實質檢核——故「打錯字訂正」（合併仍含完整點子）與「一段話拆多句」（合併＝完整段落、
+    不只看最後一截）都驗得過。省 3 個並發 register_human_input 的 race + 連發的多次 tier-2 call。
+    ``arrival_ts=None``＝不 debounce、不合併（向下相容；note 端點等非連發路徑）。
+    """
+    try:
+        text_to_check = content
+        if arrival_ts is not None:
+            await asyncio.sleep(_HUMAN_INPUT_DEBOUNCE_SECONDS)
+            try:
+                r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+                try:
+                    latest_raw = await r.get(
+                        f"project:{project_id}:human_last_msg_ts"
+                    )
+                    # 容 0.05s 抖動；更新訊息明顯較新 → 本則已被取代，交給最後一則處理。
+                    if (
+                        latest_raw is not None
+                        and float(latest_raw) - arrival_ts > 0.05
+                    ):
+                        logger.debug(
+                            "round_lock human input debounced (superseded) project=%s",
+                            project_id,
+                        )
+                        return
+                    # 我是最後一則 → 合併並清掉這波連發累積的內容，一起送檢核。
+                    burst_key = f"project:{project_id}:human_burst"
+                    parts = await r.lrange(burst_key, 0, -1)
+                    await r.delete(burst_key)
+                    if parts:
+                        text_to_check = " ".join(p for p in parts if p) or content
+                finally:
+                    await r.aclose()
+            except Exception:
+                # debounce/合併失敗就用本則內容照常處理（不因防呆反而漏掉輸入）。
+                text_to_check = content
+                logger.debug(
+                    "debounce/coalesce failed, using last msg project=%s",
+                    project_id,
+                    exc_info=True,
+                )
+
+        from app.agents.human_input_check import process_group_input
+
+        await process_group_input(
+            project_id, user_id, text_to_check, "chat", sub_phase
+        )
+    except Exception:
+        logger.debug(
+            "round_lock human input handling failed project=%s", project_id, exc_info=True
+        )
+
+
 async def _event_bus_forwarder(
     ws: WebSocket,
     project_id: UUID,
@@ -146,12 +234,30 @@ async def _event_bus_forwarder(
                 "micro_phase_changed",
                 "seat_changed",
                 "system_message",
-                # specs/16-timer-system.md §6.5.3：timer 事件廣播給所有訂閱者
+                # ：timer 事件廣播給所有訂閱者
                 # （含觀察者）。payload 無 chat_id → should_deliver_chat_event
                 # 走 None 分支自動放行。
                 "timer_state",
                 "timer_warning",
                 "timer_timeout",
+                # ：Turn-Taking Controller 事件
+                "turn_policy_changed",
+                "cue",
+                "turn_state",
+                # Phase 42 A2：回合鎖凍結狀態 / 實質檢核退回提示（spec 20 §5.6/§5.7）。
+                # payload 無 chat_id → 廣播給所有訂閱者（前端依 target_user_id 決定 UI）。
+                "waiting_for_human",
+                "input_bounced",
+                # Phase 42 A3（WP7）：任務提示釘住 banner / 便條指認高亮。
+                "user_task",
+                "note_highlight",
+                # Phase 42 D2（WP9 #9）：AI 發話/白板動作前置 typing 指示。
+                # payload 無 chat_id → 廣播全房（僅群組 channel，個人 channel 不發）。
+                "agent_typing",
+                # Phase 42 D5（G14）：LLM fail-stop 全房暫停／恢復 banner（spec 20 §13.3/§13.4）。
+                # payload 無 chat_id → 廣播給全房。
+                "room_paused",
+                "room_resumed",
             ):
                 continue
 
@@ -176,7 +282,9 @@ async def _event_bus_forwarder(
     except asyncio.CancelledError:
         pass
     except Exception as exc:
-        logger.debug("Event bus forwarder ended: %s", exc)
+        # A-V 2026-06-12 教訓：forwarder 死亡曾因 debug 級 log 隱形數小時
+        # （redis-py 8.0 pubsub TimeoutError 滅團）。非預期終止一律 warning。
+        logger.warning("Event bus forwarder ended: %r", exc)
 
 
 @router.websocket("/ws/project/{project_id}")
@@ -192,17 +300,16 @@ async def chat_websocket(ws: WebSocket, project_id: UUID) -> None:
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # ── 2. Check seat membership ───────────────────────────────────────────
+    # ── 2. 存取守門：creator（參與）/ 列管老師・admin（旁觀）才可連線 ────────────
     async with async_session_factory() as session:
         project = await _get_project(session, project_id)
         if project is None:
             await ws.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
-        # Teachers (creator) and seated users may connect
-        has_seat = await _has_seat(session, project_id, user.id)
-        is_creator = project.creator_id == user.id
-        if not (has_seat or is_creator):
+        from app.projects.access import viewer_role_for
+
+        if viewer_role_for(project, user) is None:
             await ws.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
@@ -287,6 +394,84 @@ async def chat_websocket(ws: WebSocket, project_id: UUID) -> None:
                     timestamp=timestamp,
                 )
                 await _publish_with_chat_id(event, chat_id_to_save)
+
+                # Phase 28：人類在群組 chat 發話可能解除 cue（強版 cue-human 死鎖防護）。
+                # personal chat 訊息不算對公開 cue 的回應，由 kind guard 過濾。
+                # 全程背景任務，失敗不影響 user 訊息寫入流程。
+                if kind == "group":
+                    async with async_session_factory() as seat_session:
+                        user_seat_role = await _resolve_user_seat_role(
+                            seat_session, project_id, user.id
+                        )
+                    if user_seat_role:
+                        from app.agents.turn_controller import (
+                            notify_human_speak_in_group,
+                        )
+
+                        asyncio.create_task(
+                            notify_human_speak_in_group(
+                                project_id,
+                                user_seat_role,
+                                project.turn_policy,
+                            )
+                        )
+                    # 人類在群組發話 → **無條件**清 awaiting-reply 鎖，讓 supervisor 下個
+                    # tick 立刻接話。不再只清「等的剛好是發話者本人」的鎖——組長 @ 點名 crew
+                    # 後若該 crew 結構上無法回應（如 0.0a 暖場 cued 下無放行機制），人類再發話
+                    # 也清不掉 crew 鎖 → 組長乾等最久 120s＝死房。人類主動參與優先於等某 crew。
+                    # 不依賴 user_seat_role（人類席位查不到時仍要清）。
+                    from app.agents.supervisor.awaiting_reply import (
+                        clear_awaiting_any,
+                    )
+
+                    asyncio.create_task(clear_awaiting_any(project_id))
+
+                    # Phase 43（spec 20 §3/§11.7）：人類群組發話 → 喚醒休眠房
+                    # （cued-hold 在線情境：被點名逾時休眠後再發話）。resume_room 自帶
+                    # 守則——非 awaiting_human 暫停房 no-op，重連情境由 presence hook 處理。
+                    from app.agents.room_hibernation import resume_room
+
+                    asyncio.create_task(resume_room(project_id))
+
+                    # 多訊息連發處理：記「人類最後一則群組訊息」時戳——**同步寫**（WS receive
+                    # loop 逐則處理，連發 3 則時最終值＝最後一則的 ts，不靠並發 task 的順序）。
+                    # 供 (B1) _round_lock_human_input 的 latest-wins debounce 比對、(B2) assess
+                    # Rule 2.5 近期 debounce 共用。
+                    arrival_ts = time.time()
+                    try:
+                        _r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+                        try:
+                            await _r.set(
+                                f"project:{project_id}:human_last_msg_ts",
+                                str(arrival_ts),
+                                ex=3,
+                            )
+                            # B1 內容合併：累積這波連發的各則內容（依到達順序），最後一則
+                            # task 合併後一起送實質檢核（一段話拆多句也驗得過、不只看最後一截）。
+                            _burst_key = f"project:{project_id}:human_burst"
+                            await _r.rpush(_burst_key, content)
+                            await _r.expire(_burst_key, 4)
+                        finally:
+                            await _r.aclose()
+                    except Exception:
+                        logger.debug(
+                            "human_last_msg_ts/burst set failed", exc_info=True
+                        )
+
+                    # Phase 42 A2：群組輸入 → 實質檢核 + 回合鎖解鎖（spec 20 §11.4/§12）。
+                    # 不依賴 user_seat_role（回合鎖以 seats 查詢辨識真人席）。
+                    # B1：傳 arrival_ts → task latest-wins debounce（連發只最後一則跑檢核，
+                    # 省並發 register_human_input race + 連發的 tier-2 LLM call）。
+                    sub_phase_now = (
+                        project.current_sub_phase or project.current_stage or ""
+                    ).strip()
+                    if sub_phase_now:
+                        asyncio.create_task(
+                            _round_lock_human_input(
+                                project_id, user.id, content, sub_phase_now, arrival_ts
+                            )
+                        )
+
                 # Phase-3 hook – 個人訊息不入 group chat cache，handler 路徑
                 # 仍呼叫但靠下游（events/handlers.py Wave B3）依 chat_id 過濾。
                 asyncio.create_task(handle_chat_message(
@@ -318,6 +503,69 @@ async def chat_websocket(ws: WebSocket, project_id: UUID) -> None:
                         )
                     )
 
+            # ── agent_action (Phase 28) ─────────────────────────────────
+            # ：學生在前端按 Pass / Raise-Hand 時
+            # 走這個分支。Pass 推進 TurnController 狀態 (RR 模式下 advance queue
+            # 即可讓出輪次)；Raise-Hand 寫 Redis 旗標，Open-Floor controller 下個
+            # tick 會讓人類優先 1 個窗口。
+            elif msg_type == "agent_action":
+                payload = data.get("payload") or {}
+                action = (payload.get("action") or "").strip().lower()
+                seat_role = (payload.get("seat_role") or "").strip()
+                if not seat_role:
+                    logger.warning(
+                        "agent_action missing seat_role user=%s project=%s",
+                        user.id, project_id,
+                    )
+                    continue
+                # 驗證 seat 真的是這個 user 的（防偽造）
+                async with async_session_factory() as session:
+                    seat_check = await session.execute(
+                        select(Seat).where(
+                            Seat.project_id == project_id,
+                            Seat.user_id == user.id,
+                            Seat.seat_role == seat_role,
+                        )
+                    )
+                    if seat_check.scalar_one_or_none() is None:
+                        logger.warning(
+                            "agent_action seat mismatch user=%s seat=%s",
+                            user.id, seat_role,
+                        )
+                        continue
+
+                if action == "raise_hand":
+                    from app.agents.turn_controller import mark_user_priority_speak
+
+                    await mark_user_priority_speak(project_id, seat_role)
+                    logger.info(
+                        "User raise_hand project=%s seat=%s", project_id, seat_role
+                    )
+                elif action == "pass":
+                    # 取當前 controller 並呼叫 on_pass。每次重取 = 即時感受 PATCH 切換。
+                    from app.agents.cue_timeout_watcher import (
+                        cancel_cue_timeout_watcher,
+                    )
+                    from app.agents.turn_controller import get_controller
+
+                    async with async_session_factory() as session:
+                        project = await _get_project(session, project_id)
+                        if project is None:
+                            continue
+                        policy_value = getattr(project, "turn_policy", "cued")
+                    controller = await get_controller(policy_value, project_id)
+                    await controller.on_pass(seat_role, {"my_seat": seat_role})
+                    # Phase 28 B4：pass 解除 cue → cancel timeout watcher 避免誤觸 retry
+                    cancel_cue_timeout_watcher(project_id, seat_role)
+                    logger.info(
+                        "User pass project=%s seat=%s policy=%s",
+                        project_id, seat_role, policy_value,
+                    )
+                else:
+                    logger.debug(
+                        "Unknown agent_action %r from user=%s", action, user.id
+                    )
+
             # ── typing indicators ───────────────────────────────────────
             elif msg_type in ("typing_start", "typing_stop"):
                 is_typing = msg_type == "typing_start"
@@ -338,6 +586,10 @@ async def chat_websocket(ws: WebSocket, project_id: UUID) -> None:
                         )
                     finally:
                         await r.aclose()
+
+            # ── liveness ping/pong（client/server 心跳）── 明確 no-op：不關連線、不刷 debug。
+            elif msg_type in ("ping", "pong"):
+                continue
 
             else:
                 logger.debug("Unknown message type=%s from user=%s", msg_type, user.id)

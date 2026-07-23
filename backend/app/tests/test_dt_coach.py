@@ -1,6 +1,6 @@
 """DT 教練 endpoint 測試（Phase 20 Step 17.6：非同步重寫）。
 
-涵蓋 specs/13-personal-chat.md §5.2、§7、§8.2：
+涵蓋 、§7、§8.2：
 
 1. 201 happy path：寫 user message + 排程 Coach 回覆 + Coach reply 落地
 2. 401 未帶 JWT

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { register } from '../../services/authService'
 import { useAuthStore } from '../../stores/authStore'
 import { usePageTransition } from '../../hooks/usePageTransition'
@@ -32,10 +32,12 @@ const COPY: Record<RoleChoice, {
 export function RegisterPage() {
   const loginStore = useAuthStore((s) => s.login)
   const { navigateToApp } = usePageTransition()
+  const [searchParams] = useSearchParams()
+  const prefilledEmail = searchParams.get('email')?.trim() ?? ''
 
   const [role, setRole] = useState<RoleChoice>('student')
   const [displayName, setDisplayName] = useState('')
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(prefilledEmail)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
@@ -126,6 +128,8 @@ export function RegisterPage() {
         placeholder={copy.emailPlaceholder}
         required
         autoComplete="email"
+        readOnly={prefilledEmail !== ''}
+        helperText={prefilledEmail !== '' ? '研究參與：email 已自動帶入，請勿更改' : undefined}
       />
 
       <Input

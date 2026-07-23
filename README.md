@@ -1,79 +1,57 @@
-# MindCrew -- Design Thinking AI 協作平台
+# MindCrew — Design Thinking AI 協作平台
 
-> 結合 Agentic AI 與雙鑽石模型的多人即時協作系統，讓 5 個 AI 隊友與你一起完成 Design Thinking 工作坊。
+> 讓學生與 AI 隊友組隊，在即時白板上完成設計思考「第一顆鑽石」（發現 → 定義）的協作系統。
 
-## 系統亮點
+## 核心概念
 
-- 5 個可互換席位（1 Supervisor + 4 Crew），人類可隨時替換任一 AI
-- 12 微階段狀態機（雙鑽石 4 階段 x 3 步驟/階段）
-- 角色動態系統：每個微階段有不同的 protagonist/suppressed 角色分配
-- Blackboard 協調：Agent 意圖共享、Supervisor 指令、話題飽和度追蹤
-- 即時白板：tldraw + Yjs CRDT，AI 與人類操作無差異
-- 智慧白板管理：自動佈局、重疊偵測、4 種擺放策略
-- 教師儀表板：即時監看 + AI 決策追蹤記錄
-- 全 AI 自主模式：無人時 AI 自動完成整個工作坊
+- **第一鑽石流程**：暖場（0.0a 破冰）→ 發現（1.1a–1.2，共 5 格）→ 定義（2.1–2.7，共 7 格）→ 收尾產出設計題目（HMW）。詳 [specs/04-first-diamond-structure.md](specs/04-first-diamond-structure.md)。
+- **席位制隊伍**：每個專案 6 席——1 位真人學生（`human_creator`）＋ 4 位常駐 AI 隊員（`crew_1..4`，各自帶動態生成的人格視角）＋ 1 位 AI 組長（supervisor）。教師以唯讀身分旁觀，不入座。詳 [specs/09-agent-roles-and-seats.md](specs/09-agent-roles-and-seats.md)。
+- **AI 決策迴圈**：每位 Agent 依 Observe → Assess → Think(LLM) → Act → Log 循環行動，經過輪流閘門、節流閘門、回合鎖與內容閘門治理。詳 [specs/10-decision-loop.md](specs/10-decision-loop.md)。
+- **即時白板**：tldraw + Yjs CRDT。AI 只下語意座標（分區／群組），版面由後端佈局引擎與自動重排維護。詳 [specs/16-canvas-layout-and-tools.md](specs/16-canvas-layout-and-tools.md)。
+- **在席感知**：真人離席時全房凍結（含計時器），重連或發話即自動恢復。
 
-## AI Agent 系統
-
-每位 Agent 依循固定的決策迴圈：
+## 架構速覽
 
 ```
-Observe --> ASSESS (15 rules) --> Think (LLM) --> Blackboard --> Act --> Log
+frontend (React, :3000) ──┐
+                          ├─ backend (FastAPI, :8000) ── PostgreSQL 16 (:5432)
+sidecar (Yjs Node, :4000) ┘         │                    Redis 7 (:6379)
+                                    └─ 外部 LLM（OpenAI-compatible，端點設定存於 DB）
 ```
 
-- **4 層 Prompt 架構**：System Identity / Phase Strategy / Micro-phase Tactic / Runtime Context
-- **治理框架**：ASSESS 規則引擎在 LLM 推論前過濾不合時宜的行為，Blackboard 確保多 Agent 協調
-- **Supervisor**：負責階段推進判斷、話題飽和度評估、衝突仲裁
+Docker Compose 共 5 個服務：`frontend`、`backend`、`sidecar`、`postgres`、`redis`。詳 [specs/02-system-architecture.md](specs/02-system-architecture.md)。
 
-詳細說明請參考：
-- [Agent System](docs/agent-system.md) -- Agent 架構與決策迴圈
-- [Blackboard Design](docs/blackboard-design.md) -- 多 Agent 協調機制
-- [Agent Behavior Spec](specs/04-agent-behavior.md) -- Agent 行為完整規格 (v2.0)
-
-## 雙鑽石 x 微階段
-
-```
-          DISCOVER            DEFINE             DEVELOP            DELIVER
-        (發散探索)          (收斂定義)          (發散構思)          (收斂交付)
-
-            /\                /\                  /\                /\
-           /  \              /  \                /  \              /  \
-          /    \            /    \              /    \            /    \
-         /      \          /      \            /      \          /      \
-        /        \        /        \          /        \        /        \
-       /          \      /          \        /          \      /          \
-      /            \    /            \      /            \    /            \
-     /              \  /              \    /              \  /              \
-    /                \/                \  /                \/                \
-
-  1.1 暖場經驗分享    2.1 使用者旅程追蹤    3.1 規則建立大量發散    4.1 原型規劃快速製作
-  1.2 視角擴展        2.2 洞察萃取與矛盾    3.2 概念分群合併        4.2 測試設計
-  1.3 Persona 建立    2.3 HMW 問題陳述      3.3 評估收斂方案選定    4.3 模擬測試學習迭代
-```
-
-## 快速開始
-
-### Docker 一鍵部署
+## 快速啟動（Docker）
 
 ```bash
 cd MindCrew
 cp .env.example .env
-echo "JWT_SECRET_KEY=$(openssl rand -hex 32)" >> .env
+# .env 必填三項：
+#   JWT_SECRET_KEY=$(openssl rand -hex 32)
+#   LLM_PROVIDER_KEY_MASTER=<Fernet key，production 必要>
+#   INITIAL_ADMIN_PASSWORD=<首次 migration 建立 admin 帳號用>
 docker compose up --build -d
-# -> http://localhost:3000
+# 前端 → http://localhost:3000
+# 後端 API → http://localhost:8000
 ```
 
-### 測試帳號
+LLM 供應商（endpoint / model / API key）不走環境變數，以 admin 帳號登入後至 `/admin` 的 Providers 頁面設定，儲存於資料庫。詳 [specs/25-llm-routing-and-admin.md](specs/25-llm-routing-and-admin.md)。
+
+### 測試帳號（需手動執行 seed）
+
+```bash
+docker compose exec backend python -m app.db.seed
+```
 
 | Email | 密碼 | 角色 |
 |---|---|---|
 | teacher@test.com | teacher123 | 教師 |
-| student1@test.com | student123 | 學生 |
+| student1@test.com – student4@test.com | student123 | 學生 |
 
-### 本機開發
+## 本機開發
 
 ```bash
-# 基礎設施
+# 基礎設施（Postgres 對外 :5433、Redis :6379、Sidecar :4000）
 docker compose -f docker-compose.dev.yml up -d
 
 # 後端（Python 3.11+）
@@ -82,10 +60,14 @@ pip install -r requirements.txt && alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 
 # 前端
-cd frontend && npm install && npm run dev  # -> :5173
+cd frontend && npm install
+npm run dev        # → http://localhost:5173
+npm run typecheck  # tsc -b（勿用裸 tsc --noEmit）
+npm test           # vitest
 
-# Sidecar
-cd sidecar && npm install && npm run dev   # -> :4000
+# 後端測試（需 dev compose 的 Postgres :5433，並先建立 dtai_test 資料庫）
+docker compose -f docker-compose.dev.yml exec postgres createdb -U dtai dtai_test
+cd backend && pytest
 ```
 
 ## 技術棧
@@ -94,59 +76,37 @@ cd sidecar && npm install && npm run dev   # -> :4000
 |---|---|
 | 前端 | React 18 + TypeScript 5 + Vite + Zustand + tldraw 2 + Yjs + Tailwind CSS |
 | 後端 | FastAPI + Python 3.11+ + SQLAlchemy 2.0 async + Alembic |
-| Sidecar | Node.js 20 + Express + y-websocket + Yjs CRDT |
+| Sidecar | Node.js + Express + y-websocket + Yjs CRDT |
 | 資料庫 | PostgreSQL 16 + Redis 7 |
-| LLM | vLLM (OpenAI-compatible) |
-| 部署 | Docker Compose (5 services) |
+| LLM | OpenAI-compatible 端點（vLLM / Azure OpenAI），DB 設定、雙軸路由（capability class × tier） |
+| 中文輸出 | OpenCC s2twp（所有 AI 文字強制繁中） |
 
 ## 專案結構
 
 ```
 MindCrew/
 ├── backend/app/
-│   ├── agents/          # AI Agent 核心
-│   │   ├── assess.py        # ASSESS 規則引擎 (15 rules)
-│   │   ├── base_agent.py    # 決策迴圈
-│   │   ├── prompts/         # 4 層 Prompt 架構
-│   │   ├── evaluator.py     # 階段評估
-│   │   └── ...
-│   ├── bridge/          # Canvas Bridge (Sidecar 通訊)
-│   ├── stages/          # Micro-phase 狀態機
-│   ├── seats/           # 席位管理
-│   ├── events/          # Event Bus (Redis Pub/Sub)
-│   └── db/              # SQLAlchemy models
-├── frontend/src/
-│   ├── pages/           # Workspace, Projects, Login...
-│   ├── components/      # DoubleDiamondProgress, ChatPanel...
-│   └── stores/          # Zustand stores
-├── sidecar/src/         # Yjs CRDT + Canvas API
-├── specs/               # SDD 規格文件 (10 份)
-├── docs/                # 技術文檔
-│   ├── ai-workflow.md       # AI Agent 完整工作流程
-│   ├── prompt-architecture.md  # Prompt 四層架構
-│   ├── governance-framework.md # 多 Agent 治理框架
-│   ├── architecture.md      # 系統架構圖
-│   ├── blackboard-design.md # Blackboard 協調機制
-│   ├── api-reference.md     # REST API 參考
-│   └── ...
+│   ├── agents/          # 決策迴圈、Assess 規則、組長人格、crew 人格系統
+│   ├── canvas/          # 佈局引擎、分區、內容/成果閘門、自動重排
+│   ├── stages/          # 微階段狀態機（5+7 格）
+│   ├── progression/     # 推進看門狗、邊界訊號、暖場出口
+│   ├── timer/           # 計時系統（40/60/90 分鐘 preset）
+│   ├── llm/             # LLMProvider 抽象層、路由、健康監控
+│   ├── seats/ ws/ chat/ events/ db/ ...
+│   └── main.py          # 掛載 12 個 router 與背景 watcher
+├── frontend/src/        # pages(8) / components / stores(15) / services(5)
+├── sidecar/src/         # Yjs CRDT + Canvas HTTP API
+├── specs/               # 規格文件（唯一真理來源）
+├── docs/                # 快速上手導覽
 └── docker-compose.yml
 ```
 
-## 文檔索引
+## 文件地圖
 
-| 文檔 | 說明 |
-|---|---|
-| [AI Workflow](docs/ai-workflow.md) | Agent 決策迴圈、ASSESS 15 規則、階段評估、Canvas 管理 |
-| [Prompt Architecture](docs/prompt-architecture.md) | 四層 Prompt、12 微階段策略、角色動態、調校指南 |
-| [Governance Framework](docs/governance-framework.md) | 多 Agent 治理：Throttle、Blackboard、排隊協調 |
-| [Architecture](docs/architecture.md) | 系統架構圖 |
-| [Blackboard Design](docs/blackboard-design.md) | Blackboard 協調、意圖共享、Redis key 結構 |
-| [API Reference](docs/api-reference.md) | REST API 完整參考 |
-| [WebSocket Protocol](docs/websocket-protocol.md) | WebSocket 協議文件 |
-| [Deployment](docs/deployment.md) | Docker 部署指南 |
-| [Development](docs/development.md) | 本機開發指南 |
-| [Agent Behavior Spec](specs/04-agent-behavior.md) | Agent 行為規格索引 (v2.0，已拆分為 6 個子文件) |
+- **[specs/00-index.md](specs/00-index.md)** — 規格總索引（specs/ 是唯一真理來源）
+- **[docs/](docs/)** — 快速上手導覽（架構、開發、部署、API、Agent 系統）
+- 常用入口：[01-prd](specs/01-prd.md)（產品範圍）、[05-progression-state-machine](specs/05-progression-state-machine.md)（推進機制）、[21-data-schema-api](specs/21-data-schema-api.md)（DB 與 API）、[26-coding-standards](specs/26-coding-standards.md)、[27-test-strategy](specs/27-test-strategy.md)
 
 ## 授權
 
-Private -- 僅供教育研究使用
+Private — 僅供教育研究使用

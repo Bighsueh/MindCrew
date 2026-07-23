@@ -16,9 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin import service as admin_service
 from app.admin import stats as admin_stats
+from app.admin import stats_latency as admin_latency
 from app.admin.dependencies import require_admin
 from app.admin.schemas import (
     HealthCheckResponse,
+    LatencyStatsResponse,
+    LLMHealthResponse,
     LogDetailResponse,
     LogListResponse,
     OverviewStatsResponse,
@@ -88,6 +91,15 @@ async def health_check_provider(
     return await admin_service.health_check_provider(session, provider_id)
 
 
+@router.get("/llm-health", response_model=LLMHealthResponse)
+async def llm_health(
+    session: AsyncSession = Depends(get_db_session),
+) -> LLMHealthResponse:
+    """LLM fail-stop 健康總覽（Phase 42 D5 / G14, spec 20 §13.6）：整體判定
+    up/degraded/down＋reactive/proactive 門檻狀態＋各 provider 健康＋受影響房。"""
+    return await admin_service.get_llm_health(session)
+
+
 # ── logs + audit ────────────────────────────────────────────────────────
 
 
@@ -99,6 +111,9 @@ async def list_logs(
     since: datetime | None = Query(default=None),
     until: datetime | None = Query(default=None),
     success: bool | None = Query(default=None),
+    caller: str | None = Query(default=None, description="Exact caller / 用途 match."),
+    model: str | None = Query(default=None, description="Exact provider model match."),
+    triggered_by_user_id: UUID | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_db_session),
@@ -111,6 +126,9 @@ async def list_logs(
         since=since,
         until=until,
         success=success,
+        caller=caller,
+        model=model,
+        triggered_by_user_id=triggered_by_user_id,
         limit=limit,
         offset=offset,
     )
@@ -198,5 +216,26 @@ async def success_rate_trend(
         session,
         since=since,
         until=until,
+        granularity=granularity,
+    )
+
+
+@router.get("/stats/latency", response_model=LatencyStatsResponse)
+async def latency_stats(
+    since: datetime = Query(..., description="ISO 8601 UTC; inclusive"),
+    until: datetime = Query(..., description="ISO 8601 UTC; exclusive"),
+    provider_ids: list[UUID] | None = Query(
+        default=None, description="Repeat to limit to a subset of providers."
+    ),
+    granularity: Literal["auto", "30min", "hour", "day"] = Query(default="auto"),
+    session: AsyncSession = Depends(get_db_session),
+) -> LatencyStatsResponse:
+    """Per-provider latency percentiles (p50/p95/p99/max/avg) + a p95/avg
+    trend over time. Same bucket semantics as the token timeseries."""
+    return await admin_latency.latency_stats(
+        session,
+        since=since,
+        until=until,
+        provider_ids=provider_ids,
         granularity=granularity,
     )

@@ -18,8 +18,10 @@ from uuid import UUID
 
 from app.llm.base import LLMResponse, TokenUsage
 from app.llm import log_service
+from app.llm.health_monitor import health_monitor
 from app.llm.registry import ProviderRegistry
 from app.llm.router import ProviderRouter
+from app.llm.routing_policy import resolve_class
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +46,9 @@ class LLMService:
         last_exc: Exception | None = None
         attempted = 0
         first_tier_attempted: int | None = None
+        required_class = resolve_class(caller)
 
-        async for entry in ProviderRouter.iter_candidates():
+        async for entry in ProviderRouter.iter_candidates(required_class):
             attempted += 1
             if first_tier_attempted is None:
                 first_tier_attempted = entry.row.tier
@@ -102,6 +105,11 @@ class LLMService:
                     caller=caller,
                     cascade_from_tier=cascade_from,
                 )
+                # Phase 42 D5 (G14, spec 20 §13.2)：任一成功 → reactive 計數歸零。
+                try:
+                    await health_monitor.record_success()
+                except Exception:  # noqa: BLE001 — 監測不可影響正常呼叫
+                    logger.debug("health_monitor.record_success failed", exc_info=True)
                 return response
 
             # Both attempts on this provider failed — cool it down.
@@ -111,6 +119,14 @@ class LLMService:
             raise RuntimeError(
                 "No LLM providers configured. Add one via the admin console (/admin)."
             )
+        # Phase 42 D5 (G14, spec 20 §13.2)：所有 tier×class 候選皆失敗＝備援耗盡點，
+        # 計一次 reactive 硬失敗（連續達門檻 → health_monitor 觸發全房 fail-stop）。
+        try:
+            await health_monitor.record_exhaustion(
+                str(last_exc) if last_exc else None
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("health_monitor.record_exhaustion failed", exc_info=True)
         raise RuntimeError(
             f"All LLM providers failed across {attempted} tier(s). Last error: {last_exc}"
         ) from last_exc
@@ -131,8 +147,13 @@ class LLMService:
         Accumulates yielded chunks so the full assembled response can be
         written to llm_request_payloads on completion.
         """
-        entry = await ProviderRouter.primary_for_streaming()
+        entry = await ProviderRouter.primary_for_streaming(resolve_class(caller))
         if entry is None:
+            # Phase 42 D5 (G14, spec 20 §13.2)：串流無任何可用 provider＝備援耗盡 → 計一次硬失敗。
+            try:
+                await health_monitor.record_exhaustion("stream: no healthy provider")
+            except Exception:  # noqa: BLE001
+                logger.debug("health_monitor.record_exhaustion failed", exc_info=True)
             raise RuntimeError("No healthy LLM provider available for streaming")
 
         t0 = time.monotonic()
@@ -154,6 +175,12 @@ class LLMService:
             latency_ms = int((time.monotonic() - t0) * 1000)
             assembled = "".join(chunks) if chunks else None
             if failed:
+                # Phase 42 D5 (G14, spec 20 §13.2)：串流無 mid-stream fallback，單次失敗＝
+                # 該呼叫終局（候選耗盡）→ 計一次 reactive 硬失敗。
+                try:
+                    await health_monitor.record_exhaustion(error_text)
+                except Exception:  # noqa: BLE001
+                    logger.debug("health_monitor.record_exhaustion failed", exc_info=True)
                 log_service.record(
                     entry,
                     usage=_EMPTY_USAGE,
@@ -169,6 +196,11 @@ class LLMService:
                 )
             else:
                 ProviderRouter.mark_success(entry)
+                # Phase 42 D5 (G14, spec 20 §13.2)：任一成功 → reactive 計數歸零。
+                try:
+                    await health_monitor.record_success()
+                except Exception:  # noqa: BLE001
+                    logger.debug("health_monitor.record_success failed", exc_info=True)
                 log_service.record(
                     entry,
                     usage=_EMPTY_USAGE,  # streaming doesn't return usage reliably

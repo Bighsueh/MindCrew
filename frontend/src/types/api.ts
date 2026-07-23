@@ -40,16 +40,18 @@ export interface RefreshRequest {
 
 // ── Projects ──────────────────────────────────────────────────────────────
 
-// specs/16-timer-system.md：老師建立專案時的 timer 配置。
+// ：老師建立專案時的 timer 配置。
 // 對齊後端 app/timer/schemas.py::TimerConfig，未提供時 backend 走 DEFAULT_2HR_PRESET。
+// Phase 29 (spec/16-timer-system §2.1): develop / deliver budgets removed.
 export interface TimerConfigInput {
   total_session_minutes: number
   macro_budgets: {
+    warmup?: number
     discover: number
     define: number
-    develop: number
-    deliver: number
   }
+  // Phase 39 (spec/16 §2.4): 強度縮放係數（0.2–1.0）；短場 preset < 1.0，預設 1.0。
+  intensity?: number
   sub_phase_overrides?: Record<string, number>
   warning_thresholds_pct?: number[]
   auto_advance_on_timeout?: boolean
@@ -67,10 +69,12 @@ export interface CreateProjectRequest {
   // Phase 21: 教師可選 AI 組員人數（1–4），預設 3。Persona 數量必須等於此值。
   ai_crew_count: number
   personas: CrewPersonaAssignment[]
-  // specs/16-timer-system.md：建立者必須明確選 preset 或自訂；後端拒絕缺值。
+  // ：建立者必須明確選 preset 或自訂；後端拒絕缺值。
   timer_config: TimerConfigInput
   // Phase 22: 學生建立活動時可選填教師的 signature_code 即被列管
   teacher_signature_code?: string
+  /** Phase 28：建立時的輪流規則；未填則後端 server_default 補 'cued'。 */
+  turn_policy?: 'cued' | 'round_robin' | 'open_floor'
 }
 
 /** Phase 27：post body 用的 stakeholder shape（後端 Pydantic 對應）。 */

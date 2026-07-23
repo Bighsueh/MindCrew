@@ -1,7 +1,7 @@
 /**
  * Phase 27 — 開放任務簡報 + 利害關係人勾選 + 練功坊品牌 E2E
  *
- * 規格：specs/17 §3.0 §11、specs/06 §1.3 §2.3、specs/05 §3、specs/04 §11
+ * 規格： §11、 §2.3、、
  *
  * 涵蓋場景：
  *  AC1: 三步驟 wizard 流程（brief → stakeholders → personas）
@@ -215,10 +215,10 @@ test.describe('Phase 27 — 開放任務簡報 + 利害關係人勾選', () => {
       .first()
     await btn.click()
 
-    // Step 標籤（each appears twice：step chip "1. 設計簡報" + MindsetHintCard 標題）
-    await expect(page.getByText('1. 設計簡報')).toBeVisible()
-    await expect(page.getByText('2. 利害關係人地圖')).toBeVisible()
-    await expect(page.getByText('3. 設計 AI 隊友')).toBeVisible()
+    // Step 標籤（Phase 28 narrative refactor：改成動詞性敘事弧）
+    await expect(page.getByText('1. 描述你的設計挑戰')).toBeVisible()
+    await expect(page.getByText('2. 找出你的設計對象')).toBeVisible()
+    await expect(page.getByText('3. 把他們請進團隊')).toBeVisible()
 
     // ConstraintsField 不應再有預設的 checkbox 文字
     await expect(page.getByText('兒童', { exact: true })).toHaveCount(0)

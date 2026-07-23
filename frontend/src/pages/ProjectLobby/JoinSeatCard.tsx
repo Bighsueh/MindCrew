@@ -8,6 +8,8 @@ interface JoinSeatCardProps {
   canJoin: boolean
   isLocked?: boolean
   projectFull: boolean
+  /** 加入失敗訊息（入座 CTA 統一在此卡，錯誤也在此呈現）。 */
+  joinError?: string
 }
 
 export function JoinSeatCard({
@@ -17,6 +19,7 @@ export function JoinSeatCard({
   canJoin,
   isLocked = false,
   projectFull,
+  joinError = '',
 }: JoinSeatCardProps) {
   if (hasCurrentSeat) {
     return (
@@ -65,6 +68,11 @@ export function JoinSeatCard({
           {disabledReason ?? '加入討論'}
         </span>
       </Button>
+      {joinError && (
+        <p className="mt-3 rounded-lg bg-error-bg px-3 py-2 text-xs text-error">
+          {joinError}
+        </p>
+      )}
     </div>
   )
 }

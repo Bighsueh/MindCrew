@@ -35,12 +35,10 @@ from app.stages.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Valid DT stage transitions
+# Valid DT stage transitions (first diamond only; define → completed is the terminal transition)
 _VALID_TRANSITIONS: dict[str, str] = {
     "discover": "define",
-    "define": "develop",
-    "develop": "deliver",
-    "deliver": "completed",
+    "define": "completed",
 }
 
 

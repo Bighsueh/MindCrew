@@ -1,6 +1,4 @@
 """DT 教練的 context builder：產生「團隊群組摘要」供 prompt 插值。
-
-依 specs/13-personal-chat.md §7.4：
   - **絕對不可** 把 group raw messages 直接餵給 Coach LLM，否則 Coach
     可能引用某句具體的話打破 RBAC（Coach 應該只「知道大方向」，不該
     引用具體訊息逐字回覆）。

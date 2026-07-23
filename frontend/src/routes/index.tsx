@@ -16,6 +16,7 @@ const ProjectLobbyPage = lazy(() => import('../pages/ProjectLobby').then(m => ({
 const WorkspacePage = lazy(() => import('../pages/Workspace').then(m => ({ default: m.WorkspacePage })))
 const TeacherDashboardPage = lazy(() => import('../pages/TeacherDashboard').then(m => ({ default: m.TeacherDashboardPage })))
 const AdminProvidersPage = lazy(() => import('../pages/AdminConsole/Providers').then(m => ({ default: m.AdminProvidersPage })))
+const AdminLLMHealthPage = lazy(() => import('../pages/AdminConsole/LLMHealth').then(m => ({ default: m.AdminLLMHealthPage })))
 const AdminLogsPage = lazy(() => import('../pages/AdminConsole/Logs').then(m => ({ default: m.AdminLogsPage })))
 const AdminStatsPage = lazy(() => import('../pages/AdminConsole/Stats').then(m => ({ default: m.AdminStatsPage })))
 
@@ -87,6 +88,7 @@ export const router = createBrowserRouter([
             children: [
               { path: 'admin', element: <Navigate to="/admin/providers" replace /> },
               { path: 'admin/providers', element: <SuspenseOutlet><AdminProvidersPage /></SuspenseOutlet> },
+              { path: 'admin/llm-health', element: <SuspenseOutlet><AdminLLMHealthPage /></SuspenseOutlet> },
               { path: 'admin/logs', element: <SuspenseOutlet><AdminLogsPage /></SuspenseOutlet> },
               { path: 'admin/stats', element: <SuspenseOutlet><AdminStatsPage /></SuspenseOutlet> },
             ],
