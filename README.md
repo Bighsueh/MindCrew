@@ -6,7 +6,7 @@
 
 English | [繁體中文](README.zh-TW.md)
 
-<img src="docs/assets/chat.png" alt="MindCrew group chat: the AI facilitator runs a warm-up round while AI crew members respond" width="480">
+<img src="docs/assets/demo.gif" alt="MindCrew workspace: AI facilitator and crew posting sticky notes and chatting with a student" width="860">
 
 🎬 Demo videos: [workspace tour](docs/assets/demo-workspace.mp4) · [chat & whiteboard](docs/assets/demo-chat-and-canvas.mp4)
 
@@ -53,6 +53,8 @@ That goal sets hard requirements — several agents sharing one conversation, hu
 - an **action coordinator** — a per-project FIFO queue (facilitator first) with per-project and global RPM limiters;
 - a **per-step round lock** in Redis that stops AI output once every crew member has contributed, until the human responds;
 - a **facilitator self-dedup** that drops messages whose normalized character-set Jaccard similarity to its own recent messages (150 s window) is ≥ 0.7.
+
+<p align="center"><img src="docs/assets/chat.png" alt="Group chat: the AI facilitator calls on the student and crew members take turns" width="420"></p>
 
 Turn order, pacing and locking are plain code rather than prompt instructions, so "who may speak now" is deterministic and unit-tested; the LLM decides *what* to say.
 

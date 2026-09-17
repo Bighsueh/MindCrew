@@ -6,6 +6,12 @@
 
 [English](README.md) | 繁體中文
 
+<img src="docs/assets/demo.gif" alt="MindCrew 工作區：AI 組長與組員在白板上貼便條並與學生對話" width="860">
+
+🎬 示範影片：[工作區導覽](docs/assets/demo-workspace.mp4) · [聊天與白板](docs/assets/demo-chat-and-canvas.mp4)
+
+<sub>介面與所有 AI 輸出皆為繁體中文。</sub>
+
 </div>
 
 > 本頁為精簡版。技術細節、架構圖與開發說明請見 [English README](README.md)。
