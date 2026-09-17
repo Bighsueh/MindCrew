@@ -40,7 +40,7 @@ test.describe('Phase 28 — Turn-Taking Controller', () => {
     //  simplest way to drive that path without a full student→link_teacher flow.)
     const adminLogin = await apiCall<{ access_token: string }>('POST', '/api/auth/login', {
       email: 'admin',
-      password: process.env.E2E_ADMIN_PASSWORD || '***REMOVED***',
+      password: process.env.E2E_ADMIN_PASSWORD || 'change-me-set-E2E_ADMIN_PASSWORD',
     })
     if (adminLogin.status !== 200) {
       throw new Error(`Admin login failed: ${JSON.stringify(adminLogin.body)}`)

@@ -24,8 +24,8 @@ import {
 import { loginViaUi } from './helpers/loginUi'
 
 const STAMP = Date.now()
-const E2E_PASSWORD = process.env.E2E_TEST_PASSWORD || '***REMOVED***'
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || '***REMOVED***'
+const E2E_PASSWORD = process.env.E2E_TEST_PASSWORD || 'change-me-set-E2E_TEST_PASSWORD'
+const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || 'change-me-set-E2E_ADMIN_PASSWORD'
 
 /**
  * Suppress all first-run tours/modals including the projectsTour which uses

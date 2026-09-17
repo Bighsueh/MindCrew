@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     LLM_HEALTH_CHECK_INTERVAL_SECONDS: int = 30
 
     # Embedding (Qwen3-Embedding-8B)
-    EMBEDDING_BASE_URL: str = "https://embedding.example.com/v1"
+    # OpenAI-compatible embeddings endpoint；未設定時語意分群停用
+    EMBEDDING_BASE_URL: str = ""
     EMBEDDING_MODEL: str = "Qwen/Qwen3-Embedding-8B"
     EMBEDDING_API_KEY: str = "dummy"
 

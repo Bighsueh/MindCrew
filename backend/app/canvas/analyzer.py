@@ -267,6 +267,10 @@ class SpatialAnalyzer:
         """Compute embeddings, clusters, and labels."""
         texts = [n.text for n in notes]
 
+        if not settings.EMBEDDING_BASE_URL:
+            logger.debug("EMBEDDING_BASE_URL not configured, skipping semantic clustering")
+            return ClusterState(ungrouped_note_ids=[n.id for n in notes]), {}
+
         try:
             embeddings = await self._embedding_client.embed_texts(texts)
         except Exception:

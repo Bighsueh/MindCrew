@@ -72,3 +72,14 @@ backend/.venv-qa/
 frontend/vite.qa.config.ts
 sidecar/.data/
 test-results/
+
+# One-off E2E run reports / recordings (local only, not published)
+/e2e-screenshots/
+/run_claude.exp
+/e2e/*.json
+!/e2e/package.json
+!/e2e/package-lock.json
+!/e2e/tsconfig.json
+/e2e/*.md
+/e2e/qa-auto/qa-results.json
+/e2e/qa-auto/screenshots/

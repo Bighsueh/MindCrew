@@ -208,7 +208,7 @@ async function run() {
         'print(f\\"model={client._model} base_url={client._client.base_url}\\")"',
         { encoding: 'utf-8', timeout: 10000 }
       ).trim();
-      const hasCorrectUrl = out.includes('example');
+      const hasCorrectUrl = out.includes('EMBEDDING_BASE_URL');
       const hasCorrectModel = out.includes('Qwen3-Embedding');
       if (hasCorrectUrl && hasCorrectModel) {
         record('A.7 Embedding client config', 'PASS', out);

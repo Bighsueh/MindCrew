@@ -16,8 +16,8 @@ import { test, expect } from '@playwright/test'
 import { loginOrRegisterTeacher, apiCall, createMinimalProject } from './helpers/api'
 import { loginViaUi, suppressFirstRunModals } from './helpers/loginUi'
 
-const E2E_PASSWORD = process.env.E2E_TEST_PASSWORD || '***REMOVED***'
-const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || '***REMOVED***'
+const E2E_PASSWORD = process.env.E2E_TEST_PASSWORD || 'change-me-set-E2E_TEST_PASSWORD'
+const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || 'change-me-set-E2E_ADMIN_PASSWORD'
 
 // ─── Helper: 建立一個有 linked_teacher 的環境 ─────────────────────────────────
 // 流程：

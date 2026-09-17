@@ -48,7 +48,7 @@ services:
       APP_ENV: production
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:3000,https://frontend.mindcrew.orb.local,https://backend.mindcrew.orb.local}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-dummy}
-      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://embedding.example.com/v1}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-8B}
       # Phase 26 / S2 — Fernet master key for at-rest encryption of
       # llm_providers.api_key. Required in APP_ENV=production.
