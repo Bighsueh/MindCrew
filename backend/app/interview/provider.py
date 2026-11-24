@@ -34,8 +34,10 @@ class OpenAIInterviewProvider:
     async def generate(self, instructions: str, messages: list[dict]) -> InterviewReply:
         model = settings.INTERVIEW_LLM_MODEL.strip()
         key = settings.OPENAI_API_KEY.get_secret_value().strip()
-        if not model or not key:
-            raise GenerationError("configuration")
+        if not key:
+            raise GenerationError("missing_key")
+        if not model:
+            raise GenerationError("missing_model")
 
         try:
             async with AsyncOpenAI(
@@ -57,9 +59,15 @@ class OpenAIInterviewProvider:
         except APIStatusError as exc:
             if exc.code == "context_length_exceeded":
                 raise GenerationError("context_limit") from None
-            if exc.status_code >= 500 or (exc.status_code == 429 and exc.code not in {"insufficient_quota", "billing_hard_limit_reached"}):
+            if exc.status_code == 401:
+                raise GenerationError("openai_auth") from None
+            if exc.status_code in {403, 404} or exc.code == "model_not_found":
+                raise GenerationError("openai_model") from None
+            if exc.code in {"insufficient_quota", "billing_hard_limit_reached"}:
+                raise GenerationError("openai_quota") from None
+            if exc.status_code >= 500 or exc.status_code == 429:
                 raise GenerationError("temporary") from None
-            raise GenerationError("configuration") from None
+            raise GenerationError("openai_request") from None
 
         refused = any(part.type == "refusal" for item in result.output if item.type == "message" for part in item.content)
         if result.status != "completed" or refused or not result.output_text.strip():
@@ -82,4 +90,4 @@ class UnconfiguredProvider:
     name = "unconfigured"
 
     async def generate(self, instructions: str, messages: list[dict]) -> InterviewReply:
-        raise GenerationError("configuration")
+        raise GenerationError("unsupported_provider")

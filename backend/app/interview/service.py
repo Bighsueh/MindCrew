@@ -14,8 +14,19 @@ from app.interview.provider import GenerationError, InterviewProvider
 
 logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
+SETUP_ERRORS = {
+    "configuration", "missing_key", "missing_model", "unsupported_provider",
+    "openai_auth", "openai_model", "openai_quota", "openai_request",
+}
 ERROR_MESSAGES = {
     "configuration": "訪談模型目前無法使用。設定恢復後，可以重試本題。",
+    "missing_key": "訪談後端尚未收到 OPENAI_API_KEY。請管理者設定後重試。",
+    "missing_model": "訪談後端尚未收到 INTERVIEW_LLM_MODEL。請管理者設定後重試。",
+    "unsupported_provider": "訪談供應商設定有誤。請管理者確認 INTERVIEW_LLM_PROVIDER。",
+    "openai_auth": "OpenAI 驗證失敗。請管理者檢查後端 API 金鑰。",
+    "openai_model": "OpenAI 拒絕存取訪談模型。請管理者檢查模型 ID 與專案權限。",
+    "openai_quota": "OpenAI API 額度不足。請管理者檢查專案額度與帳單設定。",
+    "openai_request": "OpenAI 拒絕訪談請求。請管理者確認模型支援 Responses API。",
     "temporary": "暫時無法取得受訪者回答。你的問題已保存。",
     "context_limit": "這段訪談超過模型可處理的長度。請結束本場並開啟新訪談。",
     "invalid_reply": "模型未提供完整的受訪者回答。你的問題已保存。",
@@ -34,7 +45,9 @@ def exchange_status(exchange: InterviewExchange) -> tuple[str, str | None]:
 
 def can_retry(exchange: InterviewExchange) -> bool:
     status, error = exchange_status(exchange)
-    return status == "failed" and error != "context_limit" and exchange.attempt_count < MAX_ATTEMPTS
+    return status == "failed" and error != "context_limit" and (
+        error in SETUP_ERRORS or exchange.attempt_count < MAX_ATTEMPTS
+    )
 
 
 async def get_session(db: AsyncSession, owner_id: UUID, session_id: UUID, *, lock: bool = False) -> InterviewSession:
@@ -120,6 +133,8 @@ async def generate_answer(
     current.attempt_token = current.waiting_until = None
     if error:
         current.error_code, current.status = error, "failed"
+        if error in SETUP_ERRORS:
+            current.attempt_count -= 1
         await db.commit()
         logger.info("Interview generation failed: %s", error)
         raise HTTPException(503, {"code": error, "message": ERROR_MESSAGES[error]})

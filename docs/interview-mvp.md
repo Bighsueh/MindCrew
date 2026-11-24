@@ -37,7 +37,9 @@ npm ci
 npm run dev
 ```
 
-開啟 `http://localhost:5173/interviews`。若使用容器執行後端，請將變數注入 backend 容器的環境。未配置金鑰或模型時仍可開始、瀏覽、結束和匯出，回答會顯示設定錯誤並保留已送出的問題。
+開啟 `http://localhost:5173/interviews`。使用本 repo 的 `docker-compose.yml` 部署到 Dokploy 時，在該 Compose 服務的 **Environment** 填寫 `INTERVIEW_LLM_PROVIDER=openai`、`INTERVIEW_LLM_MODEL` 與 `OPENAI_API_KEY`，保存後重新部署。Compose 會把這三個變數傳給 backend 容器。如果 Dokploy 使用自訂 Compose 檔，請沿用 repo 中 backend 的對應環境變數映射。
+
+未配置金鑰或模型時仍可開始、瀏覽、結束和匯出，已送出的問題會保留。設定修正且後端重新部署後，回到原訪談按「重試回答」。
 
 ## 紀錄與供應商
 

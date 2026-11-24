@@ -58,7 +58,9 @@ async def test_responses_request_and_completion(monkeypatch):
     ((200, response("incomplete")), "invalid_reply"),
     ((200, response(part={"type": "refusal", "refusal": "test"})), "invalid_reply"),
     ((400, {"error": {"code": "context_length_exceeded", "message": "private"}}), "context_limit"),
-    ((429, {"error": {"code": "insufficient_quota", "message": "private"}}), "configuration"),
+    ((401, {"error": {"code": "invalid_api_key", "message": "private"}}), "openai_auth"),
+    ((404, {"error": {"code": "model_not_found", "message": "private"}}), "openai_model"),
+    ((429, {"error": {"code": "insufficient_quota", "message": "private"}}), "openai_quota"),
     ((429, {"error": {"code": "rate_limit_exceeded", "message": "private"}}), "temporary"),
     ((500, {"error": {"message": "private"}}), "temporary"),
 ])
@@ -69,13 +71,17 @@ async def test_responses_failures_are_normalized(monkeypatch, payload, code):
     assert len(requests) == 1
 
 
-async def test_missing_configuration_does_not_create_client(monkeypatch):
-    monkeypatch.setattr(settings, "OPENAI_API_KEY", SecretStr(""))
-    monkeypatch.setattr(settings, "INTERVIEW_LLM_MODEL", "configured-model")
+@pytest.mark.parametrize(("key", "model", "code"), [
+    ("", "configured-model", "missing_key"),
+    ("mock-key", "", "missing_model"),
+])
+async def test_missing_configuration_does_not_create_client(monkeypatch, key, model, code):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", SecretStr(key))
+    monkeypatch.setattr(settings, "INTERVIEW_LLM_MODEL", model)
 
     def unexpected(**kwargs):
         pytest.fail("Unexpected OpenAI client")
 
     monkeypatch.setattr(provider, "AsyncOpenAI", unexpected)
-    with pytest.raises(provider.GenerationError, match="^configuration$"):
+    with pytest.raises(provider.GenerationError, match=f"^{code}$"):
         await provider.OpenAIInterviewProvider().generate("角色", [{"role": "user", "content": "你好"}])
