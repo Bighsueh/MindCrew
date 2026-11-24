@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Copy, Download, MessageSquare, Plus, RotateCw, Send } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import {
-  interviewError, interviewService,
+  interviewError, interviewRequestId, interviewService,
   type Interview, type InterviewSummary, type Stakeholder,
 } from '../../services/interviewService'
 
@@ -181,13 +181,13 @@ function Conversation({ id, role, limit, onEnded }: {
   async function send(event?: FormEvent) {
     event?.preventDefault()
     if (!draft.trim() || busy || closing || waiting || ended || last?.status === 'failed' || !session?.remaining_questions) return
-    const pending = request.current?.question === draft
-      ? request.current
-      : { id: crypto.randomUUID(), question: draft }
-    request.current = pending
     setBusy(true)
     setError('')
     try {
+      const pending = request.current?.question === draft
+        ? request.current
+        : { id: interviewRequestId(), question: draft }
+      request.current = pending
       await interviewService.ask(id, pending.question, pending.id)
       request.current = undefined
       setDraft('')
