@@ -12,6 +12,7 @@ import { Loading } from '../components/common/Loading'
 const LoginPage = lazy(() => import('../pages/Login').then(m => ({ default: m.LoginPage })))
 const RegisterPage = lazy(() => import('../pages/Register').then(m => ({ default: m.RegisterPage })))
 const ProjectsPage = lazy(() => import('../pages/Projects').then(m => ({ default: m.ProjectsPage })))
+const InterviewPage = lazy(() => import('../pages/Interview').then(m => ({ default: m.InterviewPage })))
 const ProjectLobbyPage = lazy(() => import('../pages/ProjectLobby').then(m => ({ default: m.ProjectLobbyPage })))
 const WorkspacePage = lazy(() => import('../pages/Workspace').then(m => ({ default: m.WorkspacePage })))
 const TeacherDashboardPage = lazy(() => import('../pages/TeacherDashboard').then(m => ({ default: m.TeacherDashboardPage })))
@@ -52,6 +53,7 @@ export const router = createBrowserRouter([
             element: <AppLayout />,
             children: [
               { path: 'projects', element: <SuspenseOutlet><ProjectsPage /></SuspenseOutlet> },
+              { path: 'interviews', element: <SuspenseOutlet><InterviewPage /></SuspenseOutlet> },
               { path: 'projects/:id/lobby', element: <SuspenseOutlet><ProjectLobbyPage /></SuspenseOutlet> },
             ],
           },

@@ -10,6 +10,7 @@ from app.config import settings
 from app.db.base import Base
 
 # Import all models so Alembic can detect them
+from app.db.models import interview  # noqa: F401
 from app.db.models import user, project, seat, message  # noqa: F401
 from app.db.models import stage_history, agent_decision_trace, stage_evaluation_log  # noqa: F401
 from app.db.models import micro_phase_history  # noqa: F401

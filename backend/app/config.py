@@ -1,3 +1,4 @@
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings
 
 
@@ -13,6 +14,14 @@ class Settings(BaseSettings):
 
     # LLM — Phase 25：所有 provider 設定改由 DB 提供（admin 後台管理）。
     # 此處只保留呼叫端共用的限制與 timeout，不再有任何 endpoint / key 的預設值。
+
+    # Standalone stakeholder interviews
+    INTERVIEW_LLM_PROVIDER: str = "openai"
+    INTERVIEW_LLM_MODEL: str = ""
+    OPENAI_API_KEY: SecretStr = SecretStr("")
+    INTERVIEW_LLM_MAX_OUTPUT_TOKENS: int = Field(default=240, ge=16, le=4096)
+    INTERVIEW_LLM_TIMEOUT_SECONDS: float = Field(default=30, gt=0, le=45)
+    INTERVIEW_MAX_QUESTIONS: int = Field(default=12, ge=1, le=30)
 
     # LLM Limits
     LLM_MAX_TOKENS_PER_CALL: int = 2048

@@ -36,6 +36,7 @@ from app.stages.router import router as stages_router
 from app.teacher.router import router as teacher_router
 from app.coach.router import router as coach_router
 from app.admin.router import router as admin_router
+from app.interview.router import router as interview_router
 
 logger = logging.getLogger(__name__)
 
@@ -189,3 +190,4 @@ app.include_router(stages_router)
 app.include_router(teacher_router)
 app.include_router(coach_router)
 app.include_router(admin_router)
+app.include_router(interview_router)

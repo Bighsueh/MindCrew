@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
-import { LayoutDashboard, FolderOpen, LogOut, HelpCircle, ShieldCheck } from 'lucide-react'
+import { LayoutDashboard, FolderOpen, LogOut, HelpCircle, ShieldCheck, MessageSquare } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import {
   startProjectsTour,
@@ -23,6 +23,7 @@ export function AppLayout() {
     ? [{ to: '/admin/providers', label: '管理後台', icon: ShieldCheck }]
     : [
         { to: '/projects', label: '設計專案', icon: FolderOpen },
+        { to: '/interviews', label: '模擬訪談', icon: MessageSquare },
         ...(isTeacher
           ? [{ to: '/teacher/dashboard', label: '教師儀表板', icon: LayoutDashboard }]
           : []),
@@ -31,7 +32,7 @@ export function AppLayout() {
   return (
     <div className="flex min-h-screen flex-col bg-bg">
       <header className="sticky top-0 z-40 bg-bg/95 backdrop-blur-md shadow-sm">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+        <div className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center justify-between gap-y-1 px-3 py-2 sm:px-6">
           <Link
             to={isAdmin ? '/admin/providers' : '/projects'}
             className="flex items-center gap-2 transition-opacity hover:opacity-80"
@@ -42,11 +43,12 @@ export function AppLayout() {
             </span>
           </Link>
 
-          <nav className="flex items-center gap-1">
+          <nav className="order-last flex w-full items-center justify-center gap-1 sm:order-none sm:w-auto">
             {navItems.map((item) => (
               <Link
                 key={item.to}
                 to={item.to}
+                aria-current={location.pathname === item.to ? 'page' : undefined}
                 className={cn(
                   'nav-link-underline relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                   location.pathname === item.to
