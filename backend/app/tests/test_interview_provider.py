@@ -56,6 +56,14 @@ async def test_responses_request_and_completion(monkeypatch):
     })]
 
 
+async def test_profile_generation_requests_json_mode(monkeypatch):
+    requests = mock_openai(monkeypatch, (200, response()))
+    await provider.OpenAIInterviewProvider().generate_profiles("回傳 JSON", [{"role": "user", "content": "{}"}])
+    assert requests[0][2]["text"] == {"format": {"type": "json_object"}}
+    assert requests[0][2]["max_output_tokens"] == 3600
+    assert requests[0][2]["store"] is False
+
+
 @pytest.mark.parametrize(("payload", "code"), [
     ((200, response("incomplete")), "invalid_reply"),
     ((200, response(part={"type": "refusal", "refusal": "test"})), "invalid_reply"),

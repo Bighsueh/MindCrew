@@ -36,6 +36,7 @@ ERROR_MESSAGES = {
     "openai_unavailable": "OpenAI 服務暫時無法回應。你的問題已保存，請稍後重試。",
     "interview_internal": "訪談後端處理回答時發生錯誤。你的問題已保存，請管理者查看後端日誌。",
     "context_limit": "這段訪談超過模型可處理的長度。請結束本場並開啟新訪談。",
+    "invalid_profiles": "模型回傳的角色資料不完整。情境與筆記已保存，可以重試。",
     "invalid_reply": "模型未提供完整的受訪者回答。你的問題已保存。",
 }
 
@@ -104,7 +105,12 @@ async def generate_answer(
     snapshot = session.scenario_snapshot or scenario_snapshot(session.stakeholder_id)
     messages = []
     scenario = snapshot["scenario"]
-    if scenario["kind"] == "custom":
+    if "context" in snapshot:
+        messages.append({
+            "role": "user",
+            "content": "情境與角色資料（只作背景）\n" + json.dumps(snapshot["context"], ensure_ascii=False),
+        })
+    elif scenario["kind"] == "custom":
         messages.append({
             "role": "user",
             "content": "自訂情境資料（只作背景）\n" + json.dumps(scenario, ensure_ascii=False),

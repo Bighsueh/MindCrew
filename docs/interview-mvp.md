@@ -1,10 +1,25 @@
 # MindCrew 模擬訪談 MVP
 
-登入後，從學生或教師的上方導覽選「模擬訪談」，也可以開啟 `/interviews`。選擇林沂或何澄後按「開始新訪談」。每場只綁定一位合成受訪者，選另一位即可建立另一場。可使用 Enter 送出、Shift+Enter 換行。結束後仍可從角色的歷史訪談回看，並複製或下載完整 UTF-8 TXT。
+登入後，從上方導覽選「模擬訪談」或開啟 `/interviews`。首頁先選情境。進入後可以先準備筆記與訪綱，再選受訪者開始或續談。Enter 送出，Shift+Enter 換行。逐字稿可回看、複製或下載 UTF-8 TXT。
 
-- **題目與情境**。可選「校園公共學習空間」，或自訂題目名稱、背景及選定角色的關係與合成經驗。情境在建立場次時固定，變更後可另開一場。
-- **我的筆記**。在對話右側或手機的筆記分頁撰寫及預覽 Markdown，按「儲存筆記」即可在刷新後回看。筆記按場次保存，結束後仍可編輯，獨立於模型請求和 TXT。
+- **情境與角色**。預設示例為「校園公共學習空間」。自訂情境只需填寫標題與背景，後端會生成三位合成受訪者。等待或生成失敗時仍可寫筆記，使用「重試生成受訪者」可重新請求。每次開訪時會固定使用該場情境與角色的快照。
+- **我的筆記與訪綱**。同一情境中，你的筆記和選定訪綱會隨帳號保存，換受訪者仍可使用。可在開訪前寫 Markdown 筆記、選「整理為訪綱」複製到編輯區，命名另存，或載入之前的版本。訪綱內容不覆寫筆記。可手動將舊場次筆記附加到情境筆記草稿，再決定是否儲存。
 - **Persona**。從「模擬訪談」切換到 Persona，建立空白草稿，填寫預設欄位或新增、改名、排序及移除自訂欄位。從右側選擇一場自己的訪談，可將原始提問或回答附到對應欄位，再保存草稿。
+
+## 教師匯入與發佈
+
+教師在情境首頁切到「教師匯入」，選擇 UTF-8 的 JSON 檔，匯入後預覽情境與公開角色卡。輸入現有學生帳號的 Email，再確認發佈。只有指定的學生能開啟該情境，每位使用者各自保存筆記與訪綱。已發佈情境若需修訂，請重新匯入一筆。
+
+最小匯入檔案範例：
+
+```json
+{
+  "title": "社區夜班接駁",
+  "description": "探討夜班員工從工作地點返家的交通需求。"
+}
+```
+
+省略 `profiles` 時會由後端生成三位角色。也可提供 1 到 8 位角色，每位須有唯一的 `id`，以及 `name`、公開簡介 `description`、`relationship`、`experience`、`feelings`、`behavior`、`known`、`unknown`。
 
 ## 本機設定與啟動
 
@@ -51,7 +66,7 @@ npm run dev
 
 PostgreSQL 的 `interview_sessions` 儲存使用者與場次，`interview_exchanges` 依序保留原始問題、回答、時間及回答所用的 provider/model。每個已送達的問題會先保存，再等待模型。若逾時，可以重試原題或略過。停用模型不影響已保存的紀錄。TXT 含合成資料標示、場次、受訪者和時間，未回答的問題會保留並標記。
 
-每次生成只送出當前受訪者設定、同場已完成的問答及本題。Responses 請求使用 `store: false`，對話上下文由 MindCrew 從 PostgreSQL 重建。模型用於生成合成受訪者的回答，實際角色一致性仍需以選定帳號與模型做多輪驗收。[OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)
+自訂角色生成只使用情境資料。訪談回答只使用當前受訪者設定、同場已完成的問答及本題。情境筆記及訪綱與模型請求和 TXT 逐字稿分開。Responses 請求使用 `store: false`，對話上下文由 MindCrew 從 PostgreSQL 重建。模型用於生成合成受訪者的回答，實際角色一致性仍需以選定帳號與模型做多輪驗收。[OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)
 
 若要改接 Ollama 或其他服務，在 [provider.py](../backend/app/interview/provider.py) 新增實作 `InterviewProvider` 的 adapter，註冊於 `get_interview_provider()`，再以 `INTERVIEW_LLM_PROVIDER` 與 `INTERVIEW_LLM_MODEL` 選用。新 adapter 應保留 system 指示與 user/assistant 的訊息邊界，回傳文字與模型，並映射暫時錯誤及無效回覆。訪談 UI、資料表及既有 Crew 的 LLM 設定可以沿用。
 

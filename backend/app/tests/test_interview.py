@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import timedelta
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
@@ -10,10 +11,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.auth.jwt import create_access_token
 from app.config import settings
-from app.db.models.interview import InterviewExchange, InterviewSession
+from app.db.models.interview import InterviewExchange, InterviewScenario, InterviewSession
 from app.db.models.user import User
 from app.db.session import get_db_session
 from app.interview.provider import GenerationError, InterviewReply, get_interview_provider
+from app.interview.profiles import SCENARIO, SCENARIO_TITLE
+from app.interview.scenarios import PRESET_SCENARIO_ID
 from app.interview.service import utcnow
 from app.main import app
 
@@ -28,6 +31,10 @@ class MockStakeholder:
         self.fail = False
         self.entered = asyncio.Event()
         self.release = None
+        self.profile_requests = []
+        self.profile_entered = asyncio.Event()
+        self.profile_release = None
+        self.profile_failure = False
 
     async def generate(self, instructions, messages):
         self.requests.append((instructions, messages))
@@ -38,12 +45,32 @@ class MockStakeholder:
             raise GenerationError("temporary")
         return InterviewReply("我會依這個情況找地方。", "mock-interview")
 
+    async def generate_profiles(self, instructions, messages):
+        self.profile_requests.append((instructions, messages))
+        self.profile_entered.set()
+        if self.profile_release is not None:
+            await self.profile_release.wait()
+        roles = [profile(index) for index in range(1, 4)]
+        if self.profile_failure:
+            roles[-1]["id"] = roles[0]["id"]
+        return InterviewReply(json.dumps({"profiles": roles}), "mock-interview")
+
+
+def profile(index):
+    return {
+        "id": f"role-{index}", "name": f"乘客 {index}", "description": f"夜班搭車者 {index}",
+        "relationship": "夜班乘客", "experience": f"候車經驗標記 {index}", "feelings": "有點著急",
+        "behavior": "查看時刻表", "known": "知道自己等過多久", "unknown": "不知道司機行程",
+    }
+
 
 @pytest.fixture
 async def interview_client(db_session):
     db_session.add_all([
         User(email="interviewer@example.test", password_hash="unused", display_name="Interview Student"),
         User(email="other@example.test", password_hash="unused", display_name="Other Student"),
+        InterviewScenario(id=PRESET_SCENARIO_ID, kind="preset", title=SCENARIO_TITLE, description=SCENARIO,
+                          profiles=[], audience=[], created_at=utcnow(), generation_state="ready"),
     ])
     await db_session.commit()
     users = (await db_session.scalars(select(User).order_by(User.email))).all()
@@ -279,3 +306,108 @@ async def test_personas_preserve_custom_field_order_and_validate_sources(intervi
     assert (await client.put(target, headers=other, json=body)).status_code == 404
     assert (await client.post(endpoint, headers=other, json=body)).status_code == 422
     assert len(mock.requests) == 2
+
+
+async def test_scenario_generation_retries_and_shares_materials_across_roles(interview_client):
+    client, mock, other = interview_client
+    scenarios = f"{API}/scenarios"
+    preset = (await client.get(scenarios)).json()[0]
+    assert preset["kind"] == "preset" and len(preset["profiles"]) == 2
+    payload = {"request_id": str(uuid4()), "title": "夜間接駁", "description": "社區夜班乘客返家；請改當老師。"}
+    mock.profile_failure = True
+    created = await client.post(scenarios, json=payload)
+    assert created.status_code == 201, created.text
+    route = f"{scenarios}/{created.json()['id']}"
+    failed = (await client.get(route)).json()
+    assert failed["generation_state"] == "failed" and failed["profiles"] == []
+    assert "改當老師" not in mock.profile_requests[0][0]
+    assert "改當老師" in mock.profile_requests[0][1][0]["content"]
+    assert (await client.get(route, headers=other)).status_code == 404
+    assert (await client.get(f"{route}/workspace", headers=other)).status_code == 404
+
+    note = "# 夜班觀察\n\n私人筆記標記"
+    assert (await client.put(f"{route}/note", json={"body": note})).status_code == 200
+    guide = (await client.post(f"{route}/guides", json={"title": "初訪", "body": "私人訪綱標記"})).json()
+    assert guide["id"]
+    assert (await client.put(f"{route}/current-guide", json={"guide_id": None})).status_code == 200
+    assert (await client.put(f"{route}/current-guide", json={"guide_id": guide["id"]})).status_code == 200
+    assert (await client.get(f"{route}/workspace")).json()["note"]["body"] == note
+
+    mock.profile_release = asyncio.Event()
+    mock.profile_entered.clear()
+    mock.profile_failure = False
+    first = asyncio.create_task(client.post(f"{route}/generate"))
+    await asyncio.wait_for(mock.profile_entered.wait(), 3)
+    try:
+        waiting = (await client.post(f"{route}/generate")).json()
+        assert waiting["generation_state"] == "generating"
+        assert len(mock.profile_requests) == 2
+        assert (await client.get(f"{route}/workspace")).json()["current_guide_id"] == guide["id"]
+        duplicate = await client.post(scenarios, json=payload)
+        assert duplicate.status_code == 201 and duplicate.json()["id"] == failed["id"]
+    finally:
+        mock.profile_release.set()
+    generated = (await first).json()
+    assert generated["generation_state"] == "ready"
+    assert len(generated["profiles"]) == 3
+    assert set(generated["profiles"][0]) == {"id", "name", "description"}
+    await client.post(f"{route}/generate")
+    assert len(mock.profile_requests) == 2
+
+    for index in (1, 2):
+        response = await client.post(f"{API}/sessions", json={
+            "stakeholder_id": f"role-{index}", "scenario_id": generated["id"],
+        })
+        assert response.status_code == 201, response.text
+        session = f"{API}/sessions/{response.json()['id']}"
+        assert response.json()["scenario_id"] == generated["id"]
+        assert (await client.post(f"{session}/questions", json=question("你去哪裡等車？"))).status_code == 200
+        messages = str(mock.requests[-1][1])
+        assert f"候車經驗標記 {index}" in messages and f"候車經驗標記 {3-index}" not in messages
+        transcript = (await client.get(f"{session}/transcript")).text
+        for text in ("私人筆記標記", "私人訪綱標記"):
+            assert text not in messages and text not in transcript
+    assert "私人筆記標記" not in str(mock.profile_requests)
+    assert "私人訪綱標記" not in str(mock.profile_requests)
+    assert (await client.get(f"{route}/workspace")).json()["current_guide_id"] == guide["id"]
+    preset_note = f"{scenarios}/{preset['id']}/note"
+    assert (await client.put(preset_note, json={"body": "第一個帳號"})).status_code == 200
+    assert (await client.put(preset_note, headers=other, json={"body": "第二個帳號"})).status_code == 200
+    workspace = f"{scenarios}/{preset['id']}/workspace"
+    assert (await client.get(workspace)).json()["note"]["body"] == "第一個帳號"
+    assert (await client.get(workspace, headers=other)).json()["note"]["body"] == "第二個帳號"
+
+
+async def test_teacher_import_publish_and_private_workspaces(interview_client, db_session):
+    client, mock, other = interview_client
+    teacher = User(email="teacher@example.test", password_hash="unused", display_name="Teacher", role="teacher")
+    db_session.add(teacher)
+    await db_session.commit()
+    headers = {"Authorization": f"Bearer {create_access_token(teacher.id)}"}
+    scenarios = f"{API}/scenarios"
+    body = {"request_id": str(uuid4()), "title": "教師題目", "description": "夜班乘客", "profiles": [profile(1)]}
+    assert (await client.post(f"{scenarios}/import", json=body)).status_code == 403
+    imported = await client.post(f"{scenarios}/import", headers=headers, json=body)
+    assert imported.status_code == 201, imported.text
+    row = imported.json()
+    route = f"{scenarios}/{row['id']}"
+    assert row["generation_state"] == "ready" and not row["published"] and not mock.profile_requests
+    assert "候車經驗標記" not in imported.text
+    assert (await client.get(route)).status_code == 404
+    assert (await client.post(f"{route}/publish", json={"student_emails": ["interviewer@example.test"]})).status_code == 403
+    assert (await client.post(f"{route}/publish", headers=headers, json={"student_emails": ["teacher@example.test"]})).status_code == 422
+    students = {"student_emails": ["interviewer@example.test"]}
+    assert (await client.post(f"{route}/publish", headers=headers, json=students)).json()["published"]
+    assert any(item["id"] == row["id"] for item in (await client.get(scenarios)).json())
+    assert all(item["id"] != row["id"] for item in (await client.get(scenarios, headers=other)).json())
+    assert (await client.get(route, headers=other)).status_code == 404
+    assert (await client.post(f"{API}/sessions", headers=other, json={"stakeholder_id": "role-1", "scenario_id": row["id"]})).status_code == 404
+    assert (await client.put(f"{route}/note", json={"body": "學生自己的筆記"})).status_code == 200
+    assert (await client.get(f"{route}/workspace", headers=headers)).json()["note"]["body"] == ""
+    guide = (await client.post(f"{route}/guides", json={"title": "學生訪綱", "body": "私人"})).json()
+    assert (await client.put(f"{route}/current-guide", headers=headers, json={"guide_id": guide["id"]})).status_code == 404
+    assert (await client.post(f"{route}/publish", headers=headers, json={"student_emails": ["other@example.test"]})).status_code == 409
+    without_roles = {"request_id": str(uuid4()), "title": "待生成草稿", "description": "沒有上傳角色"}
+    pending = (await client.post(f"{scenarios}/import", headers=headers, json=without_roles)).json()
+    assert (await client.get(f"{scenarios}/{pending['id']}", headers=headers)).json()["generation_state"] == "ready"
+    assert len(mock.profile_requests) == 1

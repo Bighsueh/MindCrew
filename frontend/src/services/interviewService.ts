@@ -8,29 +8,38 @@ export interface Stakeholder {
 }
 
 export interface InterviewScenario {
-  kind: 'preset' | 'custom'
+  kind: 'preset' | 'custom' | 'teacher'
   title: string
   description: string
 }
 
-export interface CustomScenario {
-  title: string
-  description: string
-  relationship: string
-  experience: string
-}
-
-interface Scenario {
-  scenario: string
+export interface ScenarioSummary extends InterviewScenario {
+  id: string
   synthetic: boolean
-  max_question_chars: number
-  stakeholders: Stakeholder[]
-  presets: { id: string; title: string; description: string; stakeholder_ids: string[] }[]
+  profiles: Stakeholder[]
+  generation_state: 'pending' | 'generating' | 'ready' | 'failed'
+  generation_error: string | null
+  published: boolean
+  mine: boolean
+}
+
+export interface Guide {
+  id: string
+  title: string
+  body: string
+  created_at: string
+}
+
+export interface ScenarioWorkspaceData {
+  note: InterviewNote
+  current_guide_id: string | null
+  guides: Guide[]
 }
 
 export interface InterviewSummary {
   id: string
   stakeholder_id: string
+  scenario_id: string | null
   started_at: string
   ended_at: string | null
   scenario: InterviewScenario
@@ -92,6 +101,7 @@ export interface PersonaCatalog {
 
 const sessions = '/interview/sessions'
 const personas = '/interview/personas'
+const scenarios = '/interview/scenarios'
 const generationOptions = { timeout: 55000 }
 
 export function interviewRequestId(): string {
@@ -104,14 +114,38 @@ export function interviewRequestId(): string {
 }
 
 export const interviewService = {
-  async scenario(signal: AbortSignal) {
-    return (await api.get<Scenario>('/interview/stakeholders', { signal })).data
+  async scenarios(signal: AbortSignal) {
+    return (await api.get<ScenarioSummary[]>(scenarios, { signal })).data
+  },
+  async scenario(id: string, signal: AbortSignal) {
+    return (await api.get<ScenarioSummary>(`${scenarios}/${id}`, { signal })).data
+  },
+  async createScenario(body: object, importing: boolean) {
+    return (await api.post<ScenarioSummary>(importing ? `${scenarios}/import` : scenarios, body)).data
+  },
+  async generateProfiles(id: string) {
+    return (await api.post<ScenarioSummary>(`${scenarios}/${id}/generate`, null, generationOptions)).data
+  },
+  async publishScenario(id: string, student_emails: string[]) {
+    return (await api.post<ScenarioSummary>(`${scenarios}/${id}/publish`, { student_emails })).data
+  },
+  async workspace(id: string, signal: AbortSignal) {
+    return (await api.get<ScenarioWorkspaceData>(`${scenarios}/${id}/workspace`, { signal })).data
+  },
+  async saveScenarioNote(id: string, body: string) {
+    return (await api.put<InterviewNote>(`${scenarios}/${id}/note`, { body })).data
+  },
+  async saveGuide(id: string, title: string, body: string) {
+    return (await api.post<Guide>(`${scenarios}/${id}/guides`, { title, body })).data
+  },
+  async selectGuide(id: string, guide_id: string | null) {
+    return (await api.put(`${scenarios}/${id}/current-guide`, { guide_id })).data
   },
   async sessions(signal: AbortSignal) {
     return (await api.get<InterviewSummary[]>(sessions, { signal })).data
   },
-  async start(stakeholder_id: string, choice: { preset_id: string } | { custom: CustomScenario }) {
-    return (await api.post<Interview>(sessions, { stakeholder_id, ...choice })).data
+  async start(stakeholder_id: string, scenario_id: string) {
+    return (await api.post<Interview>(sessions, { stakeholder_id, scenario_id })).data
   },
   async get(id: string, signal?: AbortSignal) {
     return (await api.get<Interview>(`${sessions}/${id}`, { signal })).data

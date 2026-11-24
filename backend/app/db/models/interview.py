@@ -17,6 +17,7 @@ class InterviewSession(Base):
     stakeholder_id: Mapped[str] = mapped_column(String(40))
     started_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    scenario_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("interview_scenarios.id", ondelete="SET NULL"), index=True)
     scenario_snapshot: Mapped[dict | None] = mapped_column(JSONB)
     note_body: Mapped[str | None] = mapped_column(Text)
     note_updated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
@@ -57,3 +58,44 @@ class InterviewPersona(Base):
     fields: Mapped[list[dict]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+class InterviewScenario(Base):
+    __tablename__ = "interview_scenarios"
+    __table_args__ = (Index("ix_interview_scenarios_owner", "owner_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(12))
+    title: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text)
+    profiles: Mapped[list[dict]] = mapped_column(JSONB)
+    audience: Mapped[list[str]] = mapped_column(JSONB)
+    published_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    generation_state: Mapped[str] = mapped_column(String(12))
+    generation_error: Mapped[str | None] = mapped_column(String(32))
+    generation_token: Mapped[uuid.UUID | None]
+    generation_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    creation_signature: Mapped[str | None] = mapped_column(String(64))
+
+
+class InterviewGuide(Base):
+    __tablename__ = "interview_guides"
+    __table_args__ = (Index("ix_interview_guides_owner_scenario", "owner_id", "scenario_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
+    scenario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("interview_scenarios.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class InterviewWorkspace(Base):
+    __tablename__ = "interview_workspaces"
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
+    scenario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("interview_scenarios.id", ondelete="CASCADE"), primary_key=True)
+    note_body: Mapped[str | None] = mapped_column(Text)
+    note_updated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    current_guide_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("interview_guides.id", ondelete="SET NULL"))

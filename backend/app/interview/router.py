@@ -13,7 +13,8 @@ from app.db.models.interview import InterviewExchange, InterviewSession
 from app.db.models.user import User
 from app.db.session import get_db_session
 from app.interview.personas import persona_router
-from app.interview.profiles import PRESET_ID, SCENARIO, SCENARIO_TITLE, STAKEHOLDERS, scenario_snapshot
+from app.interview.profiles import PRESET_ID, SCENARIO, SCENARIO_TITLE, STAKEHOLDERS, saved_scenario_snapshot, scenario_snapshot
+from app.interview.scenarios import PRESET_SCENARIO_ID, get_scenario, router as scenario_router
 from app.interview.provider import InterviewProvider, get_interview_provider
 from app.interview.service import (
     ERROR_MESSAGES, can_retry, ensure_open, exchange_status, generate_answer,
@@ -22,6 +23,7 @@ from app.interview.service import (
 
 router = APIRouter(prefix="/api/interview", tags=["interview"])
 router.include_router(persona_router)
+router.include_router(scenario_router)
 UserDep = Annotated[User, Depends(get_current_user)]
 DBDep = Annotated[AsyncSession, Depends(get_db_session)]
 ProviderDep = Annotated[InterviewProvider, Depends(get_interview_provider)]
@@ -51,6 +53,7 @@ class StartInterview(BaseModel):
     stakeholder_id: str = Field(max_length=40)
     preset_id: Literal["campus-learning-space"] = PRESET_ID
     custom: CustomScenario | None = None
+    scenario_id: UUID | None = None
 
 
 class NoteBody(BaseModel):
@@ -85,6 +88,7 @@ def session_summary(session: InterviewSession) -> dict:
     scenario = snapshot["scenario"]
     return {
         "id": session.id, "stakeholder_id": session.stakeholder_id,
+        "scenario_id": session.scenario_id or (PRESET_SCENARIO_ID if scenario["kind"] == "preset" else None),
         "scenario": {key: scenario[key] for key in ("kind", "title", "description")},
         "stakeholder": snapshot["stakeholder"],
         "started_at": session.started_at, "ended_at": session.ended_at,
@@ -134,11 +138,18 @@ async def list_sessions(user: UserDep, db: DBDep, stakeholder_id: str | None = N
 
 @router.post("/sessions", status_code=201)
 async def start_interview(body: StartInterview, user: UserDep, db: DBDep):
-    if body.stakeholder_id not in STAKEHOLDERS:
-        raise HTTPException(404, "找不到此受訪者。")
-    snapshot = scenario_snapshot(body.stakeholder_id, body.custom.model_dump() if body.custom else None)
+    if body.scenario_id:
+        scenario = await get_scenario(db, user, body.scenario_id)
+        snapshot = saved_scenario_snapshot(scenario, body.stakeholder_id)
+        if snapshot is None:
+            raise HTTPException(404, "找不到該情境的受訪者。")
+    else:
+        if body.stakeholder_id not in STAKEHOLDERS:
+            raise HTTPException(404, "找不到此受訪者。")
+        snapshot = scenario_snapshot(body.stakeholder_id, body.custom.model_dump() if body.custom else None)
     session = InterviewSession(
         owner_id=user.id, stakeholder_id=body.stakeholder_id, started_at=utcnow(), scenario_snapshot=snapshot,
+        scenario_id=body.scenario_id,
     )
     db.add(session)
     await db.commit()
@@ -235,7 +246,7 @@ async def transcript(session_id: UUID, user: UserDep, db: DBDep):
     profile_name = snapshot["stakeholder"]["name"]
     scenario = snapshot["scenario"]
     background = [scenario["description"]]
-    if scenario["kind"] == "custom":
+    if scenario["kind"] != "preset":
         background.insert(0, f"題目：{scenario['title']}")
     lines = [
         "MindCrew 模擬訪談（合成資料）", *background,

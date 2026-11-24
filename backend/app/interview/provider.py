@@ -43,11 +43,19 @@ class InterviewProvider(Protocol):
 
     async def generate(self, instructions: str, messages: list[dict]) -> InterviewReply: ...
 
+    async def generate_profiles(self, instructions: str, messages: list[dict]) -> InterviewReply: ...
+
 
 class OpenAIInterviewProvider:
     name = "openai"
 
     async def generate(self, instructions: str, messages: list[dict]) -> InterviewReply:
+        return await self._respond(instructions, messages, {})
+
+    async def generate_profiles(self, instructions: str, messages: list[dict]) -> InterviewReply:
+        return await self._respond(instructions, messages, {"text": {"format": {"type": "json_object"}}}, 3600)
+
+    async def _respond(self, instructions: str, messages: list[dict], options: dict, max_tokens: int | None = None) -> InterviewReply:
         model = settings.INTERVIEW_LLM_MODEL.strip()
         key = settings.OPENAI_API_KEY.get_secret_value().strip()
         if not key:
@@ -66,9 +74,10 @@ class OpenAIInterviewProvider:
                     model=model,
                     instructions=instructions,
                     input=messages,
-                    max_output_tokens=settings.INTERVIEW_LLM_MAX_OUTPUT_TOKENS,
+                    max_output_tokens=max_tokens or settings.INTERVIEW_LLM_MAX_OUTPUT_TOKENS,
                     store=False,
                     truncation="disabled",
+                    **options,
                 )
         except APITimeoutError:
             raise GenerationError("openai_timeout") from None
@@ -114,3 +123,5 @@ class UnconfiguredProvider:
 
     async def generate(self, instructions: str, messages: list[dict]) -> InterviewReply:
         raise GenerationError("unsupported_provider")
+
+    generate_profiles = generate
