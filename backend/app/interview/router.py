@@ -16,7 +16,7 @@ from app.interview.profiles import SCENARIO, STAKEHOLDERS
 from app.interview.provider import InterviewProvider, get_interview_provider
 from app.interview.service import (
     ERROR_MESSAGES, can_retry, ensure_open, exchange_status, generate_answer,
-    get_exchanges, get_session, skip, utcnow,
+    get_exchanges, get_session, retry_wait, skip, utcnow,
 )
 
 router = APIRouter(prefix="/api/interview", tags=["interview"])
@@ -59,6 +59,7 @@ def exchange_data(exchange: InterviewExchange) -> dict:
         "question": exchange.question, "asked_at": exchange.asked_at,
         "answer": exchange.answer, "answered_at": exchange.answered_at, "status": status,
         "provider": exchange.provider, "model": exchange.model, "retryable": can_retry(exchange),
+        "retry_after_seconds": retry_wait(exchange),
         "error": ERROR_MESSAGES.get(error),
     }
 
@@ -148,6 +149,9 @@ async def resolve(
             await db.commit()
             return exchange_data(exchange)
     elif sequence == len(exchanges) and can_retry(exchange):
+        wait = retry_wait(exchange)
+        if wait:
+            raise HTTPException(429, f"請等待 {wait} 秒後重試。", headers={"Retry-After": str(wait)})
         return exchange_data(await generate_answer(db, session, exchanges[:-1], exchange, provider))
     raise HTTPException(409, "這一題目前無法執行該操作。")
 

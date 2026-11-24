@@ -32,6 +32,7 @@ export interface Exchange {
   answered_at: string | null
   error: string | null
   retryable: boolean
+  retry_after_seconds?: number
 }
 
 export interface Interview extends InterviewSummary {

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from math import ceil
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -53,6 +54,12 @@ def can_retry(exchange: InterviewExchange) -> bool:
     return status == "failed" and error != "context_limit" and (
         error in SETUP_ERRORS or exchange.attempt_count < MAX_ATTEMPTS
     )
+
+
+def retry_wait(exchange: InterviewExchange) -> int:
+    if exchange.status != "failed" or exchange.waiting_until is None or not can_retry(exchange):
+        return 0
+    return max(0, ceil((exchange.waiting_until - utcnow()).total_seconds()))
 
 
 async def get_session(db: AsyncSession, owner_id: UUID, session_id: UUID, *, lock: bool = False) -> InterviewSession:
@@ -115,12 +122,14 @@ async def generate_answer(
 
     answer = None
     error = None
+    retry_after = None
     try:
         answer = await asyncio.wait_for(provider.generate(stakeholder.instructions(), messages), timeout)
         if not answer.content.strip() or "\x00" in answer.content:
             raise GenerationError("invalid_reply")
     except GenerationError as exc:
         error = exc.code if exc.code in ERROR_MESSAGES else "temporary"
+        retry_after = exc.retry_after
     except TimeoutError:
         error = "openai_timeout"
     except Exception as exc:
@@ -141,6 +150,9 @@ async def generate_answer(
         current.error_code, current.status = error, "failed"
         if error in SETUP_ERRORS:
             current.attempt_count -= 1
+        if error in {"openai_rate_limit", "openai_unavailable"}:
+            delay = retry_after if retry_after is not None else 15 * 2 ** (min(current.attempt_count, MAX_ATTEMPTS) - 1)
+            current.waiting_until = utcnow() + timedelta(seconds=delay)
         await db.commit()
         logger.info("Interview generation failed: %s", error)
         raise HTTPException(503, {"code": error, "message": ERROR_MESSAGES[error]})

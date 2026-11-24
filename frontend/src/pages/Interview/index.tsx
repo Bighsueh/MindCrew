@@ -148,6 +148,7 @@ function Conversation({ id, role, limit, onEnded }: {
   const waiting = last?.status === 'waiting'
   const ended = Boolean(session?.ended_at)
   const shouldPoll = !ended && (busy || waiting)
+  const retryAfter = last?.retry_after_seconds ?? 0
 
   useEffect(() => {
     const controller = new AbortController()
@@ -173,6 +174,12 @@ function Conversation({ id, role, limit, onEnded }: {
       clearTimeout(timer)
     }
   }, [id, reload, shouldPoll])
+
+  useEffect(() => {
+    if (ended || !retryAfter) return
+    const timer = setTimeout(() => setReload(value => value + 1), Math.min(retryAfter, 60) * 1000)
+    return () => clearTimeout(timer)
+  }, [ended, reload, retryAfter])
 
   useEffect(() => {
     if (log.current) log.current.scrollTop = log.current.scrollHeight
@@ -295,7 +302,9 @@ function Conversation({ id, role, limit, onEnded }: {
                 <p>{item.status === 'waiting' ? '等候受訪者回答…' : item.status === 'skipped' ? '未取得回答' : item.error}</p>
                 {!ended && item.status === 'failed' && (
                   <div className="flex flex-wrap gap-2">
-                    {item.retryable && <button type="button" className={secondary} disabled={busy || closing} onClick={() => void resolve(item.sequence, 'retry')}>重試回答</button>}
+                    {item.retryable && <button type="button" className={secondary} disabled={busy || closing || Boolean(item.retry_after_seconds)} onClick={() => void resolve(item.sequence, 'retry')}>
+                      {item.retry_after_seconds ? `約 ${item.retry_after_seconds} 秒後可重試` : '重試回答'}
+                    </button>}
                     <button type="button" className={secondary} disabled={busy || closing} onClick={() => void resolve(item.sequence, 'skip')}>略過問題</button>
                   </div>
                 )}

@@ -40,4 +40,5 @@ class InterviewExchange(Base):
     error_code: Mapped[str | None] = mapped_column(String(32))
     attempt_count: Mapped[int] = mapped_column(default=0)
     attempt_token: Mapped[uuid.UUID | None]
+    # Generation deadline while waiting, earliest retry time after a rate limit.
     waiting_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))

@@ -1,5 +1,6 @@
 import asyncio
 from datetime import timedelta
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 from httpx import ASGITransport, AsyncClient
@@ -175,3 +176,28 @@ async def test_waiting_timeout_retry_and_late_reply(interview_client, db_session
     assert (await client.get(session)).json()["exchanges"][1]["retryable"]
     skipped = await client.post(f"{session}/questions/2/resolve", json={"action": "skip"})
     assert skipped.json()["status"] == "skipped"
+
+
+async def test_rate_limit_blocks_early_retry_and_preserves_question(interview_client, db_session, monkeypatch):
+    client, mock, _ = interview_client
+    session = await start(client, "SH-A")
+    generate = AsyncMock(side_effect=GenerationError("openai_rate_limit", retry_after=90))
+    monkeypatch.setattr(mock, "generate", generate)
+    original = question("你的經驗是什麼？")
+    assert (await client.post(f"{session}/questions", json=original)).status_code == 503
+    exchange = (await client.get(session)).json()["exchanges"][0]
+    assert 0 < exchange["retry_after_seconds"] <= 90
+    retry_url = f"{session}/questions/1/resolve"
+    blocked = await client.post(retry_url, json={"action": "retry"})
+    assert blocked.status_code == 429 and int(blocked.headers["Retry-After"]) > 0
+    assert generate.await_count == 1
+
+    row = await db_session.get(InterviewExchange, UUID(exchange["id"]))
+    row.waiting_until = utcnow() - timedelta(seconds=1)
+    await db_session.commit()
+    generate.side_effect = None
+    generate.return_value = InterviewReply("我先去窗邊。", "mock-interview")
+    answer = await client.post(retry_url, json={"action": "retry"})
+    assert answer.json()["question"] == original["question"]
+    assert answer.json()["answer"] == "我先去窗邊。"
+    assert generate.await_count == 2

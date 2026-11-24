@@ -9,14 +9,14 @@ from app.config import settings
 from app.interview import provider
 
 
-def mock_openai(monkeypatch, result):
+def mock_openai(monkeypatch, result, headers=None):
     requests = []
 
     def respond(request):
         requests.append((request.method, str(request.url), json.loads(request.content)))
         if isinstance(result, type) and issubclass(result, httpx.TransportError):
             raise result("simulated transport failure", request=request)
-        return httpx.Response(result[0], json=result[1])
+        return httpx.Response(result[0], json=result[1], headers=headers)
 
     def client(**kwargs):
         return AsyncOpenAI(**kwargs, http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)))
@@ -63,6 +63,8 @@ async def test_responses_request_and_completion(monkeypatch):
     ((401, {"error": {"code": "invalid_api_key", "message": "private"}}), "openai_auth"),
     ((404, {"error": {"code": "model_not_found", "message": "private"}}), "openai_model"),
     ((429, {"error": {"code": "insufficient_quota", "message": "private"}}), "openai_quota"),
+    ((429, {"error": {"code": "credit_balance_exhausted"}}), "openai_quota"),
+    ((429, {"error": {"code": "organization_usage_limit_exceeded"}}), "openai_quota"),
     ((429, {"error": {"code": "rate_limit_exceeded", "message": "private"}}), "openai_rate_limit"),
     ((500, {"error": {"message": "private"}}), "openai_unavailable"),
     (httpx.ConnectError, "openai_connection"),
@@ -73,6 +75,14 @@ async def test_responses_failures_are_normalized(monkeypatch, payload, code):
     with pytest.raises(provider.GenerationError, match=f"^{code}$"):
         await provider.OpenAIInterviewProvider().generate("角色", [{"role": "user", "content": "你好"}])
     assert len(requests) == 1
+
+
+async def test_rate_limit_preserves_retry_after(monkeypatch):
+    payload = (429, {"error": {"code": "rate_limit_exceeded"}})
+    mock_openai(monkeypatch, payload, {"Retry-After": "90"})
+    with pytest.raises(provider.GenerationError, match="^openai_rate_limit$") as error:
+        await provider.OpenAIInterviewProvider().generate("角色", [{"role": "user", "content": "你好"}])
+    assert error.value.retry_after == 90
 
 
 @pytest.mark.parametrize(("key", "model", "code"), [
