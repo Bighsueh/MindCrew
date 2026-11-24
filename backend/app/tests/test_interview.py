@@ -308,6 +308,98 @@ async def test_personas_preserve_custom_field_order_and_validate_sources(intervi
     assert len(mock.requests) == 2
 
 
+async def test_persona_groups_names_and_private_catalog_round_trip(interview_client):
+    client, _, other = interview_client
+    endpoint = f"{API}/personas"
+    field = {
+        "field_id": "test-transport", "label": "交通方式", "name_en": "Transport",
+        "type": "short", "group_id": "commute", "value": "公車",
+    }
+    groups = [{"id": "commute", "label": "通勤", "name_en": "Commute"}]
+    first = await client.post(endpoint, json={"title": "通勤者", "fields": [field], "groups": groups})
+    assert first.status_code == 201, first.text
+    second = await client.post(endpoint, json={
+        "title": "另一位通勤者", "groups": groups + [{"id": "context", "label": "情境"}],
+        "fields": [{**field, "value": "步行", "group_id": "context"}],
+    })
+    assert second.status_code == 201, second.text
+    first_route = f"{endpoint}/{first.json()['id']}"
+    reopened = (await client.get(first_route)).json()
+    assert reopened["groups"][0]["name_en"] == "Commute"
+    assert reopened["fields"][0]["value"] == "公車"
+    catalog = (await client.get(endpoint)).json()
+    definition = next(item for item in catalog["definitions"] if item["field_id"] == "test-transport")
+    assert definition["name_en"] == "Transport" and definition["value"] == ""
+    assert not (await client.get(endpoint, headers=other)).json()["definitions"]
+
+    invalid = await client.put(first_route, json={
+        "title": "通勤者", "groups": groups, "fields": [{**field, "group_id": "missing"}],
+    })
+    assert invalid.status_code == 422
+    assert (await client.get(first_route)).json() == reopened
+
+    legacy_update = await client.put(first_route, json={
+        "title": "新標題",
+        "fields": [{key: field[key] for key in ("field_id", "label", "type", "value")}],
+    })
+    assert legacy_update.status_code == 200
+    assert legacy_update.json()["groups"] == reopened["groups"]
+    assert legacy_update.json()["fields"][0]["group_id"] == "commute"
+    assert legacy_update.json()["fields"][0]["name_en"] == "Transport"
+
+    legacy = await client.post(endpoint, json={"title": "旅人", "fields": [
+        {"field_id": "name", "label": "姓名", "type": "short", "value": "小周"},
+        {"field_id": "old-notes", "label": "舊觀察", "type": "list", "value": ["慢走", "轉乘"]},
+    ]})
+    assert legacy.status_code == 201
+    legacy_route = f"{endpoint}/{legacy.json()['id']}"
+    loaded = (await client.get(legacy_route)).json()
+    assert loaded["groups"] is None
+    assert loaded["title"] == "旅人" and loaded["fields"][0]["value"] == "小周"
+    groups = [{"id": "identity", "label": "基本資料"}, {"id": "custom", "label": "自訂欄位"}]
+    grouped = await client.put(legacy_route, json={"title": "旅人 v2", "groups": groups, "fields": [
+        {**field, "group_id": group["id"]} for field, group in zip(loaded["fields"], groups)
+    ]})
+    assert grouped.status_code == 200
+    assert [item["value"] for item in grouped.json()["fields"]] == ["小周", ["慢走", "轉乘"]]
+    assert (await client.get(legacy_route)).json() == grouped.json()
+
+
+async def test_persona_search_catalog_preserves_aliases_and_hides_private_data(interview_client):
+    client, _, other = interview_client
+    endpoint = f"{API}/personas"
+    session = await start(client, "SH-A")
+    await client.post(f"{session}/questions", json=question("等車時在哪裡？"))
+    source = {"session_id": session.rsplit("/", 1)[1], "sequence": 1, "speaker": "stakeholder"}
+    group = {"id": "commute", "label": "通勤", "name_en": "Commute", "aliases": ["交通"]}
+    field = {
+        "field_id": "custom-role", "label": "輪班工作", "name_en": "Shift work", "aliases": ["夜班"],
+        "type": "long", "group_id": group["id"], "value": "私人內容", "source_refs": [source],
+    }
+    body = {"title": "通勤者", "groups": [group, {"id": "second", "label": "其他"}], "fields": [field]}
+    created = await client.post(endpoint, json=body)
+    assert created.status_code == 201
+    route = f"{endpoint}/{created.json()['id']}"
+    # Older clients can omit aliases while reordering groups and saving the field.
+    body["groups"] = [body["groups"][1], {"id": "commute", "label": "通勤情境"}]
+    body["fields"] = [{key: value for key, value in field.items() if key != "aliases"}]
+    assert (await client.put(route, json=body)).status_code == 200
+    loaded = (await client.get(route)).json()
+    assert [item["id"] for item in loaded["groups"]] == ["second", "commute"]
+    assert loaded["groups"][1]["aliases"] == ["交通"]
+    assert loaded["fields"][0]["source_refs"] == [source]
+
+    catalog = (await client.get(endpoint)).json()
+    default = next(item for group in catalog["groups"] for item in group["fields"] if item["field_id"] == "occupation")
+    assert {"工作", "job"} <= set(default["aliases"])
+    definition = catalog["definitions"][0]
+    assert definition["aliases"] == ["夜班"] and definition["name_en"] == "Shift work"
+    assert definition["value"] == "" and definition["source_refs"] == [] and "group_id" not in definition
+    assert any(item["aliases"] == ["交通"] for item in catalog["group_definitions"])
+    own_other = (await client.get(endpoint, headers=other)).json()
+    assert own_other["definitions"] == own_other["group_definitions"] == []
+
+
 async def test_scenario_generation_retries_and_shares_materials_across_roles(interview_client):
     client, mock, other = interview_client
     scenarios = f"{API}/scenarios"

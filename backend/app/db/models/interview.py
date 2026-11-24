@@ -55,7 +55,7 @@ class InterviewPersona(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
     title: Mapped[str] = mapped_column(String(120))
-    fields: Mapped[list[dict]] = mapped_column(JSONB)
+    fields: Mapped[list[dict] | dict] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
 

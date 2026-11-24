@@ -76,7 +76,19 @@ export interface SourceRef {
   speaker: 'student' | 'stakeholder'
 }
 
+export interface PersonaGroup {
+  id: string
+  label: string
+  name_zh?: string | null
+  aliases?: string[]
+  name_en?: string | null
+}
+
 export interface PersonaField {
+  group_id?: string | null
+  name_zh?: string | null
+  aliases?: string[]
+  name_en?: string | null
   field_id: string
   label: string
   type: 'short' | 'long' | 'list'
@@ -85,6 +97,7 @@ export interface PersonaField {
 }
 
 export interface PersonaDraft {
+  groups?: PersonaGroup[] | null
   title: string
   fields: PersonaField[]
 }
@@ -96,7 +109,9 @@ export interface SavedPersona extends PersonaDraft {
 
 export interface PersonaCatalog {
   personas: Pick<SavedPersona, 'id' | 'title' | 'updated_at'>[]
-  groups: { id: string; label: string; fields: PersonaField[] }[]
+  groups: (PersonaGroup & { fields: PersonaField[] })[]
+  definitions: PersonaField[]
+  group_definitions: PersonaGroup[]
 }
 
 const sessions = '/interview/sessions'
