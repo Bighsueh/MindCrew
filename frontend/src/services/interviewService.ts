@@ -7,11 +7,25 @@ export interface Stakeholder {
   description: string
 }
 
+export interface InterviewScenario {
+  kind: 'preset' | 'custom'
+  title: string
+  description: string
+}
+
+export interface CustomScenario {
+  title: string
+  description: string
+  relationship: string
+  experience: string
+}
+
 interface Scenario {
   scenario: string
   synthetic: boolean
   max_question_chars: number
   stakeholders: Stakeholder[]
+  presets: { id: string; title: string; description: string; stakeholder_ids: string[] }[]
 }
 
 export interface InterviewSummary {
@@ -19,6 +33,8 @@ export interface InterviewSummary {
   stakeholder_id: string
   started_at: string
   ended_at: string | null
+  scenario: InterviewScenario
+  stakeholder: Stakeholder
 }
 
 export interface Exchange {
@@ -40,7 +56,42 @@ export interface Interview extends InterviewSummary {
   remaining_questions: number
 }
 
+export interface InterviewNote {
+  body: string
+  updated_at: string | null
+}
+
+export interface SourceRef {
+  session_id: string
+  sequence: number
+  speaker: 'student' | 'stakeholder'
+}
+
+export interface PersonaField {
+  field_id: string
+  label: string
+  type: 'short' | 'long' | 'list'
+  value: string | string[]
+  source_refs: SourceRef[]
+}
+
+export interface PersonaDraft {
+  title: string
+  fields: PersonaField[]
+}
+
+export interface SavedPersona extends PersonaDraft {
+  id: string
+  updated_at: string
+}
+
+export interface PersonaCatalog {
+  personas: Pick<SavedPersona, 'id' | 'title' | 'updated_at'>[]
+  groups: { id: string; label: string; fields: PersonaField[] }[]
+}
+
 const sessions = '/interview/sessions'
+const personas = '/interview/personas'
 const generationOptions = { timeout: 55000 }
 
 export function interviewRequestId(): string {
@@ -59,8 +110,8 @@ export const interviewService = {
   async sessions(signal: AbortSignal) {
     return (await api.get<InterviewSummary[]>(sessions, { signal })).data
   },
-  async start(stakeholder_id: string) {
-    return (await api.post<Interview>(sessions, { stakeholder_id })).data
+  async start(stakeholder_id: string, choice: { preset_id: string } | { custom: CustomScenario }) {
+    return (await api.post<Interview>(sessions, { stakeholder_id, ...choice })).data
   },
   async get(id: string, signal?: AbortSignal) {
     return (await api.get<Interview>(`${sessions}/${id}`, { signal })).data
@@ -74,6 +125,23 @@ export const interviewService = {
   async end(id: string) {
     return (await api.post<Interview>(`${sessions}/${id}/end`)).data
   },
+  async note(id: string, signal: AbortSignal) {
+    return (await api.get<InterviewNote>(`${sessions}/${id}/note`, { signal })).data
+  },
+  async saveNote(id: string, body: string) {
+    return (await api.put<InterviewNote>(`${sessions}/${id}/note`, { body })).data
+  },
+  async personas(signal: AbortSignal) {
+    return (await api.get<PersonaCatalog>(personas, { signal })).data
+  },
+  async persona(id: string) {
+    return (await api.get<SavedPersona>(`${personas}/${id}`)).data
+  },
+  async savePersona(draft: PersonaDraft, id?: string) {
+    return (id
+      ? await api.put<SavedPersona>(`${personas}/${id}`, draft)
+      : await api.post<SavedPersona>(personas, draft)).data
+  },
   async transcript(id: string) {
     return (await api.get<string>(`${sessions}/${id}/transcript`, { responseType: 'text' })).data
   },
@@ -84,7 +152,7 @@ export function interviewError(error: unknown): string {
     const detail = error.response?.data?.detail
     if (typeof detail === 'string') return detail
     if (typeof detail?.message === 'string') return detail.message
-    if (error.response?.status === 422) return '問題格式或長度不符，請確認後重送。'
+    if (error.response?.status === 422) return '欄位格式或長度不符，請確認後重送。'
   }
   return '暫時無法連線。請確認網路後再試一次。'
 }

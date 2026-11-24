@@ -3,20 +3,25 @@ import { Copy, Download, MessageSquare, Plus, RotateCw, Send } from 'lucide-reac
 import { cn } from '../../lib/utils'
 import {
   interviewError, interviewRequestId, interviewService,
-  type Interview, type InterviewSummary, type Stakeholder,
+  type CustomScenario, type Interview, type InterviewSummary, type Stakeholder,
 } from '../../services/interviewService'
 
-const secondary = 'inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-text hover:bg-surface-hover disabled:opacity-50'
-const primary = 'inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50'
-const panel = 'rounded-xl border border-border bg-surface'
-const input = 'w-full rounded-lg border border-border bg-bg px-3 py-2 text-text focus-visible:outline-primary disabled:opacity-60'
-const dateFormat = new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeStyle: 'short' })
+import { dateFormat, input, panel, primary, secondary } from './styles'
+import { InterviewNotes } from './InterviewNotes'
+import { PersonaWorkspace } from './PersonaWorkspace'
+
 const timeFormat = new Intl.DateTimeFormat('zh-TW', { timeStyle: 'short' })
 
 export function InterviewPage() {
   const [scenario, setScenario] = useState<Awaited<ReturnType<typeof interviewService.scenario>>>()
   const [sessions, setSessions] = useState<InterviewSummary[]>([])
   const [roleId, setRoleId] = useState('')
+  const [topic, setTopic] = useState('')
+  const [custom, setCustom] = useState<CustomScenario>({ title: '', description: '', relationship: '', experience: '' })
+  const [workspace, setWorkspace] = useState<'interview' | 'persona'>('interview')
+  const [personaOpened, setPersonaOpened] = useState(false)
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({})
+  const [mobilePane, setMobilePane] = useState<'conversation' | 'notes'>('conversation')
   const [sessionId, setSessionId] = useState('')
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
@@ -31,6 +36,7 @@ export function InterviewPage() {
       if (controller.signal.aborted) return
       setScenario(next)
       setSessions(history)
+      setTopic(next.presets[0]?.id ?? 'custom')
       setRoleId(history[0]?.stakeholder_id ?? next.stakeholders[0]?.id ?? '')
       setSessionId(history[0]?.id ?? '')
     }).catch(err => {
@@ -39,14 +45,28 @@ export function InterviewPage() {
     return () => controller.abort()
   }, [load])
 
+  const selectedPreset = scenario?.presets.find(item => item.id === topic)
+  const roles = scenario?.stakeholders.filter(item => topic === 'custom' || selectedPreset?.stakeholder_ids.includes(item.id)) ?? []
+  const role = roles.find(item => item.id === roleId)
+  const active = sessions.find(session => session.id === sessionId)
+  const ready = role && (topic !== 'custom' || (custom.title.trim() && custom.description.trim()))
+
+  function selectTopic(value: string) {
+    setTopic(value)
+    const ids = scenario?.presets.find(item => item.id === value)?.stakeholder_ids ?? scenario?.stakeholders.map(item => item.id)
+    if (!ids?.includes(roleId)) setRoleId(ids?.[0] ?? '')
+    setError('')
+  }
+
   async function start() {
-    if (starting || !roleId) return
+    if (starting || !ready) return
     setStarting(true)
     setError('')
     try {
-      const session = await interviewService.start(roleId)
+      const session = await interviewService.start(roleId, topic === 'custom' ? { custom } : { preset_id: topic })
       setSessions(history => [session, ...history])
       setSessionId(session.id)
+      setMobilePane('conversation')
     } catch (err) {
       setError(interviewError(err))
     } finally {
@@ -54,75 +74,123 @@ export function InterviewPage() {
     }
   }
 
-  const role = scenario?.stakeholders.find(item => item.id === roleId)
-  const history = sessions.filter(session => session.stakeholder_id === roleId)
-
   return (
     <div className="space-y-6">
       <header className="space-y-2">
         <h1 className="text-3xl font-bold text-text">模擬訪談</h1>
-        {scenario && <>
-          <p className="text-lg text-text">{scenario.scenario}</p>
-          <p className="text-sm text-text-muted">人物與情境均為合成資料。請勿輸入個人資料。</p>
-        </>}
+        <p className="text-sm text-text-muted">人物與情境均為合成資料。請勿輸入個人資料。</p>
       </header>
-      {error && <p role="alert" className="text-sm text-error">{error}</p>}
-      {!scenario && (error
-        ? <button type="button" className={secondary} onClick={() => { setError(''); setLoad(value => value + 1) }}>重新載入</button>
-        : <p role="status" className="text-text-muted">載入訪談工作區…</p>)}
-      {scenario && role && (
-        <div className="grid items-start gap-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
-          <aside className={cn(panel, 'space-y-5 p-4')}>
-            <fieldset className="space-y-2">
-              <legend className="mb-2 font-semibold text-text">選擇受訪者</legend>
-              {scenario.stakeholders.map(item => (
-                <label key={item.id} className={cn('flex cursor-pointer gap-3 rounded-lg border p-3', item.id === role.id ? 'border-primary bg-primary/5' : 'border-border')}>
-                  <input
-                    type="radio" name="stakeholder" value={item.id} checked={item.id === role.id}
-                    disabled={starting}
-                    onChange={() => {
-                      setRoleId(item.id)
-                      setSessionId(sessions.find(session => session.stakeholder_id === item.id)?.id ?? '')
-                      setError('')
-                    }}
-                    className="mt-1 self-start accent-primary"
-                  />
-                  <span>
-                    <strong className="block text-text">{item.name}</strong>
-                    <span className="block text-sm leading-relaxed text-text-muted">{item.description}</span>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
-            <button type="button" className={cn(primary, 'w-full')} disabled={starting} onClick={() => void start()}>
-              <Plus size={16} aria-hidden="true" />{starting ? '建立中…' : '開始新訪談'}
-            </button>
-            <label className="block space-y-2 text-sm font-medium text-text">
-              <span>歷史訪談</span>
-              <select
-                className={input} value={sessionId} disabled={starting || history.length === 0}
-                onChange={event => setSessionId(event.target.value)}
-              >
-                {(!sessionId || !history.length) && <option value="" disabled>{history.length ? '選擇一場訪談' : '尚無訪談'}</option>}
-                {history.map(session => (
-                  <option key={session.id} value={session.id}>
-                    {dateFormat.format(new Date(session.started_at))} · {session.ended_at ? '已結束' : '進行中'}
-                  </option>
+      <nav aria-label="模擬訪談工作區" className="flex gap-2">
+        <button type="button" aria-pressed={workspace === 'interview'} className={workspace === 'interview' ? primary : secondary} onClick={() => setWorkspace('interview')}>訪談</button>
+        <button type="button" aria-pressed={workspace === 'persona'} className={workspace === 'persona' ? primary : secondary} onClick={() => { setWorkspace('persona'); setPersonaOpened(true) }}>Persona</button>
+      </nav>
+      {personaOpened && <div hidden={workspace !== 'persona'}><PersonaWorkspace sessions={sessions} /></div>}
+      <div hidden={workspace !== 'interview'} className="space-y-5">
+        {error && <p role="alert" className="text-sm text-error">{error}</p>}
+        {!scenario && (error
+          ? <button type="button" className={secondary} onClick={() => { setError(''); setLoad(value => value + 1) }}>重新載入</button>
+          : <p role="status" className="text-text-muted">載入訪談工作區…</p>)}
+        {scenario && (
+          <div className="grid items-start gap-5 lg:grid-cols-[18rem_minmax(0,1fr)]">
+            <aside className={cn(panel, 'space-y-5 p-4')}>
+              <fieldset disabled={starting} className="space-y-2">
+                <legend className="mb-2 font-semibold text-text">選擇題目／自訂情境</legend>
+                <select aria-label="選擇訪談題目" className={input} value={topic} onChange={event => selectTopic(event.target.value)}>
+                  {scenario.presets.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
+                  <option value="custom">自訂情境</option>
+                </select>
+                {selectedPreset && <p className="text-sm leading-relaxed text-text-muted">{selectedPreset.description}</p>}
+                {topic === 'custom' && <>
+                  <label className="block space-y-1 text-sm text-text"><span>題目名稱</span>
+                    <input className={input} maxLength={120} value={custom.title} onChange={event => setCustom({ ...custom, title: event.target.value })} />
+                  </label>
+                  <label className="block space-y-1 text-sm text-text"><span>情境描述</span>
+                    <textarea className={input} rows={3} maxLength={2400} value={custom.description} onChange={event => setCustom({ ...custom, description: event.target.value })} />
+                  </label>
+                </>}
+              </fieldset>
+              <fieldset className="space-y-2">
+                <legend className="mb-2 font-semibold text-text">選擇受訪者</legend>
+                {roles.map(item => (
+                  <label key={item.id} className={cn('flex cursor-pointer gap-3 rounded-lg border p-3', item.id === roleId ? 'border-primary bg-primary/5' : 'border-border')}>
+                    <input
+                      type="radio" name="stakeholder" value={item.id} checked={item.id === roleId}
+                      disabled={starting}
+                      onChange={() => {
+                        setRoleId(item.id)
+                        setCustom(current => ({ ...current, relationship: '', experience: '' }))
+                        setError('')
+                      }}
+                      className="mt-1 self-start accent-primary"
+                    />
+                    <span>
+                      <strong className="block text-text">{item.name}</strong>
+                      <span className="block text-sm leading-relaxed text-text-muted">{item.description}</span>
+                    </span>
+                  </label>
                 ))}
-              </select>
-            </label>
-          </aside>
-          {sessionId ? <Conversation
-            key={sessionId} id={sessionId} role={role} limit={scenario.max_question_chars}
-            onEnded={session => setSessions(history => history.map(item => item.id === session.id ? session : item))}
-          /> : (
-            <section className={cn(panel, 'flex min-h-64 flex-col items-center justify-center gap-3 p-6 text-center text-text-muted')}>
-              <MessageSquare size={28} aria-hidden="true" />
-              <p>開始與{role.name}訪談，或從歷史訪談繼續。</p>
-            </section>
-          )}
-        </div>
-      )}
+              </fieldset>
+              {topic === 'custom' && role && <fieldset disabled={starting} className="space-y-2">
+                <legend className="font-semibold text-text">{role.name}的情境補充（選填）</legend>
+                <label className="block space-y-1 text-sm text-text"><span>受訪者和情境的關係</span>
+                  <input className={input} maxLength={800} value={custom.relationship} onChange={event => setCustom({ ...custom, relationship: event.target.value })} />
+                </label>
+                <label className="block space-y-1 text-sm text-text"><span>可據以回答的合成經驗</span>
+                  <textarea className={input} rows={3} maxLength={1600} value={custom.experience} onChange={event => setCustom({ ...custom, experience: event.target.value })} />
+                </label>
+              </fieldset>}
+              <button type="button" className={cn(primary, 'w-full')} disabled={starting || !ready} onClick={() => void start()}>
+                <Plus size={16} aria-hidden="true" />{starting ? '建立中…' : '開始新訪談'}
+              </button>
+              <label className="block space-y-2 text-sm font-medium text-text">
+                <span>歷史訪談</span>
+                <select
+                  className={input} value={sessionId} disabled={starting || sessions.length === 0}
+                  onChange={event => { setSessionId(event.target.value); setMobilePane('conversation') }}
+                >
+                  {(!sessionId || !sessions.length) && <option value="" disabled>{sessions.length ? '選擇一場訪談' : '尚無訪談'}</option>}
+                  {sessions.map(session => (
+                    <option key={session.id} value={session.id}>
+                      {session.scenario.title} · {session.stakeholder.name} · {dateFormat.format(new Date(session.started_at))} · {session.ended_at ? '已結束' : '進行中'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </aside>
+            {active ? (
+              <div key={active.id} className="space-y-3">
+                <div className="flex gap-2 lg:hidden" aria-label="場次內容">
+                  <button type="button" className={mobilePane === 'conversation' ? primary : secondary} aria-pressed={mobilePane === 'conversation'} onClick={() => setMobilePane('conversation')}>對話</button>
+                  <button type="button" className={mobilePane === 'notes' ? primary : secondary} aria-pressed={mobilePane === 'notes'} onClick={() => setMobilePane('notes')}>我的筆記</button>
+                </div>
+                <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(14rem,0.65fr)]">
+                  <div className={cn('min-w-0', mobilePane !== 'conversation' && 'hidden lg:block')}>
+                    <Conversation id={active.id} role={active.stakeholder} limit={scenario.max_question_chars}
+                      onEnded={session => setSessions(history => history.map(item => item.id === session.id ? session : item))}
+                    />
+                  </div>
+                  <div className={cn('min-w-0', mobilePane !== 'notes' && 'hidden lg:block')}>
+                    <InterviewNotes id={active.id} draft={noteDrafts[active.id]}
+                      onEdit={value => setNoteDrafts(current => ({ ...current, [active.id]: value }))}
+                      onSave={value => setNoteDrafts(current => {
+                        if (current[active.id] !== value) return current
+                        const next = { ...current }
+                        delete next[active.id]
+                        return next
+                      })}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <section className={cn(panel, 'flex min-h-64 flex-col items-center justify-center gap-3 p-6 text-center text-text-muted')}>
+                <MessageSquare size={28} aria-hidden="true" />
+                <p>選擇題目與受訪者，開始新訪談或開啟歷史紀錄。</p>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -269,7 +337,8 @@ function Conversation({ id, role, limit, onEnded }: {
     <section className={cn(panel, 'min-w-0 overflow-hidden')}>
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
         <div>
-          <h2 className="text-xl font-semibold text-text">{role.name}</h2>
+          <h2 className="text-xl font-semibold text-text">{role.name}{session && ` · ${session.scenario.title}`}</h2>
+          {session && <p className="text-sm text-text-muted">{session.scenario.description}</p>}
           {session && <p className="text-sm text-text-muted">
             {ended ? '已結束 · 可回看及匯出' : `進行中 · 剩餘 ${session.remaining_questions} 題`}
           </p>}

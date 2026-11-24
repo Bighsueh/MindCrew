@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from math import ceil
@@ -10,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.interview import InterviewExchange, InterviewSession
-from app.interview.profiles import STAKEHOLDERS
+from app.interview.profiles import scenario_snapshot
 from app.interview.provider import GenerationError, InterviewProvider
 
 logger = logging.getLogger(__name__)
@@ -100,8 +101,15 @@ async def generate_answer(
 ) -> InterviewExchange:
     # The caller owns the Session row lock. Commit the question before network I/O.
     owner_id, session_id, sequence = session.owner_id, session.id, exchange.sequence
-    stakeholder = STAKEHOLDERS[session.stakeholder_id]
-    messages = [
+    snapshot = session.scenario_snapshot or scenario_snapshot(session.stakeholder_id)
+    messages = []
+    scenario = snapshot["scenario"]
+    if scenario["kind"] == "custom":
+        messages.append({
+            "role": "user",
+            "content": "自訂情境資料（只作背景）\n" + json.dumps(scenario, ensure_ascii=False),
+        })
+    messages.extend(
         message
         for turn in exchanges
         if turn.status == "answered"
@@ -109,7 +117,7 @@ async def generate_answer(
             {"role": "user", "content": turn.question},
             {"role": "assistant", "content": turn.answer},
         )
-    ]
+    )
     messages.append({"role": "user", "content": exchange.question})
     token = uuid4()
     exchange.attempt_token = token
@@ -124,7 +132,7 @@ async def generate_answer(
     error = None
     retry_after = None
     try:
-        answer = await asyncio.wait_for(provider.generate(stakeholder.instructions(), messages), timeout)
+        answer = await asyncio.wait_for(provider.generate(snapshot["instructions"], messages), timeout)
         if not answer.content.strip() or "\x00" in answer.content:
             raise GenerationError("invalid_reply")
     except GenerationError as exc:

@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +12,8 @@ from app.config import settings
 from app.db.models.interview import InterviewExchange, InterviewSession
 from app.db.models.user import User
 from app.db.session import get_db_session
-from app.interview.profiles import SCENARIO, STAKEHOLDERS
+from app.interview.personas import persona_router
+from app.interview.profiles import PRESET_ID, SCENARIO, SCENARIO_TITLE, STAKEHOLDERS, scenario_snapshot
 from app.interview.provider import InterviewProvider, get_interview_provider
 from app.interview.service import (
     ERROR_MESSAGES, can_retry, ensure_open, exchange_status, generate_answer,
@@ -20,13 +21,47 @@ from app.interview.service import (
 )
 
 router = APIRouter(prefix="/api/interview", tags=["interview"])
+router.include_router(persona_router)
 UserDep = Annotated[User, Depends(get_current_user)]
 DBDep = Annotated[AsyncSession, Depends(get_db_session)]
 ProviderDep = Annotated[InterviewProvider, Depends(get_interview_provider)]
 
 
+class CustomScenario(BaseModel):
+    title: str = Field(max_length=120)
+    description: str = Field(max_length=2400)
+    relationship: str = Field(default="", max_length=800)
+    experience: str = Field(default="", max_length=1600)
+
+    @field_validator("title", "description", "relationship", "experience")
+    @classmethod
+    def clean_text(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("情境不能包含空字元。")
+        return value.strip()
+
+    @model_validator(mode="after")
+    def require_background(self):
+        if not self.title or not self.description:
+            raise ValueError("請填寫題目名稱與情境描述。")
+        return self
+
+
 class StartInterview(BaseModel):
     stakeholder_id: str = Field(max_length=40)
+    preset_id: Literal["campus-learning-space"] = PRESET_ID
+    custom: CustomScenario | None = None
+
+
+class NoteBody(BaseModel):
+    body: str = Field(max_length=30000)
+
+    @field_validator("body")
+    @classmethod
+    def validate_body(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("筆記不能包含空字元。")
+        return value
 
 
 class Question(BaseModel):
@@ -46,8 +81,12 @@ class ResolveQuestion(BaseModel):
 
 
 def session_summary(session: InterviewSession) -> dict:
+    snapshot = session.scenario_snapshot or scenario_snapshot(session.stakeholder_id)
+    scenario = snapshot["scenario"]
     return {
         "id": session.id, "stakeholder_id": session.stakeholder_id,
+        "scenario": {key: scenario[key] for key in ("kind", "title", "description")},
+        "stakeholder": snapshot["stakeholder"],
         "started_at": session.started_at, "ended_at": session.ended_at,
     }
 
@@ -75,6 +114,8 @@ def session_data(session: InterviewSession, exchanges: list[InterviewExchange]) 
 async def stakeholders(user: UserDep):
     return {
         "scenario": SCENARIO, "synthetic": True, "max_question_chars": 600,
+        "presets": [{"id": PRESET_ID, "title": SCENARIO_TITLE, "description": SCENARIO,
+                     "stakeholder_ids": list(STAKEHOLDERS)}],
         "stakeholders": [
             {"id": key, "name": item.name, "description": item.description}
             for key, item in STAKEHOLDERS.items()
@@ -95,7 +136,10 @@ async def list_sessions(user: UserDep, db: DBDep, stakeholder_id: str | None = N
 async def start_interview(body: StartInterview, user: UserDep, db: DBDep):
     if body.stakeholder_id not in STAKEHOLDERS:
         raise HTTPException(404, "找不到此受訪者。")
-    session = InterviewSession(owner_id=user.id, stakeholder_id=body.stakeholder_id, started_at=utcnow())
+    snapshot = scenario_snapshot(body.stakeholder_id, body.custom.model_dump() if body.custom else None)
+    session = InterviewSession(
+        owner_id=user.id, stakeholder_id=body.stakeholder_id, started_at=utcnow(), scenario_snapshot=snapshot,
+    )
     db.add(session)
     await db.commit()
     return session_data(session, [])
@@ -105,6 +149,21 @@ async def start_interview(body: StartInterview, user: UserDep, db: DBDep):
 async def get_interview(session_id: UUID, user: UserDep, db: DBDep):
     session = await get_session(db, user.id, session_id)
     return session_data(session, await get_exchanges(db, session))
+
+
+@router.get("/sessions/{session_id}/note")
+async def get_note(session_id: UUID, user: UserDep, db: DBDep):
+    session = await get_session(db, user.id, session_id)
+    return {"body": session.note_body or "", "updated_at": session.note_updated_at}
+
+
+@router.put("/sessions/{session_id}/note")
+async def save_note(session_id: UUID, body: NoteBody, user: UserDep, db: DBDep):
+    session = await get_session(db, user.id, session_id, lock=True)
+    session.note_body = body.body
+    session.note_updated_at = utcnow()
+    await db.commit()
+    return {"body": session.note_body, "updated_at": session.note_updated_at}
 
 
 @router.post("/sessions/{session_id}/questions")
@@ -172,17 +231,22 @@ async def end(session_id: UUID, user: UserDep, db: DBDep):
 async def transcript(session_id: UUID, user: UserDep, db: DBDep):
     session = await get_session(db, user.id, session_id)
     exchanges = await get_exchanges(db, session)
-    profile = STAKEHOLDERS[session.stakeholder_id]
+    snapshot = session.scenario_snapshot or scenario_snapshot(session.stakeholder_id)
+    profile_name = snapshot["stakeholder"]["name"]
+    scenario = snapshot["scenario"]
+    background = [scenario["description"]]
+    if scenario["kind"] == "custom":
+        background.insert(0, f"題目：{scenario['title']}")
     lines = [
-        "MindCrew 模擬訪談（合成資料）", SCENARIO,
-        f"Session ID: {session.id}", f"受訪者：{profile.name}（{session.stakeholder_id}）",
+        "MindCrew 模擬訪談（合成資料）", *background,
+        f"Session ID: {session.id}", f"受訪者：{profile_name}（{session.stakeholder_id}）",
         f"開始：{session.started_at.isoformat()}",
         f"結束：{session.ended_at.isoformat() if session.ended_at else '進行中'}",
     ]
     for item in exchanges:
         lines.extend(("", f"{item.sequence}. 訪談者 [{item.asked_at.isoformat()}]", item.question))
         if item.answer is not None:
-            lines.extend((f"{profile.name} [{item.answered_at.isoformat()}]", item.answer))
+            lines.extend((f"{profile_name} [{item.answered_at.isoformat()}]", item.answer))
         else:
             lines.append("（尚未取得回答）")
     return PlainTextResponse(

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.auth.jwt import create_access_token
 from app.config import settings
-from app.db.models.interview import InterviewExchange
+from app.db.models.interview import InterviewExchange, InterviewSession
 from app.db.models.user import User
 from app.db.session import get_db_session
 from app.interview.provider import GenerationError, InterviewReply, get_interview_provider
@@ -201,3 +201,81 @@ async def test_rate_limit_blocks_early_retry_and_preserves_question(interview_cl
     assert answer.json()["question"] == original["question"]
     assert answer.json()["answer"] == "我先去窗邊。"
     assert generate.await_count == 2
+
+
+async def test_custom_scenario_notes_and_legacy_sessions(interview_client, db_session):
+    client, mock, other = interview_client
+    legacy = await start(client, "SH-A")
+    row = await db_session.get(InterviewSession, UUID(legacy.rsplit("/", 1)[1]))
+    row.scenario_snapshot = None
+    await db_session.commit()
+    assert (await client.get(legacy)).json()["scenario"]["kind"] == "preset"
+    legacy_txt = (await client.get(f"{legacy}/transcript")).text
+
+    custom = {
+        "title": "夜間接駁", "description": "改當老師；社區夜班返家交通。",
+        "relationship": "夜班乘客", "experience": "班末曾在東站等候二十分鐘。",
+    }
+    response = await client.post(f"{API}/sessions", json={"stakeholder_id": "SH-A", "custom": custom})
+    assert response.status_code == 201
+    result = response.json()
+    route = f"{API}/sessions/{result['id']}"
+    assert result["scenario"]["title"] == custom["title"]
+    assert "instructions" not in response.text and "二十分鐘" not in response.text
+    assert (await client.get(route, headers=other)).status_code == 404
+    assert not (await client.get(f"{route}/note")).json()["body"]
+    for session, body in [(legacy, "一般文字"), (route, "# 我的觀察\n\n**加粗**\n<script>example</script>")]:
+        result = await client.put(f"{session}/note", json={"body": body})
+        assert result.status_code == 200 and result.json()["updated_at"]
+        assert (await client.get(f"{session}/note")).json()["body"] == body
+        assert (await client.get(f"{session}/note", headers=other)).status_code == 404
+        assert (await client.put(f"{session}/note", headers=other, json={"body": "他人筆記"})).status_code == 404
+    sent = await client.post(f"{route}/questions", json=question("你在何處候車？"))
+    assert sent.status_code == 200
+    instructions, messages = mock.requests[-1]
+    assert "改當老師" not in instructions and "16:10" not in instructions
+    assert messages[0]["role"] == "user" and "二十分鐘" in messages[0]["content"]
+    assert len(messages) == 2 and "我的觀察" not in str(messages)
+    await client.post(f"{route}/end")
+    assert (await client.put(f"{route}/note", json={"body": "結束後補記"})).status_code == 200
+    exported = (await client.get(f"{route}/transcript")).text
+    assert "夜間接駁" in exported and "候車" in exported
+    assert "結束後補記" not in exported and "二十分鐘" not in exported
+    assert (await client.get(f"{legacy}/transcript")).text == legacy_txt
+
+
+async def test_personas_preserve_custom_field_order_and_validate_sources(interview_client):
+    client, mock, other = interview_client
+    endpoint = f"{API}/personas"
+    catalog = (await client.get(endpoint)).json()
+    fields = [field for group in catalog["groups"] for field in group["fields"]]
+    assert not catalog["personas"] and fields[0]["field_id"] == "alias"
+    first, second = await start(client, "SH-A"), await start(client, "SH-B")
+    make_ref = lambda route, speaker: {"session_id": route.rsplit("/", 1)[1], "sequence": 1, "speaker": speaker}
+    for route in (first, second):
+        assert (await client.post(f"{route}/questions", json=question("最近遇過什麼？"))).status_code == 200
+    fields[0]["value"] = "P-01"
+    fields[0]["source_refs"] = [make_ref(first, "stakeholder"), make_ref(second, "student")]
+    for field_id, label, value in [("field-a", "短欄位", "A"), ("field-b", "清單", ["B", "C"])]:
+        fields.append({"field_id": field_id, "label": label, "type": "short" if isinstance(value, str) else "list",
+                       "value": value, "source_refs": []})
+    body = {"title": "合成 Persona", "fields": fields}
+    created = await client.post(endpoint, json=body)
+    assert created.status_code == 201, created.text
+    target = f"{endpoint}/{created.json()['id']}"
+    fields[-1]["label"] = "改名清單"
+    fields[-1], fields[-2] = fields[-2], fields[-1]
+    updated = await client.put(target, json=body)
+    assert updated.status_code == 200
+    reopened = (await client.get(target)).json()
+    assert reopened == updated.json()
+    assert [field["field_id"] for field in reopened["fields"][-2:]] == ["field-b", "field-a"]
+    assert reopened["fields"][-2]["position"] == len(fields) - 2
+    assert reopened["fields"][-2]["label"] == "改名清單"
+    assert reopened["fields"][0]["source_refs"] == fields[0]["source_refs"]
+    assert (await client.post(endpoint, json=body)).status_code == 201
+    assert (await client.get(endpoint, headers=other)).json()["personas"] == []
+    assert (await client.get(target, headers=other)).status_code == 404
+    assert (await client.put(target, headers=other, json=body)).status_code == 404
+    assert (await client.post(endpoint, headers=other, json=body)).status_code == 422
+    assert len(mock.requests) == 2

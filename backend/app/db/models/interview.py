@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import ForeignKey, String, Text, UniqueConstraint, Index
-from sqlalchemy.dialects.postgresql import TIMESTAMP
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -17,6 +17,9 @@ class InterviewSession(Base):
     stakeholder_id: Mapped[str] = mapped_column(String(40))
     started_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    scenario_snapshot: Mapped[dict | None] = mapped_column(JSONB)
+    note_body: Mapped[str | None] = mapped_column(Text)
+    note_updated_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
 
 class InterviewExchange(Base):
@@ -42,3 +45,15 @@ class InterviewExchange(Base):
     attempt_token: Mapped[uuid.UUID | None]
     # Generation deadline while waiting, earliest retry time after a rate limit.
     waiting_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class InterviewPersona(Base):
+    __tablename__ = "interview_personas"
+    __table_args__ = (Index("ix_interview_personas_owner_updated", "owner_id", "updated_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(120))
+    fields: Mapped[list[dict]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
