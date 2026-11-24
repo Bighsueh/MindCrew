@@ -14,6 +14,8 @@ def mock_openai(monkeypatch, result):
 
     def respond(request):
         requests.append((request.method, str(request.url), json.loads(request.content)))
+        if isinstance(result, type) and issubclass(result, httpx.TransportError):
+            raise result("simulated transport failure", request=request)
         return httpx.Response(result[0], json=result[1])
 
     def client(**kwargs):
@@ -61,8 +63,10 @@ async def test_responses_request_and_completion(monkeypatch):
     ((401, {"error": {"code": "invalid_api_key", "message": "private"}}), "openai_auth"),
     ((404, {"error": {"code": "model_not_found", "message": "private"}}), "openai_model"),
     ((429, {"error": {"code": "insufficient_quota", "message": "private"}}), "openai_quota"),
-    ((429, {"error": {"code": "rate_limit_exceeded", "message": "private"}}), "temporary"),
-    ((500, {"error": {"message": "private"}}), "temporary"),
+    ((429, {"error": {"code": "rate_limit_exceeded", "message": "private"}}), "openai_rate_limit"),
+    ((500, {"error": {"message": "private"}}), "openai_unavailable"),
+    (httpx.ConnectError, "openai_connection"),
+    (httpx.ReadTimeout, "openai_timeout"),
 ])
 async def test_responses_failures_are_normalized(monkeypatch, payload, code):
     requests = mock_openai(monkeypatch, payload)

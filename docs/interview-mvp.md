@@ -41,6 +41,8 @@ npm run dev
 
 未配置金鑰或模型時仍可開始、瀏覽、結束和匯出，已送出的問題會保留。設定修正且後端重新部署後，回到原訪談按「重試回答」。
 
+模型連線失敗時，請從後端容器檢查 DNS 和到 `api.openai.com:443` 的 HTTPS 連線。若畫面顯示等待回答逾時，可在 Dokploy 的 **Environment** 將 `INTERVIEW_LLM_TIMEOUT_SECONDS` 調至 `45`，重新部署後重試。若後端日誌出現 `Interview generation failed:`，其後的代碼可用於診斷。
+
 ## 紀錄與供應商
 
 PostgreSQL 的 `interview_sessions` 儲存使用者與場次，`interview_exchanges` 依序保留原始問題、回答、時間及回答所用的 provider/model。每個已送達的問題會先保存，再等待模型。若逾時，可以重試原題或略過。停用模型不影響已保存的紀錄。TXT 含合成資料標示、場次、受訪者和時間，未回答的問題會保留並標記。

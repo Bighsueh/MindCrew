@@ -28,6 +28,11 @@ ERROR_MESSAGES = {
     "openai_quota": "OpenAI API 額度不足。請管理者檢查專案額度與帳單設定。",
     "openai_request": "OpenAI 拒絕訪談請求。請管理者確認模型支援 Responses API。",
     "temporary": "暫時無法取得受訪者回答。你的問題已保存。",
+    "openai_timeout": "等待模型回答逾時。你的問題已保存，可以重試。",
+    "openai_connection": "訪談後端無法連到 OpenAI。你的問題已保存，請管理者檢查伺服器連線。",
+    "openai_rate_limit": "OpenAI 暫時限制請求頻率。你的問題已保存，請稍後重試。",
+    "openai_unavailable": "OpenAI 服務暫時無法回應。你的問題已保存，請稍後重試。",
+    "interview_internal": "訪談後端處理回答時發生錯誤。你的問題已保存，請管理者查看後端日誌。",
     "context_limit": "這段訪談超過模型可處理的長度。請結束本場並開啟新訪談。",
     "invalid_reply": "模型未提供完整的受訪者回答。你的問題已保存。",
 }
@@ -117,10 +122,11 @@ async def generate_answer(
     except GenerationError as exc:
         error = exc.code if exc.code in ERROR_MESSAGES else "temporary"
     except TimeoutError:
-        error = "temporary"
-    except Exception:
-        # Do not log SDK exceptions. They can include request data.
-        error = "temporary"
+        error = "openai_timeout"
+    except Exception as exc:
+        # Record only the type, because SDK exception details may contain request data.
+        logger.error("Interview provider exception type: %s", type(exc).__name__)
+        error = "interview_internal"
 
     session = await get_session(db, owner_id, session_id, lock=True)
     current = (await get_exchanges(db, session))[sequence - 1]
@@ -128,7 +134,7 @@ async def generate_answer(
         await db.commit()
         return current
     if exchange_status(current)[0] != "waiting":
-        error = "temporary"
+        error = "openai_timeout"
 
     current.attempt_token = current.waiting_until = None
     if error:

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from openai import APIConnectionError, APIStatusError, AsyncOpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 
 from app.config import settings
 from app.llm.base import TokenUsage
@@ -54,8 +54,10 @@ class OpenAIInterviewProvider:
                     store=False,
                     truncation="disabled",
                 )
+        except APITimeoutError:
+            raise GenerationError("openai_timeout") from None
         except APIConnectionError:
-            raise GenerationError("temporary") from None
+            raise GenerationError("openai_connection") from None
         except APIStatusError as exc:
             if exc.code == "context_length_exceeded":
                 raise GenerationError("context_limit") from None
@@ -65,8 +67,10 @@ class OpenAIInterviewProvider:
                 raise GenerationError("openai_model") from None
             if exc.code in {"insufficient_quota", "billing_hard_limit_reached"}:
                 raise GenerationError("openai_quota") from None
-            if exc.status_code >= 500 or exc.status_code == 429:
-                raise GenerationError("temporary") from None
+            if exc.status_code == 429:
+                raise GenerationError("openai_rate_limit") from None
+            if exc.status_code >= 500:
+                raise GenerationError("openai_unavailable") from None
             raise GenerationError("openai_request") from None
 
         refused = any(part.type == "refusal" for item in result.output if item.type == "message" for part in item.content)
